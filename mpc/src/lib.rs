@@ -1,5 +1,3 @@
-// void main rust lib.rs:
+pub mod dkls;
 
-fn main() {
-    println!("Hello, world!");
-}
+pub const SECURITY: u16 = 32;
