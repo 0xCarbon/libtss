@@ -1,0 +1,13 @@
+[package]
+name = "libmpc"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+dkls23 = { git = "https://github.com/0xCarbon/DKLs23.git" }
+k256 = { version = "0.13", features = ["serde"] }
+
+[lib]
+crate-type = ["cdylib"]
