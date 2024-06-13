@@ -48,9 +48,9 @@ pub struct CDLogProof {
 
 #[repr(C)]
 pub struct CAffinePoint {
-    x: [u8; 32],
-    y: [u8; 32],
-    infinity: c_uchar,
+    pub(crate) x: [u8; 32],
+    pub(crate) y: [u8; 32],
+    pub(crate) infinity: c_uchar,
 }
 
 #[repr(C)]
@@ -75,8 +75,8 @@ pub struct CTransmitInitZeroSharePhase2to4 {
 
 #[repr(C)]
 pub struct CPartiesMessage {
-    sender: c_uchar,
-    receiver: c_uchar,
+    pub(crate) sender: c_uchar,
+    pub(crate) receiver: c_uchar,
 }
 
 #[repr(C)]
