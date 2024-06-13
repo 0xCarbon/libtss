@@ -219,138 +219,246 @@ int main() {
     // start phase 1
     unsigned char session_id[] = {1, 2, 3, 4, 5};
     CParameters params = { .threshold = 2, .share_count = 2 };
-    CSessionData data = { .parameters = params, .party_index = 1, .session_id = session_id, .session_id_len = sizeof(session_id) };
+
+    CSessionData data_party_1 = { .parameters = params, .party_index = 1, .session_id = session_id, .session_id_len = sizeof(session_id) };
+    CSessionData data_party_2 = { .parameters = params, .party_index = 2, .session_id = session_id, .session_id_len = sizeof(session_id) };
 
     // phase 1 result
-    Scalar* phase_1_result = dkls_keygen_1(data);
+    Scalar* party_1_phase_1_result = dkls_keygen_1(data_party_1);
     size_t result_len = 2;
-    for (size_t i = 0; i < result_len; ++i) {
-        printf("Phase 1 %zu: ", i);
-        for (size_t j = 0; j < 32; ++j) {
-            printf("%02x", phase_1_result[i].bytes[j]);
-        }
-        printf("\n");
-    }
+    // for (size_t i = 0; i < result_len; ++i) {
+    //     printf("Phase 1 party 1 %zu: ", i);
+    //     for (size_t j = 0; j < 32; ++j) {
+    //         printf("%02x", party_1_phase_1_result[i].bytes[j]);
+    //     }
+    //     printf("\n");
+    // }
+    
+    Scalar* party_2_phase_1_result = dkls_keygen_1(data_party_2);
+    // for (size_t i = 0; i < result_len; ++i) {
+    //     printf("Phase 1 party 2 %zu: ", i);
+    //     for (size_t j = 0; j < 32; ++j) {
+    //         printf("%02x", party_2_phase_1_result[i].bytes[j]);
+    //     }
+    //     printf("\n");
+    // }
+
+    
 
 
     /////////////////////////////////////////////
     // start phase 2
-    for (size_t i = 0; i < 2; ++i) {
-        for (size_t j = 0; j < 32; ++j) {
-            phase_1_result[i].bytes[j] = (unsigned char)(i + j);
-        }
-    }
+    // for (size_t i = 0; i < 2; ++i) {
+    //     for (size_t j = 0; j < 32; ++j) {
+    //         party_1_phase_1_result[i].bytes[j] = (unsigned char)(i + j);
+    //     }
+    // }
 
-    Scalar out_scalar;
-    CProofCommitment out_proof_commitment;
-    CKeepInitZeroSharePhase2to3 *out_zero_shares;
-    size_t out_zero_shares_len;
-    CTransmitInitZeroSharePhase2to4 *out_transmit_zero_shares;
-    size_t out_transmit_zero_shares_len;
-    CUniqueKeepDerivationPhase2to3 out_unique_keep;
-    CBroadcastDerivationPhase2to4 out_broadcast;
+    // p1 phase 2 results in variables below
+    Scalar p1_phase_2_out_scalar;
+    CProofCommitment p1_phase_2_out_proof_commitment;
+    CKeepInitZeroSharePhase2to3 *p1_phase_2_out_zero_shares;
+    size_t p1_phase_2_out_zero_shares_len;
+    CTransmitInitZeroSharePhase2to4 *p1_phase_2_out_transmit_zero_shares;
+    size_t p1_phase_2_out_transmit_zero_shares_len;
+    CUniqueKeepDerivationPhase2to3 p1_phase_2_out_unique_keep;
+    CBroadcastDerivationPhase2to4 p1_phase_2_out_broadcast;
 
     dkls_keygen_2(
-        data,
-        phase_1_result,
+        data_party_1,
+        party_1_phase_1_result,
         2,
-        &out_scalar,
-        &out_proof_commitment,
-        &out_zero_shares,
-        &out_zero_shares_len,
-        &out_transmit_zero_shares,
-        &out_transmit_zero_shares_len,
-        &out_unique_keep,
-        &out_broadcast
+        &p1_phase_2_out_scalar,
+        &p1_phase_2_out_proof_commitment,
+        &p1_phase_2_out_zero_shares,
+        &p1_phase_2_out_zero_shares_len,
+        &p1_phase_2_out_transmit_zero_shares,
+        &p1_phase_2_out_transmit_zero_shares_len,
+        &p1_phase_2_out_unique_keep,
+        &p1_phase_2_out_broadcast
+    );
+    
+    printf("p1 Phase 2: ");
+    for (size_t j = 0; j < 32; ++j) {
+        printf("%02x", p1_phase_2_out_scalar.bytes[j]);
+    }
+    printf("\n");
+    
+    // p2 phase 2 results in variables below
+    Scalar p2_phase_2_out_scalar;
+    CProofCommitment p2_phase_2_out_proof_commitment;
+    CKeepInitZeroSharePhase2to3 *p2_phase_2_out_zero_shares;
+    size_t p2_phase_2_out_zero_shares_len;
+    CTransmitInitZeroSharePhase2to4 *p2_phase_2_out_transmit_zero_shares;
+    size_t p2_phase_2_out_transmit_zero_shares_len;
+    CUniqueKeepDerivationPhase2to3 p2_phase_2_out_unique_keep;
+    CBroadcastDerivationPhase2to4 p2_phase_2_out_broadcast;
+
+    dkls_keygen_2(
+        data_party_2,
+        party_2_phase_1_result,
+        2,
+        &p2_phase_2_out_scalar,
+        &p2_phase_2_out_proof_commitment,
+        &p2_phase_2_out_zero_shares,
+        &p2_phase_2_out_zero_shares_len,
+        &p2_phase_2_out_transmit_zero_shares,
+        &p2_phase_2_out_transmit_zero_shares_len,
+        &p2_phase_2_out_unique_keep,
+        &p2_phase_2_out_broadcast
     );
 
     // Print phase 2 
-    printf("Phase 2: ");
+    printf("p2 Phase 2: ");
     for (size_t j = 0; j < 32; ++j) {
-        printf("%02x", out_scalar.bytes[j]);
+        printf("%02x", p2_phase_2_out_scalar.bytes[j]);
     }
     printf("\n");
 
 
-    // start phase 3
-    CKeepInitZeroSharePhase3to4 *out_zero_shares_phase3;
-    size_t out_zero_shares_len_phase3;
-    CTransmitInitZeroSharePhase3to4 *out_transmit_zero_shares_phase3;
-    size_t out_transmit_zero_shares_len_phase3;
-    CKeepInitMulPhase3to4 *out_keep_mul_phase3;
-    size_t out_keep_mul_len_phase3;
-    CTransmitInitMulPhase3to4 *out_transmit_mul_phase3;
-    size_t out_transmit_mul_len_phase3;
-    CBroadcastDerivationPhase3to4 out_broadcast_phase3;
+    // p1 phase 3 results below
+    CKeepInitZeroSharePhase3to4 *p1_out_zero_shares_phase3;
+    size_t p1_out_zero_shares_len_phase3;
+    CTransmitInitZeroSharePhase3to4 *p1_out_transmit_zero_shares_phase3;
+    size_t p1_out_transmit_zero_shares_len_phase3;
+    CKeepInitMulPhase3to4 *p1_out_keep_mul_phase3;
+    size_t p1_out_keep_mul_len_phase3;
+    CTransmitInitMulPhase3to4 *p1_out_transmit_mul_phase3;
+    size_t p1_out_transmit_mul_len_phase3;
+    CBroadcastDerivationPhase3to4 p1_out_broadcast_phase3;
 
     dkls_keygen_3(
-        data,
-        out_zero_shares,
-        out_zero_shares_len,
-        &out_unique_keep,
-        &out_zero_shares_phase3,
-        &out_zero_shares_len_phase3,
-        &out_transmit_zero_shares_phase3,
-        &out_transmit_zero_shares_len_phase3,
-        &out_keep_mul_phase3,
-        &out_keep_mul_len_phase3,
-        &out_transmit_mul_phase3,
-        &out_transmit_mul_len_phase3,
-        &out_broadcast_phase3
+        data_party_1,
+        p1_phase_2_out_zero_shares,
+        p1_phase_2_out_zero_shares_len,
+        &p1_phase_2_out_unique_keep,
+        &p1_out_zero_shares_phase3,
+        &p1_out_zero_shares_len_phase3,
+        &p1_out_transmit_zero_shares_phase3,
+        &p1_out_transmit_zero_shares_len_phase3,
+        &p1_out_keep_mul_phase3,
+        &p1_out_keep_mul_len_phase3,
+        &p1_out_transmit_mul_phase3,
+        &p1_out_transmit_mul_len_phase3,
+        &p1_out_broadcast_phase3
     );
 
-    // Print phase 3 results
-    printf("Phase 3 Zero Shares Length: %zu\n", out_zero_shares_len_phase3);
-    for (size_t i = 0; i < out_zero_shares_len_phase3; ++i) {
+    // Print p1 phase 3 results
+    printf("p1 Phase 3 Zero Shares Length: %zu\n", p1_out_zero_shares_len_phase3);
+    for (size_t i = 0; i < p1_out_zero_shares_len_phase3; ++i) {
         printf("Zero Share %zu Seed: ", i);
         for (size_t j = 0; j < 32; ++j) {
-            printf("%02x", out_zero_shares_phase3[i].seed[j]);
+            printf("%02x", p1_out_zero_shares_phase3[i].seed[j]);
         }
         printf("\n");
     }
 
-    printf("Phase 3 Transmit Zero Shares Length: %zu\n", out_transmit_zero_shares_len_phase3);
-    for (size_t i = 0; i < out_transmit_zero_shares_len_phase3; ++i) {
+    printf("p1 Phase 3 Transmit Zero Shares Length: %zu\n", p1_out_transmit_zero_shares_len_phase3);
+    for (size_t i = 0; i < p1_out_transmit_zero_shares_len_phase3; ++i) {
         printf("Transmit Zero Share %zu Seed: ", i);
         for (size_t j = 0; j < 32; ++j) {
-            printf("%02x", out_transmit_zero_shares_phase3[i].seed[j]);
+            printf("%02x", p1_out_transmit_zero_shares_phase3[i].seed[j]);
         }
         printf("\n");
     }
 
-    printf("Phase 3 Keep Mul Length: %zu\n", out_keep_mul_len_phase3);
-    for (size_t i = 0; i < out_keep_mul_len_phase3; ++i) {
+    printf("p1 Phase 3 Keep Mul Length: %zu\n", p1_out_keep_mul_len_phase3);
+    for (size_t i = 0; i < p1_out_keep_mul_len_phase3; ++i) {
         printf("Keep Mul %zu Nonce: ", i);
         for (size_t j = 0; j < 32; ++j) {
-            printf("%02x", out_keep_mul_phase3[i].nonce.bytes[j]);
+            printf("%02x", p1_out_keep_mul_phase3[i].nonce.bytes[j]);
         }
         printf("\n");
     }
 
-    printf("Phase 3 Transmit Mul Length: %zu\n", out_transmit_mul_len_phase3);
-    for (size_t i = 0; i < out_transmit_mul_len_phase3; ++i) {
+    printf("p1 Phase 3 Transmit Mul Length: %zu\n", p1_out_transmit_mul_len_phase3);
+    for (size_t i = 0; i < p1_out_transmit_mul_len_phase3; ++i) {
         printf("Transmit Mul %zu Nonce: ", i);
         for (size_t j = 0; j < 32; ++j) {
-            printf("%02x", out_transmit_mul_phase3[i].nonce.bytes[j]);
+            printf("%02x", p1_out_transmit_mul_phase3[i].nonce.bytes[j]);
         }
         printf("\n");
     }
 
-    printf("Phase 3 Broadcast Sender Index: %u\n", out_broadcast_phase3.sender_index);
-    printf("Phase 3 Broadcast Aux Chain Code: ");
+    printf("p1 Phase 3 Broadcast Sender Index: %u\n", p1_out_broadcast_phase3.sender_index);
+    printf("p1 Phase 3 Broadcast Aux Chain Code: ");
     for (size_t j = 0; j < 32; ++j) {
-        printf("%02x", out_broadcast_phase3.aux_chain_code[j]);
+        printf("%02x", p1_out_broadcast_phase3.aux_chain_code[j]);
     }
     printf("\n");
 
-    // Free allocated memory
-    free(phase_1_result);
-    free(out_zero_shares);
-    free(out_transmit_zero_shares);
-    // free(out_zero_shares_phase3);
-    free(out_transmit_zero_shares_phase3);
-    // free(out_keep_mul_phase3);
-    free(out_transmit_mul_phase3);
+
+    // p2 phase 3 results below
+    CKeepInitZeroSharePhase3to4 *p2_out_zero_shares_phase3;
+    size_t p2_out_zero_shares_len_phase3;
+    CTransmitInitZeroSharePhase3to4 *p2_out_transmit_zero_shares_phase3;
+    size_t p2_out_transmit_zero_shares_len_phase3;
+    CKeepInitMulPhase3to4 *p2_out_keep_mul_phase3;
+    size_t p2_out_keep_mul_len_phase3;
+    CTransmitInitMulPhase3to4 *p2_out_transmit_mul_phase3;
+    size_t p2_out_transmit_mul_len_phase3;
+    CBroadcastDerivationPhase3to4 p2_out_broadcast_phase3;
+
+
+    dkls_keygen_3(
+        data_party_2,
+        p2_phase_2_out_zero_shares,
+        p2_phase_2_out_zero_shares_len,
+        &p2_phase_2_out_unique_keep,
+        &p2_out_zero_shares_phase3,
+        &p2_out_zero_shares_len_phase3,
+        &p2_out_transmit_zero_shares_phase3,
+        &p2_out_transmit_zero_shares_len_phase3,
+        &p2_out_keep_mul_phase3,
+        &p2_out_keep_mul_len_phase3,
+        &p2_out_transmit_mul_phase3,
+        &p2_out_transmit_mul_len_phase3,
+        &p2_out_broadcast_phase3
+    );
+
+    // Print p1 phase 3 results
+    printf("p2 Phase 3 Zero Shares Length: %zu\n", p2_out_zero_shares_len_phase3);
+    for (size_t i = 0; i < p2_out_zero_shares_len_phase3; ++i) {
+        printf("Zero Share %zu Seed: ", i);
+        for (size_t j = 0; j < 32; ++j) {
+            printf("%02x", p2_out_zero_shares_phase3[i].seed[j]);
+        }
+        printf("\n");
+    }
+
+    printf("p2 Phase 3 Transmit Zero Shares Length: %zu\n", p2_out_transmit_zero_shares_len_phase3);
+    for (size_t i = 0; i < p2_out_transmit_zero_shares_len_phase3; ++i) {
+        printf("Transmit Zero Share %zu Seed: ", i);
+        for (size_t j = 0; j < 32; ++j) {
+            printf("%02x", p2_out_transmit_zero_shares_phase3[i].seed[j]);
+        }
+        printf("\n");
+    }
+
+    printf("p2 Phase 3 Keep Mul Length: %zu\n", p2_out_keep_mul_len_phase3);
+    for (size_t i = 0; i < p2_out_keep_mul_len_phase3; ++i) {
+        printf("Keep Mul %zu Nonce: ", i);
+        for (size_t j = 0; j < 32; ++j) {
+            printf("%02x", p2_out_keep_mul_phase3[i].nonce.bytes[j]);
+        }
+        printf("\n");
+    }
+
+    printf("p2 Phase 3 Transmit Mul Length: %zu\n", p2_out_transmit_mul_len_phase3);
+    for (size_t i = 0; i < p2_out_transmit_mul_len_phase3; ++i) {
+        printf("Transmit Mul %zu Nonce: ", i);
+        for (size_t j = 0; j < 32; ++j) {
+            printf("%02x", p2_out_transmit_mul_phase3[i].nonce.bytes[j]);
+        }
+        printf("\n");
+    }
+
+    printf("p2 Phase 3 Broadcast Sender Index: %u\n", p2_out_broadcast_phase3.sender_index);
+    printf("p2 Phase 3 Broadcast Aux Chain Code: ");
+    for (size_t j = 0; j < 32; ++j) {
+        printf("%02x", p2_out_broadcast_phase3.aux_chain_code[j]);
+    }
+    printf("\n");
 
     return 0;
 }
