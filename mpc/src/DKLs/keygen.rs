@@ -184,8 +184,9 @@ pub extern "C" fn dkls_dkg_phase_1(data: *const CSessionData) -> *mut Scalar {
         },
     };
     let result = phase1(&session_data);
-    let boxed_result = result.into_boxed_slice();
-    Box::into_raw(boxed_result) as *mut Scalar
+    let boxed_slice = result.into_boxed_slice();
+    let ptr = Box::into_raw(boxed_slice);
+    ptr as *mut Scalar
 }
 
 #[no_mangle]
