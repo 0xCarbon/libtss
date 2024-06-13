@@ -344,13 +344,13 @@ int main() {
     printf("\n");
 
     // Free allocated memory
+    free(phase_1_result);
     free(out_zero_shares);
     free(out_transmit_zero_shares);
-    free(out_zero_shares_phase3);
+    // free(out_zero_shares_phase3);
     free(out_transmit_zero_shares_phase3);
-    free(out_keep_mul_phase3);
+    // free(out_keep_mul_phase3);
     free(out_transmit_mul_phase3);
-    free(phase_1_result);
 
     return 0;
 }
