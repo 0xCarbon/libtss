@@ -195,7 +195,6 @@ unsigned char sign_phase_2(
     );
 }
 
-
 int main() {
     unsigned char sign_id[] = {1, 2, 3, 4, 5};
     unsigned char counterparties[] = {2};

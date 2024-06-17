@@ -82,7 +82,6 @@ pub struct COTEDataToSender {
     verify_t_len: usize,
 }
 
-///////////////////////////////////////////////////
 #[repr(C)]
 pub struct CUniqueKeep2to3 {
     instance_key: Scalar,
@@ -114,14 +113,6 @@ pub struct CTransmitPhase2to3 {
     mul_transmit: CMulDataToReceiver,
 }
 
-// #[derive(Clone, Serialize, Deserialize, Debug)]
-// pub struct MulDataToReceiver {
-//     pub vector_of_tau: Vec<Vec<Scalar>>,
-//     pub verify_r: HashOutput,
-//     pub verify_u: Vec<Scalar>,
-//     pub gamma_sender: Vec<Scalar>,
-// }
-
 #[repr(C)]
 pub struct CMulDataToReceiver {
     vector_of_tau: *const *const Scalar,
@@ -132,8 +123,6 @@ pub struct CMulDataToReceiver {
     gamma_sender: *const Scalar,
     gamma_sender_len: usize,
 }
-
-///////////////////////////////////////////////////
 
 #[no_mangle]
 pub extern "C" fn dkls_sign_phase_1(
