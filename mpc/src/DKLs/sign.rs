@@ -7,7 +7,7 @@ use dkls23::{
         Abort, PartiesMessage, Party,
     },
     utilities::{
-        multiplication::MulDataToKeepReceiver,
+        multiplication::{MulDataToKeepReceiver, MulDataToReceiver},
         ot::extension::{OTEDataToSender, EXTENDED_BATCH_SIZE},
     },
 };
@@ -122,6 +122,12 @@ pub struct CMulDataToReceiver {
     verify_u_len: usize,
     gamma_sender: *const Scalar,
     gamma_sender_len: usize,
+}
+
+#[repr(C)]
+pub struct CBroadcast3to4 {
+    u: Scalar,
+    w: Scalar,
 }
 
 #[no_mangle]
@@ -486,6 +492,203 @@ pub extern "C" fn dkls_sign_phase_2(
 
                 *out_transmit_phase_len = transmit_phase_vec.len();
                 *out_transmit_phase = transmit_phase_vec.into_boxed_slice().as_mut_ptr();
+            }
+            0 // Return success
+        }
+        Err(_) => {
+            1 // Return error
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn dkls_sign_phase_3(
+    party: *const c_void,
+    sign_data: *const CSignData,
+    unique_kept: *const CUniqueKeep2to3,
+    kept: *const CKeepPhase2to3,
+    kept_len: usize,
+    received: *const CTransmitPhase2to3,
+    received_len: usize,
+    out_broadcast: *mut CBroadcast3to4,
+) -> c_uchar {
+    let party = unsafe { &*(party as *const Party) };
+    let sign_data = unsafe { &*sign_data };
+    let unique_kept = unsafe { &*unique_kept };
+    let kept = unsafe { std::slice::from_raw_parts(kept, kept_len) };
+    let received = unsafe { std::slice::from_raw_parts(received, received_len) };
+
+    // Convert C structs to Rust structs
+    let sign_data_rust = SignData {
+        sign_id: unsafe {
+            std::slice::from_raw_parts(sign_data.sign_id, sign_data.sign_id_len).to_vec()
+        },
+        counterparties: unsafe {
+            std::slice::from_raw_parts(sign_data.counterparties, sign_data.counterparties_len)
+                .to_vec()
+        },
+        message_hash: sign_data.message_hash,
+    };
+
+    let unique_kept_rust = UniqueKeep2to3 {
+        instance_key: unique_kept.instance_key,
+        instance_point: {
+            let x = k256::FieldBytes::from_slice(&unique_kept.instance_point.x);
+            let y = k256::FieldBytes::from_slice(&unique_kept.instance_point.y);
+            k256::AffinePoint::from_encoded_point(&k256::EncodedPoint::from_affine_coordinates(
+                x,
+                y,
+                unique_kept.instance_point.infinity != 0,
+            ))
+            .unwrap()
+        },
+        inversion_mask: unique_kept.inversion_mask,
+        key_share: unique_kept.key_share,
+        public_share: {
+            let x = k256::FieldBytes::from_slice(&unique_kept.public_share.x);
+            let y = k256::FieldBytes::from_slice(&unique_kept.public_share.y);
+            k256::AffinePoint::from_encoded_point(&k256::EncodedPoint::from_affine_coordinates(
+                x,
+                y,
+                unique_kept.public_share.infinity != 0,
+            ))
+            .unwrap()
+        },
+    };
+
+    let kept_map: BTreeMap<u8, KeepPhase2to3> = kept
+        .iter()
+        .enumerate()
+        .map(|(i, v)| {
+            (
+                i as u8,
+                KeepPhase2to3 {
+                    c_u: v.c_u,
+                    c_v: v.c_v,
+                    commitment: v.commitment,
+                    mul_keep: MulDataToKeepReceiver {
+                        b: v.mul_keep.b,
+                        choice_bits: unsafe {
+                            std::slice::from_raw_parts(
+                                v.mul_keep.choice_bits,
+                                v.mul_keep.choice_bits_len,
+                            )
+                            .iter()
+                            .map(|&byte| byte != 0)
+                            .collect()
+                        },
+                        extended_seeds: unsafe {
+                            std::slice::from_raw_parts(
+                                v.mul_keep.extended_seeds,
+                                v.mul_keep.extended_seeds_len,
+                            )
+                            .iter()
+                            .map(|seed| seed.data)
+                            .collect()
+                        },
+                        chi_tilde: unsafe {
+                            std::slice::from_raw_parts(
+                                v.mul_keep.chi_tilde,
+                                v.mul_keep.chi_tilde_len,
+                            )
+                            .to_vec()
+                        },
+                        chi_hat: unsafe {
+                            std::slice::from_raw_parts(v.mul_keep.chi_hat, v.mul_keep.chi_hat_len)
+                                .to_vec()
+                        },
+                    },
+                    chi: v.chi,
+                },
+            )
+        })
+        .collect();
+
+    let received_vec: Vec<TransmitPhase2to3> = received
+        .iter()
+        .map(|v| TransmitPhase2to3 {
+            parties: PartiesMessage {
+                sender: v.parties.sender,
+                receiver: v.parties.receiver,
+            },
+            gamma_u: {
+                let x = k256::FieldBytes::from_slice(&v.gamma_u.x);
+                let y = k256::FieldBytes::from_slice(&v.gamma_u.y);
+                k256::AffinePoint::from_encoded_point(&k256::EncodedPoint::from_affine_coordinates(
+                    x,
+                    y,
+                    v.gamma_u.infinity != 0,
+                ))
+                .unwrap()
+            },
+            gamma_v: {
+                let x = k256::FieldBytes::from_slice(&v.gamma_v.x);
+                let y = k256::FieldBytes::from_slice(&v.gamma_v.y);
+                k256::AffinePoint::from_encoded_point(&k256::EncodedPoint::from_affine_coordinates(
+                    x,
+                    y,
+                    v.gamma_v.infinity != 0,
+                ))
+                .unwrap()
+            },
+            psi: v.psi,
+            public_share: {
+                let x = k256::FieldBytes::from_slice(&v.public_share.x);
+                let y = k256::FieldBytes::from_slice(&v.public_share.y);
+                k256::AffinePoint::from_encoded_point(&k256::EncodedPoint::from_affine_coordinates(
+                    x,
+                    y,
+                    v.public_share.infinity != 0,
+                ))
+                .unwrap()
+            },
+            instance_point: {
+                let x = k256::FieldBytes::from_slice(&v.instance_point.x);
+                let y = k256::FieldBytes::from_slice(&v.instance_point.y);
+                k256::AffinePoint::from_encoded_point(&k256::EncodedPoint::from_affine_coordinates(
+                    x,
+                    y,
+                    v.instance_point.infinity != 0,
+                ))
+                .unwrap()
+            },
+            salt: unsafe { std::slice::from_raw_parts(v.salt, v.salt_len).to_vec() },
+            mul_transmit: MulDataToReceiver {
+                vector_of_tau: unsafe {
+                    std::slice::from_raw_parts(
+                        v.mul_transmit.vector_of_tau,
+                        v.mul_transmit.vector_of_tau_len,
+                    )
+                    .iter()
+                    .map(|&tau_ptr| {
+                        std::slice::from_raw_parts(tau_ptr, v.mul_transmit.vector_of_tau_len)
+                            .to_vec()
+                    })
+                    .collect()
+                },
+                verify_r: v.mul_transmit.verify_r,
+                verify_u: unsafe {
+                    std::slice::from_raw_parts(v.mul_transmit.verify_u, v.mul_transmit.verify_u_len)
+                        .to_vec()
+                },
+                gamma_sender: unsafe {
+                    std::slice::from_raw_parts(
+                        v.mul_transmit.gamma_sender,
+                        v.mul_transmit.gamma_sender_len,
+                    )
+                    .to_vec()
+                },
+            },
+        })
+        .collect();
+
+    match party.sign_phase3(&sign_data_rust, &unique_kept_rust, &kept_map, &received_vec) {
+        Ok((_, broadcast)) => {
+            unsafe {
+                *out_broadcast = CBroadcast3to4 {
+                    u: broadcast.u,
+                    w: broadcast.w,
+                };
             }
             0 // Return success
         }

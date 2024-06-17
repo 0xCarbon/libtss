@@ -195,45 +195,77 @@ unsigned char sign_phase_2(
     );
 }
 
-int main() {
-    unsigned char sign_id[] = {1, 2, 3, 4, 5};
-    unsigned char counterparties[] = {2};
-    unsigned char message_hash[32] = {0};
+typedef struct {
+    Scalar u;
+    Scalar w;
+} CBroadcast3to4;
 
-    CSignData sign_data = {
-        .sign_id = sign_id,
-        .sign_id_len = sizeof(sign_id),
-        .counterparties = counterparties,
-        .counterparties_len = sizeof(counterparties),
-        .message_hash = {0}
-    };
 
-    CUniqueKeep1to2 out_unique_keep_phase1;
-    CKeepPhase1to2 *out_keep_phase_phase1;
-    size_t out_keep_phase_len_phase1;
-    CTransmitPhase1to2 *out_transmit_phase_phase1;
-    size_t out_transmit_phase_len_phase1;
+extern unsigned char dkls_sign_phase_3(
+    const void *party,
+    const CSignData *sign_data,
+    const CUniqueKeep2to3 *unique_kept,
+    const CKeepPhase2to3 *kept,
+    size_t kept_len,
+    const CTransmitPhase2to3 *received,
+    size_t received_len,
+    CBroadcast3to4 *out_broadcast
+);
 
-    // Assuming `party` is initialized properly
-    void *party = NULL;
-
-    // Call phase 1
-    sign_phase_1(
+unsigned char sign_phase_3(
+    const void *party,
+    const CSignData *sign_data,
+    const CUniqueKeep2to3 *unique_kept,
+    const CKeepPhase2to3 *kept,
+    size_t kept_len,
+    const CTransmitPhase2to3 *received,
+    size_t received_len,
+    CBroadcast3to4 *out_broadcast
+) {
+    return dkls_sign_phase_3(
         party,
-        &sign_data,
-        &out_unique_keep_phase1,
-        &out_keep_phase_phase1,
-        &out_keep_phase_len_phase1,
-        &out_transmit_phase_phase1,
-        &out_transmit_phase_len_phase1
+        sign_data,
+        unique_kept,
+        kept,
+        kept_len,
+        received,
+        received_len,
+        out_broadcast
     );
+}
 
-    // // Print results of phase 1
-    // printf("Unique Keep Instance Key (Phase 1): ");
-    // for (size_t i = 0; i < 32; ++i) {
-    //     printf("%02x", out_unique_keep_phase1.instance_key.bytes[i]);
-    // }
-    // printf("\n");
+int main() {
+    // unsigned char sign_id[] = {1, 2, 3, 4, 5};
+    // unsigned char counterparties[] = {2};
+    // unsigned char message_hash[32] = {0};
+
+    // CSignData sign_data = {
+    //     .sign_id = sign_id,
+    //     .sign_id_len = sizeof(sign_id),
+    //     .counterparties = counterparties,
+    //     .counterparties_len = sizeof(counterparties),
+    //     .message_hash = {0}
+    // };
+
+    // CUniqueKeep1to2 out_unique_keep_phase1;
+    // CKeepPhase1to2 *out_keep_phase_phase1;
+    // size_t out_keep_phase_len_phase1;
+    // CTransmitPhase1to2 *out_transmit_phase_phase1;
+    // size_t out_transmit_phase_len_phase1;
+
+    // // Assuming `party` is initialized properly
+    // void *party = NULL;
+
+    // // Call phase 1
+    // sign_phase_1(
+    //     party,
+    //     &sign_data,
+    //     &out_unique_keep_phase1,
+    //     &out_keep_phase_phase1,
+    //     &out_keep_phase_len_phase1,
+    //     &out_transmit_phase_phase1,
+    //     &out_transmit_phase_len_phase1
+    // );
 
     // // Prepare for phase 2
     // CUniqueKeep2to3 out_unique_keep_phase2;
@@ -243,7 +275,7 @@ int main() {
     // size_t out_transmit_phase_len_phase2;
 
     // // Call phase 2
-    // unsigned char result = sign_phase_2(
+    // unsigned char result_phase2 = sign_phase_2(
     //     party,
     //     &sign_data,
     //     &out_unique_keep_phase1,
@@ -258,13 +290,45 @@ int main() {
     //     &out_transmit_phase_len_phase2
     // );
 
-    // if (result == 0) {
+    // if (result_phase2 == 0) {
     //     // Print results of phase 2
     //     printf("Unique Keep Instance Key (Phase 2): ");
     //     for (size_t i = 0; i < 32; ++i) {
     //         printf("%02x", out_unique_keep_phase2.instance_key.bytes[i]);
     //     }
     //     printf("\n");
+
+    //     // Prepare for phase 3
+    //     CBroadcast3to4 out_broadcast_phase3;
+
+    //     // Call phase 3
+    //     unsigned char result_phase3 = sign_phase_3(
+    //         party,
+    //         &sign_data,
+    //         &out_unique_keep_phase2,
+    //         out_keep_phase_phase2,
+    //         out_keep_phase_len_phase2,
+    //         out_transmit_phase_phase2,
+    //         out_transmit_phase_len_phase2,
+    //         &out_broadcast_phase3
+    //     );
+
+    //     if (result_phase3 == 0) {
+    //         // Print results of phase 3
+    //         printf("Broadcast u (Phase 3): ");
+    //         for (size_t i = 0; i < 32; ++i) {
+    //             printf("%02x", out_broadcast_phase3.u.bytes[i]);
+    //         }
+    //         printf("\n");
+
+    //         printf("Broadcast w (Phase 3): ");
+    //         for (size_t i = 0; i < 32; ++i) {
+    //             printf("%02x", out_broadcast_phase3.w.bytes[i]);
+    //         }
+    //         printf("\n");
+    //     } else {
+    //         printf("Phase 3 failed\n");
+    //     }
     // } else {
     //     printf("Phase 2 failed\n");
     // }
