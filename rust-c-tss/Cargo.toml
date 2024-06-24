@@ -1,0 +1,12 @@
+[package]
+name = "dkls-tests"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+dkls23 = { git = "ssh://git@github.com/0xCarbon/DKLs23.git" }
+k256 = { version = "0.13", features = ["serde"] }
+rand = "0.8"
+
+[lib]
+crate-type = ["cdylib"]
