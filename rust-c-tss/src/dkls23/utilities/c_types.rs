@@ -262,3 +262,53 @@ pub struct CPhase2Out {
     pub bip_keep: CUniqueKeepDerivationPhase2to3,
     pub bip_broadcast: CBroadcastDerivationPhase2to4,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_session_data_from_c() {
+    }
+
+    #[test]
+    fn test_scalar_to_c() {
+        let bytes = [
+            1, 35, 69, 103, 137, 171, 205, 239,
+            253, 210, 167, 124, 81, 38, 5, 0,
+            144, 143, 142, 141, 140, 139, 138, 137,
+            136, 135, 134, 133, 132, 131, 130, 129,
+        ];
+
+        let scalar = Scalar::from_repr(bytes.into()).expect("Failed to create scalar");
+        let c_scalar = CScalar::from(&scalar);
+
+        assert_eq!(bytes, c_scalar.bytes);
+    }
+
+    #[test]
+    fn test_affine_point_to_c() {
+
+    }
+
+    #[test]
+    fn test_affine_point_from_c() {
+
+    }
+
+    #[test]
+    fn test_affine_point_to_c_vec64() {
+
+    }
+
+    #[test]
+    fn test_interactive_proof_to_c() {
+
+    }
+
+    #[test]
+    fn test_interactive_proof_to_c_vec64() {
+
+    }
+
+}
