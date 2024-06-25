@@ -269,6 +269,31 @@ mod tests {
 
     #[test]
     fn test_session_data_from_c() {
+        let parameters = CParameters {
+            share_count: 2,
+            threshold: 2,
+        };
+
+        let bytes: [u8; 32] = [
+            1, 35, 69, 103, 137, 171, 205, 239,
+            253, 210, 167, 124, 81, 38, 5, 0,
+            144, 143, 142, 141, 140, 139, 138, 137,
+            136, 135, 134, 133, 132, 131, 130, 129,
+        ];
+
+        let c_session = CSessionData {
+            parameters,
+            session_id: bytes.as_ptr(),
+            session_id_len: bytes.len(),
+            party_index: 1,
+        };
+
+        let session = c_session.to_session();
+
+        assert_eq!(session.party_index, c_session.party_index);
+        assert_eq!(session.parameters.share_count, c_session.parameters.share_count);
+        assert_eq!(session.parameters.threshold, c_session.parameters.threshold);
+        assert_eq!(session.session_id, bytes);
     }
 
     #[test]
