@@ -25,7 +25,7 @@ pub type CHashOutput = [u8; SECURITY as usize];
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct CScalar {
+pub struct CScalar {
     bytes: [u8; 32]
 }
 
