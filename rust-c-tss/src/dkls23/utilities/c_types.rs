@@ -266,6 +266,9 @@ pub struct CPhase2Out {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use k256::ProjectivePoint;
+    use k256::elliptic_curve::ff::Field;
+    use rand;
 
     #[test]
     fn test_session_data_from_c() {
@@ -375,7 +378,24 @@ mod tests {
 
     #[test]
     fn test_affine_point_to_c_vec64() {
+        let mut affine_points: Vec<AffinePoint> = Vec::with_capacity(R as usize);
 
+        for _ in 0..R {
+            let random_scalar = Scalar::random(rand::thread_rng());
+            let random_point = ProjectivePoint::GENERATOR * random_scalar;
+            let affine_point = AffinePoint::from(random_point);
+            affine_points.push(affine_point);
+        }
+
+        let c_affine_points = CAffinePoint::from_vec64(&affine_points);
+        assert_eq!(affine_points.len(), R as usize);
+
+        for i in 0..affine_points.len() {
+            let encoded_point = EncodedPoint::from(&affine_points[i]);
+            let bytes = encoded_point.as_bytes();
+
+            assert_eq!(c_affine_points[i].bytes, bytes);
+        }
     }
 
     #[test]
