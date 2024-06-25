@@ -1,5 +1,5 @@
 [package]
-name = "dkls-tests"
+name = "rust-c-tss"
 version = "0.1.0"
 edition = "2021"
 

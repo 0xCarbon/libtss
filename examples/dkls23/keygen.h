@@ -17,4 +17,13 @@ typedef struct {
     uint8_t bytes[32];
 } Scalar;
 
-extern const Scalar* dkls_phase1(const SessionData *data);
+typedef struct {
+    const Scalar* data;
+    size_t len;
+} ScalarVec;
+
+extern ScalarVec dkls_phase1(const SessionData *data);
+extern uint8_t* dkls_phase2(
+    const SessionData *data,
+    const ScalarVec *poly_fragments
+);

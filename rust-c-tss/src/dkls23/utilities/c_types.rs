@@ -2,10 +2,19 @@ use::dkls23::utilities::proofs::R;
 use::dkls23::utilities::proofs::T;
 use::dkls23::SECURITY;
 
+pub const SECP256K1_ENCODED_SIZE: usize = 33;
+
 pub type CChainCode = [u8; 32];
 pub type CScalar = [u8; 32];
+pub type CAffinePoint = [u8; SECP256K1_ENCODED_SIZE];
 pub type CSeed = [u8; SECURITY as usize];
 pub type CHashOutput = [u8; SECURITY as usize];
+
+#[repr(C)]
+pub struct CScalarVec {
+    pub data: *const CScalar,
+    pub len: usize,
+}
 
 #[repr(C)]
 pub struct CParameters {
@@ -19,13 +28,6 @@ pub struct CSessionData {
     pub party_index: u8,
     pub session_id_len: usize,
     pub session_id: *const u8,
-}
-
-#[repr(C)]
-pub struct CAffinePoint {
-    pub x: [u8; 32],
-    pub y: [u8; 32],
-    pub infinity: u8,
 }
 
 #[repr(C)]

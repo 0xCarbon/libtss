@@ -26,12 +26,11 @@ SessionData* create_session(
     return session_data;
 }
 
-void print_scalars(const Scalar* scalars) {
-    for (uint8_t i = 0; i < 32; i++) {
-        printf("%02X", scalars[0].bytes[i]);
-    }
-    printf("\n");
-    for (uint8_t i = 0; i < 32; i++) {
-        printf("%02X", scalars[1].bytes[i]);
+void print_scalar_vec(const ScalarVec* scalar_vec) {
+    for (uint8_t i = 0; i < scalar_vec->len; i++) {
+        for (uint8_t j = 0; j < 32; j++) {
+            printf("%02X", scalar_vec->data[i].bytes[j]);
+        }
+        printf("\n");
     }
 }

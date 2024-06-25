@@ -8,4 +8,4 @@ SessionData* create_session(
     size_t session_id_len
 );
 
-void print_scalars(const Scalar* scalars);
+void print_scalar_vec(const ScalarVec* scalar_vec);
