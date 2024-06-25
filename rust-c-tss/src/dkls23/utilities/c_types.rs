@@ -313,7 +313,33 @@ mod tests {
 
     #[test]
     fn test_affine_point_to_c() {
+        // `encoded_affine_point_bytes` represents the following point in bytes:
+        // AffinePoint {
+        //     x: FieldElement(FieldElement5x52([
+        //        2468983051731734, 3314604584731398, 688337019694432,
+        //        4089669124753892, 217445845428448
+        //     ])),
+        //     y: FieldElement(FieldElement5x52([
+        //        879285755182625, 2721460617154216, 1735586958226576,
+        //        1207030472684438, 108878059660018
+        //     ])),
+        //     infinity: 0,
+        // }
+        let encoded_affine_point_bytes = [
+            3, 197, 196, 14, 95, 232, 224, 232,
+            120, 132, 182, 224, 158, 66, 114, 9,
+            243, 139, 109, 96, 188, 105, 216, 77,
+            128, 48, 104, 197, 134, 233, 193, 67, 22,
+        ];
 
+        let encoded_point = EncodedPoint::from_bytes(encoded_affine_point_bytes)
+            .expect("Failed to parse EncodedPoint");
+
+        let affine_point = AffinePoint::from_encoded_point(&encoded_point)
+            .expect("Failed to convert to AffinePoint");
+
+        let c_affine_point = CAffinePoint::from(&affine_point);
+        assert_eq!(c_affine_point.bytes, encoded_affine_point_bytes);
     }
 
     #[test]
