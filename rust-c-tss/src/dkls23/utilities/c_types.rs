@@ -31,9 +31,19 @@ pub struct CSessionData {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct CInteractiveDLogProof {
     pub challenge: [u8; (T / 8) as usize],
     pub challenge_response: CScalar,
+}
+
+impl Default for CInteractiveDLogProof {
+    fn default() -> Self {
+        CInteractiveDLogProof {
+            challenge: [0; (T / 8) as usize],
+            challenge_response: [0; 32 as usize],
+        }
+    }
 }
 
 #[repr(C)]

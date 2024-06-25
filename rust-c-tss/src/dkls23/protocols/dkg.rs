@@ -51,4 +51,11 @@ pub extern "C" fn dkls_phase2(
 
     let r = to_c_rand_commitments(proof_commitment.proof.rand_commitments);
     println!("{:?}", r);
+
+    // write tests for:
+    // to_c_rand_commitments
+    // to_c_interactive_proof
+    // to_c_proofs_vec
+    // to_c_dlog_proof
+    // to_c_proof_commitment
 }

@@ -99,31 +99,33 @@ pub fn to_c_rand_commitments(
 pub fn to_c_interactive_proof(
     proof: &InteractiveDLogProof
 ) -> CInteractiveDLogProof {
-    let challenge = proof.challenge.into_boxed_slice();
+    let mut challenge: [u8; (T / 8) as usize] = [0; (T / 8) as usize];
+    challenge.copy_from_slice(proof.challenge.as_slice());
+
     CInteractiveDLogProof {
         challenge,
         challenge_response: to_c_scalar(&proof.challenge_response),
     }
-
 }
 
-pub fn to_c_proofs(
+pub fn to_c_proofs_vec(
     proofs: Vec<InteractiveDLogProof>
 ) -> [CInteractiveDLogProof; R as usize] {
-    let mut c_proofs: [CInteractiveDLogProof; R as usize];
+    let mut c_proofs: [CInteractiveDLogProof; R as usize] =
+        [CInteractiveDLogProof::default(); R as usize];
 
-    for i in 0..proofs.len() {
-        let c_proof = to_c_interactive_proof(&c_proofs[i]);
-        c_proof[i].copy_from_slice(&c_proof);
+    for (i, proof) in proofs.iter().enumerate() {
+        c_proofs[i] = to_c_interactive_proof(&proof);
     }
-    c_proofs
 
+    c_proofs
 }
 
-/*fn to_c_dlog_proof(dlog_proof: DLogProof) -> CDLogProof {
-    let point = to_c_affine_point(dlog_proof.point);
+fn to_c_dlog_proof(dlog_proof: DLogProof) -> CDLogProof {
+    let point = to_c_affine_point(&dlog_proof.point);
     let rand_commitments = to_c_rand_commitments(dlog_proof.rand_commitments);
-    let proofs = to_c_proofs(dlog_proof.proofs);
+    let proofs = to_c_proofs_vec(dlog_proof.proofs);
+
     CDLogProof { point, rand_commitments, proofs }
 }
 
@@ -135,4 +137,4 @@ pub fn to_c_proof_commitment(
     let proof = to_c_dlog_proof(proof_commitment.proof);
 
     CProofCommitment { index, proof, commitment }
-}*/
+}
