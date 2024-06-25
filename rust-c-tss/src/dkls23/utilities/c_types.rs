@@ -1,6 +1,7 @@
 use dkls23::protocols::Parameters;
 use dkls23::protocols::dkg::{
-    ProofCommitment, SessionData
+    BroadcastDerivationPhase2to4, ProofCommitment, SessionData,
+    TransmitInitZeroSharePhase2to4, UniqueKeepDerivationPhase2to3,
 };
 
 use dkls23::utilities::proofs::{
@@ -241,6 +242,19 @@ pub struct CTransmitInitZeroSharePhase2to4 {
     pub commitment: CHashOutput,
 }
 
+impl CTransmitInitZeroSharePhase2to4 {
+    pub fn from(transmit_init_zero_share_phase2to4: &TransmitInitZeroSharePhase2to4) -> Self {
+        let sender = transmit_init_zero_share_phase2to4.parties.sender;
+        let receiver = transmit_init_zero_share_phase2to4.parties.receiver;
+        let commitment = transmit_init_zero_share_phase2to4.commitment;
+
+        CTransmitInitZeroSharePhase2to4 {
+            parties: CPartiesMessage { sender, receiver },
+            commitment,
+        }
+    }
+}
+
 #[repr(C)]
 pub struct CUniqueKeepDerivationPhase2to3 {
     pub aux_chain_code: CChainCode,
@@ -266,6 +280,7 @@ pub struct CPhase2Out {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use dkls23::protocols::PartiesMessage;
     use k256::ProjectivePoint;
     use k256::elliptic_curve::ff::Field;
     use rand;
@@ -408,4 +423,35 @@ mod tests {
 
     }
 
+    #[test]
+    fn test_transmit_init_zero_share_phase2to4_to_c() {
+        let transmit_init_zero_share_phase2to4 = TransmitInitZeroSharePhase2to4 {
+            parties: PartiesMessage {
+                sender: 1,
+                receiver: 2,
+            },
+
+            commitment: [
+                1, 35, 69, 103, 137, 171, 205, 239,
+                253, 210, 167, 124, 81, 38, 5, 0,
+                144, 143, 142, 141, 140, 139, 138, 137,
+                136, 135, 134, 133, 132, 131, 130, 129,
+            ],
+        };
+
+        let c_transmit = CTransmitInitZeroSharePhase2to4::from(&transmit_init_zero_share_phase2to4);
+
+        assert_eq!(
+            c_transmit.parties.sender,
+            transmit_init_zero_share_phase2to4.parties.sender
+        );
+        assert_eq!(
+            c_transmit.parties.receiver,
+            transmit_init_zero_share_phase2to4.parties.receiver
+        );
+        assert_eq!(
+            c_transmit.commitment,
+            transmit_init_zero_share_phase2to4.commitment
+        );
+    }
 }
