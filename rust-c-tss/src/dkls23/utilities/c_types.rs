@@ -344,7 +344,33 @@ mod tests {
 
     #[test]
     fn test_affine_point_from_c() {
+        // `c_affine_point.bytes` encodes the generator point, wich given by:
+        // AffinePoint {
+        //     x: FieldElement(FieldElementImpl { value: FieldElement5x52([
+        //         705178180786072, 3855836460717471, 4089131105950716,
+        //         3301581525494108, 133858670344668]),
+        //         magnitude: 1,
+        //         normalized: true
+        //     }),
+        //     y: FieldElement(FieldElementImpl { value: FieldElement5x52([
+        //         2199641648059576, 1278080618437060, 3959378566518708,
+        //         3455034269351872, 79417610544803]),
+        //         magnitude: 1,
+        //         normalized: true
+        //     }),
+        //     infinity: 0
+        // }
+        let c_affine_point = CAffinePoint {
+            bytes: [
+                2, 121, 190, 102, 126, 249, 220, 187,
+                172, 85, 160, 98, 149, 206, 135, 11,
+                7, 2, 155, 252, 219, 45, 206, 40,
+                217, 89, 242, 129, 91, 22, 248, 23, 152
+            ]
+        };
 
+        let affine_point = c_affine_point.to_affine_point();
+        assert_eq!(affine_point, AffinePoint::GENERATOR);
     }
 
     #[test]
