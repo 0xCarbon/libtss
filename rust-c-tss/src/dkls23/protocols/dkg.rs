@@ -1,21 +1,15 @@
 use dkls23::protocols::dkg;
-use crate::dkls23::utilities::{
-    convertions::{
-        from_c_session_data, to_c_scalar_vec, from_c_scalar_vec,
-        to_c_scalar, to_c_affine_point, from_c_affine_point,
-        to_c_rand_commitments,
-    },
-    c_types::{
-        CSessionData, CScalarVec, CPhase2Out, CAffinePoint,
-    },
+use crate::dkls23::utilities::c_types::{
+    CSessionData, CScalarVec,
+    CProofCommitment,
 };
 
 #[no_mangle]
 pub extern "C" fn dkls_phase1(session: &CSessionData) -> CScalarVec {
-    let session_data = from_c_session_data(session);
+    let session_data = CSessionData::to_session(session);
     let scalars: Vec<k256::Scalar> = dkg::phase1(&session_data);
 
-    to_c_scalar_vec(&scalars)
+    CScalarVec::from(&scalars)
 }
 
 #[no_mangle]
@@ -23,8 +17,8 @@ pub extern "C" fn dkls_phase2(
     session: &CSessionData,
     c_poly_fragments: &CScalarVec
 ) {
-    let session_data = from_c_session_data(session);
-    let poly_fragments = from_c_scalar_vec(c_poly_fragments);
+    let session_data = CSessionData::to_session(session);
+    let poly_fragments = c_poly_fragments.to_vec();
 
     //println!("{:?}", poly_fragments[0]);
     //println!("{:?}", poly_fragments[1]);
@@ -49,8 +43,9 @@ pub extern "C" fn dkls_phase2(
     //let affine_point = from_c_affine_point(&c_point);
     //println!("{:?}", affine_point);
 
-    let r = to_c_rand_commitments(proof_commitment.proof.rand_commitments);
-    println!("{:?}", r);
+    let r = CProofCommitment::from(&proof_commitment);
+    //let r = to_c_rand_commitments(proof_commitment.proof.rand_commitments);
+    //println!("{:?}", r);
 
     // write tests for:
     // to_c_rand_commitments
