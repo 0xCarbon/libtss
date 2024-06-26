@@ -261,6 +261,20 @@ pub struct CUniqueKeepDerivationPhase2to3 {
     pub cc_salt: [u8; 2 * SECURITY as usize],
 }
 
+impl CUniqueKeepDerivationPhase2to3 {
+    pub fn from(unique_keep_derivation_phase2to3: &UniqueKeepDerivationPhase2to3) -> Self {
+        let mut cc_salt: [u8; 2 * SECURITY as usize] = [0; 2 * SECURITY as usize];
+        cc_salt.copy_from_slice(unique_keep_derivation_phase2to3.cc_salt.as_slice());
+
+        let aux_chain_code = unique_keep_derivation_phase2to3.aux_chain_code;
+
+        CUniqueKeepDerivationPhase2to3 {
+            aux_chain_code,
+            cc_salt,
+        }
+    }
+}
+
 #[repr(C)]
 pub struct CBroadcastDerivationPhase2to4 {
     pub sender_index: u8,
@@ -452,6 +466,34 @@ mod tests {
         assert_eq!(
             c_transmit.commitment,
             transmit_init_zero_share_phase2to4.commitment
+        );
+    }
+
+    #[test]
+    fn test_unique_keep_derivation_phase2to3_to_c() {
+        let cc_salt: [u8; 64] = [
+            1, 35, 69, 103, 137, 171, 205, 239, 253, 210, 167, 124, 81, 38, 5, 0, 144, 143, 142,
+            141, 140, 139, 138, 137, 136, 135, 134, 133, 132, 131, 130, 129, 1, 35, 69, 103, 137,
+            171, 205, 239, 253, 210, 167, 124, 81, 38, 5, 0, 144, 143, 142, 141, 140, 139, 138,
+            137, 136, 135, 134, 133, 132, 131, 130, 129,
+        ];
+        let unique_keep_derivation_phase2to3 = UniqueKeepDerivationPhase2to3 {
+            aux_chain_code: [
+                1, 35, 69, 103, 137, 171, 205, 239, 253, 210, 167, 124, 81, 38, 5, 0, 144, 143,
+                142, 141, 140, 139, 138, 137, 136, 135, 134, 133, 132, 131, 130, 129,
+            ],
+            cc_salt: cc_salt.to_vec(),
+        };
+
+        let c_unique_keep = CUniqueKeepDerivationPhase2to3::from(&unique_keep_derivation_phase2to3);
+
+        assert_eq!(
+            c_unique_keep.aux_chain_code,
+            unique_keep_derivation_phase2to3.aux_chain_code
+        );
+        assert_eq!(
+            c_unique_keep.cc_salt,
+            unique_keep_derivation_phase2to3.cc_salt.as_slice()
         );
     }
 }
