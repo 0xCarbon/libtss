@@ -1,10 +1,15 @@
 use dkls23::protocols::dkg::{
-    BroadcastDerivationPhase2to4, ProofCommitment, SessionData,
-    TransmitInitZeroSharePhase2to4, UniqueKeepDerivationPhase2to3,
+    BroadcastDerivationPhase2to4, BroadcastDerivationPhase3to4,
+    KeepInitMulPhase3to4, KeepInitZeroSharePhase3to4, ProofCommitment,
+    SessionData, TransmitInitMulPhase3to4, TransmitInitZeroSharePhase2to4,
+    TransmitInitZeroSharePhase3to4, UniqueKeepDerivationPhase2to3,
 };
 use dkls23::protocols::Parameters;
 
-use dkls23::utilities::proofs::{DLogProof, InteractiveDLogProof, R, T};
+use dkls23::utilities::ot::base::{OTReceiver, OTSender};
+use dkls23::utilities::proofs::{
+    CPProof, DLogProof, EncProof, InteractiveDLogProof, RandomCommitments, R, T,
+};
 
 use dkls23::SECURITY;
 
@@ -287,6 +292,211 @@ impl CTransmitInitZeroSharePhase2to4 {
 }
 
 #[repr(C)]
+pub struct CRandomCommitments {
+    pub rc_g: CAffinePoint,
+    pub rc_h: CAffinePoint,
+}
+
+impl CRandomCommitments {
+    pub fn from(commitments: &RandomCommitments) -> Self {
+        CRandomCommitments {
+            rc_g: CAffinePoint::from(&commitments.rc_g),
+            rc_h: CAffinePoint::from(&commitments.rc_h),
+        }
+    }
+}
+
+#[repr(C)]
+pub struct CCPProof {
+    pub base_g: CAffinePoint,
+    pub base_h: CAffinePoint,
+    pub point_u: CAffinePoint,
+    pub point_v: CAffinePoint,
+    pub challenge_response: CScalar,
+}
+
+impl CCPProof {
+    pub fn from(proof: &CPProof) -> Self {
+        CCPProof {
+            base_g: CAffinePoint::from(&proof.base_g),
+            base_h: CAffinePoint::from(&proof.base_h),
+            point_u: CAffinePoint::from(&proof.point_u),
+            point_v: CAffinePoint::from(&proof.point_v),
+            challenge_response: CScalar::from(&proof.challenge_response),
+        }
+    }
+}
+
+#[repr(C)]
+pub struct CEncProof {
+    pub proof0: CCPProof,
+    pub proof1: CCPProof,
+    pub commitments0: CRandomCommitments,
+    pub commitments1: CRandomCommitments,
+    pub challenge0: CScalar,
+    pub challenge1: CScalar,
+}
+
+impl CEncProof {
+    pub fn from(proof: &EncProof) -> Self {
+        CEncProof {
+            proof0: CCPProof::from(&proof.proof0),
+            proof1: CCPProof::from(&proof.proof1),
+            commitments0: CRandomCommitments::from(&proof.commitments0),
+            commitments1: CRandomCommitments::from(&proof.commitments1),
+            challenge0: CScalar::from(&proof.challenge0),
+            challenge1: CScalar::from(&proof.challenge1),
+        }
+    }
+}
+
+#[repr(C)]
+pub struct CEncProofVec {
+    pub data: *const CEncProof,
+    pub len: usize,
+}
+
+impl CEncProofVec {
+    pub fn from(enc_proofs: &Vec<EncProof>) -> Self {
+        let mut c_enc_proofs: Vec<CEncProof> = Vec::new();
+        for proof in enc_proofs.iter() {
+            c_enc_proofs.push(CEncProof::from(&proof));
+        }
+        let len = c_enc_proofs.len();
+        let data =
+            Box::into_raw(c_enc_proofs.into_boxed_slice()) as *const CEncProof;
+        CEncProofVec { data, len }
+    }
+}
+
+#[repr(C)]
+pub struct CTransmitInitMulPhase3to4 {
+    pub parties: CPartiesMessage,
+    pub dlog_proof: CDLogProof,
+    pub nonce: CScalar,
+    pub enc_proofs: CEncProofVec,
+    pub seed: CSeed,
+}
+
+impl CTransmitInitMulPhase3to4 {
+    pub fn from(transmit: &TransmitInitMulPhase3to4) -> Self {
+        CTransmitInitMulPhase3to4 {
+            parties: CPartiesMessage {
+                sender: transmit.parties.sender,
+                receiver: transmit.parties.receiver,
+            },
+            dlog_proof: CDLogProof::from(&transmit.dlog_proof),
+            nonce: CScalar::from(&transmit.nonce),
+            enc_proofs: CEncProofVec::from(&transmit.enc_proofs),
+            seed: transmit.seed,
+        }
+    }
+}
+
+#[repr(C)]
+pub struct CKeepInitZeroSharePhase3to4 {
+    pub seed: CSeed,
+}
+
+impl CKeepInitZeroSharePhase3to4 {
+    pub fn from(keep: &KeepInitZeroSharePhase3to4) -> Self {
+        CKeepInitZeroSharePhase3to4 { seed: keep.seed }
+    }
+}
+
+#[repr(C)]
+pub struct CTransmitInitZeroSharePhase3to4 {
+    pub parties: CPartiesMessage,
+    pub seed: CSeed,
+    pub salt: *const u8,
+    pub salt_len: usize,
+}
+
+impl CTransmitInitZeroSharePhase3to4 {
+    pub fn from(transmit: &TransmitInitZeroSharePhase3to4) -> Self {
+        CTransmitInitZeroSharePhase3to4 {
+            parties: CPartiesMessage {
+                sender: transmit.parties.sender,
+                receiver: transmit.parties.receiver,
+            },
+            seed: transmit.seed,
+            salt: transmit.salt.as_ptr(),
+            salt_len: transmit.salt.len(),
+        }
+    }
+}
+
+#[repr(C)]
+pub struct COTSender {
+    pub s: CScalar,
+    pub proof: CDLogProof,
+}
+
+impl COTSender {
+    pub fn from(sender: &OTSender) -> Self {
+        COTSender {
+            s: CScalar::from(&sender.s),
+            proof: CDLogProof::from(&sender.proof),
+        }
+    }
+}
+
+#[repr(C)]
+pub struct COTReceiver {
+    pub seed: CSeed,
+}
+
+impl COTReceiver {
+    pub fn from(receiver: &OTReceiver) -> Self {
+        COTReceiver {
+            seed: receiver.seed,
+        }
+    }
+}
+
+#[repr(C)]
+pub struct CKeepInitMulPhase3to4 {
+    pub ot_sender: COTSender,
+    pub nonce: CScalar,
+    pub ot_receiver: COTReceiver,
+    pub correlation: *const bool,
+    pub correlation_len: usize,
+    pub vec_r: CScalarVec,
+}
+
+impl CKeepInitMulPhase3to4 {
+    pub fn from(keep: &KeepInitMulPhase3to4) -> Self {
+        CKeepInitMulPhase3to4 {
+            ot_sender: COTSender::from(&keep.ot_sender),
+            nonce: CScalar::from(&keep.nonce),
+            ot_receiver: COTReceiver::from(&keep.ot_receiver),
+            correlation: keep.correlation.as_ptr(),
+            correlation_len: keep.correlation.len(),
+            vec_r: CScalarVec::from(&keep.vec_r),
+        }
+    }
+}
+
+#[repr(C)]
+pub struct CBroadcastDerivationPhase3to4 {
+    pub sender_index: u8,
+    pub aux_chain_code: CChainCode,
+    pub cc_salt: *const u8,
+    pub cc_salt_len: usize,
+}
+
+impl CBroadcastDerivationPhase3to4 {
+    pub fn from(broadcast: &BroadcastDerivationPhase3to4) -> Self {
+        CBroadcastDerivationPhase3to4 {
+            sender_index: broadcast.sender_index,
+            aux_chain_code: broadcast.aux_chain_code,
+            cc_salt: broadcast.cc_salt.as_ptr(),
+            cc_salt_len: broadcast.cc_salt.len(),
+        }
+    }
+}
+
+#[repr(C)]
 pub struct CUniqueKeepDerivationPhase2to3 {
     pub aux_chain_code: CChainCode,
     pub cc_salt: [u8; 2 * SECURITY as usize],
@@ -307,6 +517,17 @@ impl CUniqueKeepDerivationPhase2to3 {
         CUniqueKeepDerivationPhase2to3 {
             aux_chain_code,
             cc_salt,
+        }
+    }
+
+    pub fn to_inner(&self) -> UniqueKeepDerivationPhase2to3 {
+        let mut cc_salt: [u8; 2 * SECURITY as usize] =
+            [0; 2 * SECURITY as usize];
+        cc_salt.copy_from_slice(self.cc_salt.as_slice());
+
+        UniqueKeepDerivationPhase2to3 {
+            aux_chain_code: self.aux_chain_code,
+            cc_salt: cc_salt.to_vec(),
         }
     }
 }
@@ -332,6 +553,44 @@ impl CBroadcastDerivationPhase2to4 {
 }
 
 #[repr(C)]
+pub struct CTransmitInitZeroSharePhase3to4Vec {
+    pub data: *const CTransmitInitZeroSharePhase3to4,
+    pub len: usize,
+}
+
+impl CTransmitInitZeroSharePhase3to4Vec {
+    pub fn from(vec: &Vec<TransmitInitZeroSharePhase3to4>) -> Self {
+        let mut c_vec: Vec<CTransmitInitZeroSharePhase3to4> = Vec::new();
+        for item in vec.iter() {
+            c_vec.push(CTransmitInitZeroSharePhase3to4::from(item));
+        }
+        let len = c_vec.len();
+        let data = Box::into_raw(c_vec.into_boxed_slice())
+            as *const CTransmitInitZeroSharePhase3to4;
+        CTransmitInitZeroSharePhase3to4Vec { data, len }
+    }
+}
+
+#[repr(C)]
+pub struct CTransmitInitMulPhase3to4Vec {
+    pub data: *const CTransmitInitMulPhase3to4,
+    pub len: usize,
+}
+
+impl CTransmitInitMulPhase3to4Vec {
+    pub fn from(vec: &Vec<TransmitInitMulPhase3to4>) -> Self {
+        let mut c_vec: Vec<CTransmitInitMulPhase3to4> = Vec::new();
+        for item in vec.iter() {
+            c_vec.push(CTransmitInitMulPhase3to4::from(item));
+        }
+        let len = c_vec.len();
+        let data = Box::into_raw(c_vec.into_boxed_slice())
+            as *const CTransmitInitMulPhase3to4;
+        CTransmitInitMulPhase3to4Vec { data, len }
+    }
+}
+
+#[repr(C)]
 pub struct CPhase2Out {
     pub poly_point: CScalar,
     pub proof_commitment: CProofCommitment,
@@ -339,6 +598,15 @@ pub struct CPhase2Out {
     pub zero_transmit: CTransmitInitZeroSharePhase2to4Vec, // share_count - 1
     pub bip_keep: CUniqueKeepDerivationPhase2to3,
     pub bip_broadcast: CBroadcastDerivationPhase2to4,
+}
+
+#[repr(C)]
+pub struct CPhase3Out {
+    pub zero_keep: CKeepInitZeroSharePhase3to4,
+    pub zero_transmit: CTransmitInitZeroSharePhase3to4Vec,
+    // pub mul_keep: CKeepInitMulPhase3to4BTreeMap,
+    pub mul_transmit: CTransmitInitMulPhase3to4Vec,
+    pub bip_broadcast: CBroadcastDerivationPhase3to4,
 }
 
 #[cfg(test)]
@@ -555,6 +823,33 @@ mod tests {
     }
 
     #[test]
+    fn test_unique_keep_derivation_phase2to3_to_inner() {
+        let aux_chain_code: CChainCode = [
+            1, 35, 69, 103, 137, 171, 205, 239, 253, 210, 167, 124, 81, 38, 5,
+            0, 144, 143, 142, 141, 140, 139, 138, 137, 136, 135, 134, 133, 132,
+            131, 130, 129,
+        ];
+
+        let cc_salt: [u8; 2 * SECURITY as usize] = [
+            1, 35, 69, 103, 137, 171, 205, 239, 253, 210, 167, 124, 81, 38, 5,
+            0, 144, 143, 142, 141, 140, 139, 138, 137, 136, 135, 134, 133, 132,
+            131, 130, 129, 1, 35, 69, 103, 137, 171, 205, 239, 253, 210, 167,
+            124, 81, 38, 5, 0, 144, 143, 142, 141, 140, 139, 138, 137, 136,
+            135, 134, 133, 132, 131, 130, 129,
+        ];
+
+        let c_unique_keep = CUniqueKeepDerivationPhase2to3 {
+            aux_chain_code,
+            cc_salt,
+        };
+
+        let unique_keep = c_unique_keep.to_inner();
+
+        assert_eq!(unique_keep.aux_chain_code, c_unique_keep.aux_chain_code);
+        assert_eq!(unique_keep.cc_salt, c_unique_keep.cc_salt.to_vec());
+    }
+
+    #[test]
     fn test_broadcast_derivation_phase2to4_to_c() {
         let broadcast_derivation_phase2to4 = BroadcastDerivationPhase2to4 {
             sender_index: 1,
@@ -577,5 +872,487 @@ mod tests {
             c_broadcast.cc_commitment,
             broadcast_derivation_phase2to4.cc_commitment
         );
+    }
+
+    #[test]
+    fn test_random_commitments_to_c() {
+        let random_scalar = Scalar::random(rand::thread_rng());
+        let random_point_g = ProjectivePoint::GENERATOR * random_scalar;
+        let random_point_h = ProjectivePoint::GENERATOR * random_scalar;
+        let commitments = RandomCommitments {
+            rc_g: AffinePoint::from(random_point_g),
+            rc_h: AffinePoint::from(random_point_h),
+        };
+
+        let c_commitments = CRandomCommitments::from(&commitments);
+
+        assert_eq!(
+            c_commitments.rc_g.bytes,
+            CAffinePoint::from(&commitments.rc_g).bytes
+        );
+        assert_eq!(
+            c_commitments.rc_h.bytes,
+            CAffinePoint::from(&commitments.rc_h).bytes
+        );
+    }
+
+    #[test]
+    fn test_cp_proof_to_c() {
+        let random_scalar = Scalar::random(rand::thread_rng());
+        let random_point_g = ProjectivePoint::GENERATOR * random_scalar;
+        let random_point_h = ProjectivePoint::GENERATOR * random_scalar;
+        let random_point_u = ProjectivePoint::GENERATOR * random_scalar;
+        let random_point_v = ProjectivePoint::GENERATOR * random_scalar;
+        let challenge_response = Scalar::random(rand::thread_rng());
+
+        let proof = CPProof {
+            base_g: AffinePoint::from(random_point_g),
+            base_h: AffinePoint::from(random_point_h),
+            point_u: AffinePoint::from(random_point_u),
+            point_v: AffinePoint::from(random_point_v),
+            challenge_response,
+        };
+
+        let c_proof = CCPProof::from(&proof);
+
+        assert_eq!(
+            c_proof.base_g.bytes,
+            CAffinePoint::from(&proof.base_g).bytes
+        );
+        assert_eq!(
+            c_proof.base_h.bytes,
+            CAffinePoint::from(&proof.base_h).bytes
+        );
+        assert_eq!(
+            c_proof.point_u.bytes,
+            CAffinePoint::from(&proof.point_u).bytes
+        );
+        assert_eq!(
+            c_proof.point_v.bytes,
+            CAffinePoint::from(&proof.point_v).bytes
+        );
+        assert_eq!(
+            c_proof.challenge_response.bytes,
+            CScalar::from(&proof.challenge_response).bytes
+        );
+    }
+
+    #[test]
+    fn test_enc_proof_to_c() {
+        let random_scalar = Scalar::random(rand::thread_rng());
+        let random_point_g = ProjectivePoint::GENERATOR * random_scalar;
+        let random_point_h = ProjectivePoint::GENERATOR * random_scalar;
+        let random_point_u = ProjectivePoint::GENERATOR * random_scalar;
+        let random_point_v = ProjectivePoint::GENERATOR * random_scalar;
+        let challenge_response = Scalar::random(rand::thread_rng());
+
+        let proof0 = CPProof {
+            base_g: AffinePoint::from(random_point_g),
+            base_h: AffinePoint::from(random_point_h),
+            point_u: AffinePoint::from(random_point_u),
+            point_v: AffinePoint::from(random_point_v),
+            challenge_response,
+        };
+
+        let proof1 = proof0.clone();
+
+        let commitments0 = RandomCommitments {
+            rc_g: AffinePoint::from(random_point_g),
+            rc_h: AffinePoint::from(random_point_h),
+        };
+
+        let commitments1 = commitments0.clone();
+
+        let challenge0 = Scalar::random(rand::thread_rng());
+        let challenge1 = Scalar::random(rand::thread_rng());
+
+        let enc_proof = EncProof {
+            proof0,
+            proof1,
+            commitments0,
+            commitments1,
+            challenge0,
+            challenge1,
+        };
+
+        let c_enc_proof = CEncProof::from(&enc_proof);
+
+        assert_eq!(
+            c_enc_proof.proof0.base_g.bytes,
+            CAffinePoint::from(&enc_proof.proof0.base_g).bytes
+        );
+        assert_eq!(
+            c_enc_proof.proof1.base_g.bytes,
+            CAffinePoint::from(&enc_proof.proof1.base_g).bytes
+        );
+        assert_eq!(
+            c_enc_proof.commitments0.rc_g.bytes,
+            CAffinePoint::from(&enc_proof.commitments0.rc_g).bytes
+        );
+        assert_eq!(
+            c_enc_proof.commitments1.rc_g.bytes,
+            CAffinePoint::from(&enc_proof.commitments1.rc_g).bytes
+        );
+        assert_eq!(
+            c_enc_proof.challenge0.bytes,
+            CScalar::from(&enc_proof.challenge0).bytes
+        );
+        assert_eq!(
+            c_enc_proof.challenge1.bytes,
+            CScalar::from(&enc_proof.challenge1).bytes
+        );
+    }
+
+    #[test]
+    fn test_transmit_init_mul_phase3to4_to_c() {
+        let random_scalar = Scalar::random(rand::thread_rng());
+        let random_point = ProjectivePoint::GENERATOR * random_scalar;
+        let dlog_proof = DLogProof {
+            point: AffinePoint::from(random_point),
+            rand_commitments: vec![AffinePoint::from(random_point); R as usize],
+            proofs: vec![
+                InteractiveDLogProof {
+                    challenge: vec![0u8; (T / 8) as usize],
+                    challenge_response: random_scalar,
+                };
+                R as usize
+            ],
+        };
+
+        let enc_proofs = vec![EncProof {
+            proof0: CPProof {
+                base_g: AffinePoint::from(random_point),
+                base_h: AffinePoint::from(random_point),
+                point_u: AffinePoint::from(random_point),
+                point_v: AffinePoint::from(random_point),
+                challenge_response: random_scalar,
+            },
+            proof1: CPProof {
+                base_g: AffinePoint::from(random_point),
+                base_h: AffinePoint::from(random_point),
+                point_u: AffinePoint::from(random_point),
+                point_v: AffinePoint::from(random_point),
+                challenge_response: random_scalar,
+            },
+            commitments0: RandomCommitments {
+                rc_g: AffinePoint::from(random_point),
+                rc_h: AffinePoint::from(random_point),
+            },
+            commitments1: RandomCommitments {
+                rc_g: AffinePoint::from(random_point),
+                rc_h: AffinePoint::from(random_point),
+            },
+            challenge0: random_scalar,
+            challenge1: random_scalar,
+        }];
+
+        let transmit = TransmitInitMulPhase3to4 {
+            parties: PartiesMessage {
+                sender: 1,
+                receiver: 2,
+            },
+            dlog_proof,
+            nonce: random_scalar,
+            enc_proofs,
+            seed: [0u8; SECURITY as usize],
+        };
+
+        let c_transmit = CTransmitInitMulPhase3to4::from(&transmit);
+
+        assert_eq!(c_transmit.parties.sender, transmit.parties.sender);
+        assert_eq!(c_transmit.parties.receiver, transmit.parties.receiver);
+        assert_eq!(
+            c_transmit.dlog_proof.point.bytes,
+            CAffinePoint::from(&transmit.dlog_proof.point).bytes
+        );
+        assert_eq!(
+            c_transmit.nonce.bytes,
+            CScalar::from(&transmit.nonce).bytes
+        );
+        assert_eq!(c_transmit.seed, transmit.seed);
+    }
+
+    #[test]
+    fn test_keep_init_zero_share_phase3to4_to_c() {
+        let keep = KeepInitZeroSharePhase3to4 {
+            seed: [0u8; SECURITY as usize],
+        };
+
+        let c_keep = CKeepInitZeroSharePhase3to4::from(&keep);
+
+        assert_eq!(c_keep.seed, keep.seed);
+    }
+
+    #[test]
+    fn test_transmit_init_zero_share_phase3to4_to_c() {
+        let salt: Vec<u8> = vec![1, 2, 3, 4, 5];
+        let transmit = TransmitInitZeroSharePhase3to4 {
+            parties: PartiesMessage {
+                sender: 1,
+                receiver: 2,
+            },
+            seed: [0u8; SECURITY as usize],
+            salt: salt.clone(),
+        };
+
+        let c_transmit = CTransmitInitZeroSharePhase3to4::from(&transmit);
+
+        assert_eq!(c_transmit.parties.sender, transmit.parties.sender);
+        assert_eq!(c_transmit.parties.receiver, transmit.parties.receiver);
+        assert_eq!(c_transmit.seed, transmit.seed);
+        assert_eq!(
+            unsafe {
+                std::slice::from_raw_parts(c_transmit.salt, c_transmit.salt_len)
+            },
+            salt.as_slice()
+        );
+    }
+
+    #[test]
+    fn test_ot_sender_to_c() {
+        let random_scalar = Scalar::random(rand::thread_rng());
+        let random_point = ProjectivePoint::GENERATOR * random_scalar;
+        let dlog_proof = DLogProof {
+            point: AffinePoint::from(random_point),
+            rand_commitments: vec![AffinePoint::from(random_point); R as usize],
+            proofs: vec![
+                InteractiveDLogProof {
+                    challenge: vec![0u8; (T / 8) as usize],
+                    challenge_response: random_scalar,
+                };
+                R as usize
+            ],
+        };
+
+        let sender = OTSender {
+            s: random_scalar,
+            proof: dlog_proof,
+        };
+
+        let c_sender = COTSender::from(&sender);
+
+        assert_eq!(c_sender.s.bytes, CScalar::from(&sender.s).bytes);
+        assert_eq!(
+            c_sender.proof.point.bytes,
+            CAffinePoint::from(&sender.proof.point).bytes
+        );
+    }
+
+    #[test]
+    fn test_ot_receiver_to_c() {
+        let receiver = OTReceiver {
+            seed: [0u8; SECURITY as usize],
+        };
+
+        let c_receiver = COTReceiver::from(&receiver);
+
+        assert_eq!(c_receiver.seed, receiver.seed);
+    }
+
+    #[test]
+    fn test_keep_init_mul_phase3to4_to_c() {
+        let random_scalar = Scalar::random(rand::thread_rng());
+        let random_point = ProjectivePoint::GENERATOR * random_scalar;
+        let dlog_proof = DLogProof {
+            point: AffinePoint::from(random_point),
+            rand_commitments: vec![AffinePoint::from(random_point); R as usize],
+            proofs: vec![
+                InteractiveDLogProof {
+                    challenge: vec![0u8; (T / 8) as usize],
+                    challenge_response: random_scalar,
+                };
+                R as usize
+            ],
+        };
+
+        let ot_sender = OTSender {
+            s: random_scalar,
+            proof: dlog_proof.clone(),
+        };
+
+        let ot_receiver = OTReceiver {
+            seed: [0u8; SECURITY as usize],
+        };
+
+        let correlation: Vec<bool> = vec![true, false, true];
+        let vec_r: Vec<Scalar> =
+            vec![random_scalar, random_scalar, random_scalar];
+
+        let keep = KeepInitMulPhase3to4 {
+            ot_sender,
+            nonce: random_scalar,
+            ot_receiver,
+            correlation: correlation.clone(),
+            vec_r: vec_r.clone(),
+        };
+
+        let c_keep = CKeepInitMulPhase3to4::from(&keep);
+
+        assert_eq!(
+            c_keep.ot_sender.s.bytes,
+            CScalar::from(&keep.ot_sender.s).bytes
+        );
+        assert_eq!(
+            c_keep.ot_sender.proof.point.bytes,
+            CAffinePoint::from(&keep.ot_sender.proof.point).bytes
+        );
+        assert_eq!(c_keep.nonce.bytes, CScalar::from(&keep.nonce).bytes);
+        assert_eq!(c_keep.ot_receiver.seed, keep.ot_receiver.seed);
+        assert_eq!(
+            unsafe {
+                std::slice::from_raw_parts(
+                    c_keep.correlation,
+                    c_keep.correlation_len,
+                )
+            },
+            correlation.as_slice()
+        );
+        assert_eq!(c_keep.vec_r.to_vec(), vec_r);
+    }
+
+    #[test]
+    fn test_broadcast_derivation_phase3to4_to_c() {
+        let broadcast = BroadcastDerivationPhase3to4 {
+            sender_index: 1,
+            aux_chain_code: [0u8; 32],
+            cc_salt: vec![1, 2, 3, 4, 5],
+        };
+
+        let c_broadcast = CBroadcastDerivationPhase3to4::from(&broadcast);
+
+        assert_eq!(c_broadcast.sender_index, broadcast.sender_index);
+        assert_eq!(c_broadcast.aux_chain_code, broadcast.aux_chain_code);
+        assert_eq!(
+            unsafe {
+                std::slice::from_raw_parts(
+                    c_broadcast.cc_salt,
+                    c_broadcast.cc_salt_len,
+                )
+            },
+            broadcast.cc_salt.as_slice()
+        );
+    }
+
+    #[test]
+    fn test_transmit_init_zero_share_phase3to4_vec_from() {
+        let salt: Vec<u8> = vec![1, 2, 3, 4, 5];
+        let transmit1 = TransmitInitZeroSharePhase3to4 {
+            parties: PartiesMessage {
+                sender: 1,
+                receiver: 2,
+            },
+            seed: [0u8; SECURITY as usize],
+            salt: salt.clone(),
+        };
+
+        let transmit2 = TransmitInitZeroSharePhase3to4 {
+            parties: PartiesMessage {
+                sender: 3,
+                receiver: 4,
+            },
+            seed: [1u8; SECURITY as usize],
+            salt: salt.clone(),
+        };
+
+        let vec = vec![transmit1, transmit2];
+        let c_vec = CTransmitInitZeroSharePhase3to4Vec::from(&vec);
+
+        assert_eq!(c_vec.len, vec.len());
+        let c_items =
+            unsafe { std::slice::from_raw_parts(c_vec.data, c_vec.len) };
+
+        for (i, item) in c_items.iter().enumerate() {
+            assert_eq!(item.parties.sender, vec[i].parties.sender);
+            assert_eq!(item.parties.receiver, vec[i].parties.receiver);
+            assert_eq!(item.seed, vec[i].seed);
+            assert_eq!(
+                unsafe { std::slice::from_raw_parts(item.salt, item.salt_len) },
+                vec[i].salt.as_slice()
+            );
+        }
+    }
+
+    #[test]
+    fn test_transmit_init_mul_phase3to4_vec_from() {
+        let random_scalar = Scalar::random(rand::thread_rng());
+        let random_point = ProjectivePoint::GENERATOR * random_scalar;
+        let dlog_proof = DLogProof {
+            point: AffinePoint::from(random_point),
+            rand_commitments: vec![AffinePoint::from(random_point); R as usize],
+            proofs: vec![
+                InteractiveDLogProof {
+                    challenge: vec![0u8; (T / 8) as usize],
+                    challenge_response: random_scalar,
+                };
+                R as usize
+            ],
+        };
+
+        let enc_proofs = vec![EncProof {
+            proof0: CPProof {
+                base_g: AffinePoint::from(random_point),
+                base_h: AffinePoint::from(random_point),
+                point_u: AffinePoint::from(random_point),
+                point_v: AffinePoint::from(random_point),
+                challenge_response: random_scalar,
+            },
+            proof1: CPProof {
+                base_g: AffinePoint::from(random_point),
+                base_h: AffinePoint::from(random_point),
+                point_u: AffinePoint::from(random_point),
+                point_v: AffinePoint::from(random_point),
+                challenge_response: random_scalar,
+            },
+            commitments0: RandomCommitments {
+                rc_g: AffinePoint::from(random_point),
+                rc_h: AffinePoint::from(random_point),
+            },
+            commitments1: RandomCommitments {
+                rc_g: AffinePoint::from(random_point),
+                rc_h: AffinePoint::from(random_point),
+            },
+            challenge0: random_scalar,
+            challenge1: random_scalar,
+        }];
+
+        let transmit1 = TransmitInitMulPhase3to4 {
+            parties: PartiesMessage {
+                sender: 1,
+                receiver: 2,
+            },
+            dlog_proof: dlog_proof.clone(),
+            nonce: random_scalar,
+            enc_proofs: enc_proofs.clone(),
+            seed: [0u8; SECURITY as usize],
+        };
+
+        let transmit2 = TransmitInitMulPhase3to4 {
+            parties: PartiesMessage {
+                sender: 3,
+                receiver: 4,
+            },
+            dlog_proof,
+            nonce: random_scalar,
+            enc_proofs,
+            seed: [1u8; SECURITY as usize],
+        };
+
+        let vec = vec![transmit1, transmit2];
+        let c_vec = CTransmitInitMulPhase3to4Vec::from(&vec);
+
+        assert_eq!(c_vec.len, vec.len());
+        let c_items =
+            unsafe { std::slice::from_raw_parts(c_vec.data, c_vec.len) };
+
+        for (i, item) in c_items.iter().enumerate() {
+            assert_eq!(item.parties.sender, vec[i].parties.sender);
+            assert_eq!(item.parties.receiver, vec[i].parties.receiver);
+            assert_eq!(
+                item.dlog_proof.point.bytes,
+                CAffinePoint::from(&vec[i].dlog_proof.point).bytes
+            );
+            assert_eq!(item.nonce.bytes, CScalar::from(&vec[i].nonce).bytes);
+            assert_eq!(item.seed, vec[i].seed);
+        }
     }
 }
