@@ -304,6 +304,18 @@ pub struct CBroadcastDerivationPhase2to4 {
     pub cc_commitment: CHashOutput,
 }
 
+impl CBroadcastDerivationPhase2to4 {
+    pub fn from(broadcast_derivation_phase2to4: &BroadcastDerivationPhase2to4) -> Self {
+        let sender_index = broadcast_derivation_phase2to4.sender_index;
+        let cc_commitment = broadcast_derivation_phase2to4.cc_commitment;
+
+        CBroadcastDerivationPhase2to4 {
+            sender_index,
+            cc_commitment,
+        }
+    }
+}
+
 #[repr(C)]
 pub struct CPhase2Out {
     pub poly_point: CScalar,
@@ -311,7 +323,7 @@ pub struct CPhase2Out {
     //pub zero_keep: CBTreeMap<u8, KeepInitZeroSharePhase2to3>,
     pub zero_transmit: CTransmitInitZeroSharePhase2to4Vec, // share_count - 1
     pub bip_keep: CUniqueKeepDerivationPhase2to3,
-    //pub bip_broadcast: CBroadcastDerivationPhase2to4,
+    pub bip_broadcast: CBroadcastDerivationPhase2to4,
 }
 
 #[cfg(test)]
@@ -517,6 +529,28 @@ mod tests {
         assert_eq!(
             c_unique_keep.cc_salt,
             unique_keep_derivation_phase2to3.cc_salt.as_slice()
+        );
+    }
+
+    #[test]
+    fn test_broadcast_derivation_phase2to4_to_c() {
+        let broadcast_derivation_phase2to4 = BroadcastDerivationPhase2to4 {
+            sender_index: 1,
+            cc_commitment: [
+                1, 35, 69, 103, 137, 171, 205, 239, 253, 210, 167, 124, 81, 38, 5, 0, 144, 143,
+                142, 141, 140, 139, 138, 137, 136, 135, 134, 133, 132, 131, 130, 129,
+            ],
+        };
+
+        let c_broadcast = CBroadcastDerivationPhase2to4::from(&broadcast_derivation_phase2to4);
+
+        assert_eq!(
+            c_broadcast.sender_index,
+            broadcast_derivation_phase2to4.sender_index
+        );
+        assert_eq!(
+            c_broadcast.cc_commitment,
+            broadcast_derivation_phase2to4.cc_commitment
         );
     }
 }
