@@ -1,20 +1,15 @@
-use dkls23::protocols::Parameters;
 use dkls23::protocols::dkg::{
     BroadcastDerivationPhase2to4, ProofCommitment, SessionData,
     TransmitInitZeroSharePhase2to4, UniqueKeepDerivationPhase2to3,
 };
+use dkls23::protocols::Parameters;
 
-use dkls23::utilities::proofs::{
-    DLogProof, InteractiveDLogProof, R, T,
-};
+use dkls23::utilities::proofs::{DLogProof, InteractiveDLogProof, R, T};
 
-use::dkls23::SECURITY;
+use dkls23::SECURITY;
 
 use k256::{
-    elliptic_curve::{
-        ff::PrimeField,
-        sec1::FromEncodedPoint
-    },
+    elliptic_curve::{ff::PrimeField, sec1::FromEncodedPoint},
     AffinePoint, EncodedPoint, FieldBytes, Scalar,
 };
 
@@ -27,7 +22,7 @@ pub type CHashOutput = [u8; SECURITY as usize];
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct CScalar {
-    bytes: [u8; 32]
+    bytes: [u8; 32],
 }
 
 impl CScalar {
@@ -53,9 +48,8 @@ pub struct CScalarVec {
 impl CScalarVec {
     pub fn to_vec(&self) -> Vec<Scalar> {
         let mut out: Vec<Scalar> = Vec::new();
-        let scalars = unsafe {
-            std::slice::from_raw_parts(self.data, self.len)
-        };
+        let scalars =
+            unsafe { std::slice::from_raw_parts(self.data, self.len) };
         for i in 0..scalars.len() {
             let scalar_option = Scalar::from_repr(scalars[i].bytes.into());
             if let Some(scalar) = scalar_option.into() {
@@ -175,7 +169,9 @@ impl CInteractiveDLogProof {
         }
     }
 
-    pub fn from_vec64(proofs: &Vec<InteractiveDLogProof>) -> [Self; R as usize] {
+    pub fn from_vec64(
+        proofs: &Vec<InteractiveDLogProof>,
+    ) -> [Self; R as usize] {
         let mut c_proofs: [CInteractiveDLogProof; R as usize] =
             [CInteractiveDLogProof::default(); R as usize];
         for (i, proof) in proofs.iter().enumerate() {
@@ -195,10 +191,15 @@ pub struct CDLogProof {
 impl CDLogProof {
     pub fn from(dlog_proof: &DLogProof) -> Self {
         let point = CAffinePoint::from(&dlog_proof.point);
-        let rand_commitments = CAffinePoint::from_vec64(&dlog_proof.rand_commitments);
+        let rand_commitments =
+            CAffinePoint::from_vec64(&dlog_proof.rand_commitments);
         let proofs = CInteractiveDLogProof::from_vec64(&dlog_proof.proofs);
 
-        CDLogProof { point, rand_commitments, proofs }
+        CDLogProof {
+            point,
+            rand_commitments,
+            proofs,
+        }
     }
 }
 
@@ -215,7 +216,11 @@ impl CProofCommitment {
         let commitment = proof_commitment.commitment;
         let proof = CDLogProof::from(&proof_commitment.proof);
 
-        CProofCommitment { index, proof, commitment }
+        CProofCommitment {
+            index,
+            proof,
+            commitment,
+        }
     }
 }
 
@@ -246,14 +251,15 @@ impl CTransmitInitZeroSharePhase2to4Vec {
     pub fn from(
         zero_transmit_vec: &Vec<TransmitInitZeroSharePhase2to4>,
     ) -> Self {
-        let mut c_zero_transmit_vec: Vec<CTransmitInitZeroSharePhase2to4> = Vec::new();
+        let mut c_zero_transmit_vec: Vec<CTransmitInitZeroSharePhase2to4> =
+            Vec::new();
         for zero_transmit in zero_transmit_vec.iter() {
-            c_zero_transmit_vec.push(
-                CTransmitInitZeroSharePhase2to4::from(&zero_transmit)
-            );
+            c_zero_transmit_vec
+                .push(CTransmitInitZeroSharePhase2to4::from(&zero_transmit));
         }
         let len = zero_transmit_vec.len();
-        let data = Box::into_raw(c_zero_transmit_vec.into_boxed_slice()) as *const CTransmitInitZeroSharePhase2to4;
+        let data = Box::into_raw(c_zero_transmit_vec.into_boxed_slice())
+            as *const CTransmitInitZeroSharePhase2to4;
 
         CTransmitInitZeroSharePhase2to4Vec { data, len }
     }
@@ -266,7 +272,9 @@ pub struct CTransmitInitZeroSharePhase2to4 {
 }
 
 impl CTransmitInitZeroSharePhase2to4 {
-    pub fn from(transmit_init_zero_share_phase2to4: &TransmitInitZeroSharePhase2to4) -> Self {
+    pub fn from(
+        transmit_init_zero_share_phase2to4: &TransmitInitZeroSharePhase2to4,
+    ) -> Self {
         let sender = transmit_init_zero_share_phase2to4.parties.sender;
         let receiver = transmit_init_zero_share_phase2to4.parties.receiver;
         let commitment = transmit_init_zero_share_phase2to4.commitment;
@@ -285,9 +293,14 @@ pub struct CUniqueKeepDerivationPhase2to3 {
 }
 
 impl CUniqueKeepDerivationPhase2to3 {
-    pub fn from(unique_keep_derivation_phase2to3: &UniqueKeepDerivationPhase2to3) -> Self {
-        let mut cc_salt: [u8; 2 * SECURITY as usize] = [0; 2 * SECURITY as usize];
-        cc_salt.copy_from_slice(unique_keep_derivation_phase2to3.cc_salt.as_slice());
+    pub fn from(
+        unique_keep_derivation_phase2to3: &UniqueKeepDerivationPhase2to3,
+    ) -> Self {
+        let mut cc_salt: [u8; 2 * SECURITY as usize] =
+            [0; 2 * SECURITY as usize];
+        cc_salt.copy_from_slice(
+            unique_keep_derivation_phase2to3.cc_salt.as_slice(),
+        );
 
         let aux_chain_code = unique_keep_derivation_phase2to3.aux_chain_code;
 
@@ -305,7 +318,9 @@ pub struct CBroadcastDerivationPhase2to4 {
 }
 
 impl CBroadcastDerivationPhase2to4 {
-    pub fn from(broadcast_derivation_phase2to4: &BroadcastDerivationPhase2to4) -> Self {
+    pub fn from(
+        broadcast_derivation_phase2to4: &BroadcastDerivationPhase2to4,
+    ) -> Self {
         let sender_index = broadcast_derivation_phase2to4.sender_index;
         let cc_commitment = broadcast_derivation_phase2to4.cc_commitment;
 
@@ -330,8 +345,8 @@ pub struct CPhase2Out {
 mod tests {
     use super::*;
     use dkls23::protocols::PartiesMessage;
-    use k256::ProjectivePoint;
     use k256::elliptic_curve::ff::Field;
+    use k256::ProjectivePoint;
     use rand;
 
     #[test]
@@ -342,10 +357,9 @@ mod tests {
         };
 
         let bytes: [u8; 32] = [
-            1, 35, 69, 103, 137, 171, 205, 239,
-            253, 210, 167, 124, 81, 38, 5, 0,
-            144, 143, 142, 141, 140, 139, 138, 137,
-            136, 135, 134, 133, 132, 131, 130, 129,
+            1, 35, 69, 103, 137, 171, 205, 239, 253, 210, 167, 124, 81, 38, 5,
+            0, 144, 143, 142, 141, 140, 139, 138, 137, 136, 135, 134, 133, 132,
+            131, 130, 129,
         ];
 
         let c_session = CSessionData {
@@ -358,21 +372,27 @@ mod tests {
         let session = c_session.to_session();
 
         assert_eq!(session.party_index, c_session.party_index);
-        assert_eq!(session.parameters.share_count, c_session.parameters.share_count);
-        assert_eq!(session.parameters.threshold, c_session.parameters.threshold);
+        assert_eq!(
+            session.parameters.share_count,
+            c_session.parameters.share_count
+        );
+        assert_eq!(
+            session.parameters.threshold,
+            c_session.parameters.threshold
+        );
         assert_eq!(session.session_id, bytes);
     }
 
     #[test]
     fn test_scalar_to_c() {
         let bytes = [
-            1, 35, 69, 103, 137, 171, 205, 239,
-            253, 210, 167, 124, 81, 38, 5, 0,
-            144, 143, 142, 141, 140, 139, 138, 137,
-            136, 135, 134, 133, 132, 131, 130, 129,
+            1, 35, 69, 103, 137, 171, 205, 239, 253, 210, 167, 124, 81, 38, 5,
+            0, 144, 143, 142, 141, 140, 139, 138, 137, 136, 135, 134, 133, 132,
+            131, 130, 129,
         ];
 
-        let scalar = Scalar::from_repr(bytes.into()).expect("Failed to create scalar");
+        let scalar =
+            Scalar::from_repr(bytes.into()).expect("Failed to create scalar");
         let c_scalar = CScalar::from(&scalar);
 
         assert_eq!(bytes, c_scalar.bytes);
@@ -393,14 +413,14 @@ mod tests {
         //     infinity: 0,
         // }
         let encoded_affine_point_bytes = [
-            3, 197, 196, 14, 95, 232, 224, 232,
-            120, 132, 182, 224, 158, 66, 114, 9,
-            243, 139, 109, 96, 188, 105, 216, 77,
-            128, 48, 104, 197, 134, 233, 193, 67, 22,
+            3, 197, 196, 14, 95, 232, 224, 232, 120, 132, 182, 224, 158, 66,
+            114, 9, 243, 139, 109, 96, 188, 105, 216, 77, 128, 48, 104, 197,
+            134, 233, 193, 67, 22,
         ];
 
-        let encoded_point = EncodedPoint::from_bytes(encoded_affine_point_bytes)
-            .expect("Failed to parse EncodedPoint");
+        let encoded_point =
+            EncodedPoint::from_bytes(encoded_affine_point_bytes)
+                .expect("Failed to parse EncodedPoint");
 
         let affine_point = AffinePoint::from_encoded_point(&encoded_point)
             .expect("Failed to convert to AffinePoint");
@@ -429,11 +449,10 @@ mod tests {
         // }
         let c_affine_point = CAffinePoint {
             bytes: [
-                2, 121, 190, 102, 126, 249, 220, 187,
-                172, 85, 160, 98, 149, 206, 135, 11,
-                7, 2, 155, 252, 219, 45, 206, 40,
-                217, 89, 242, 129, 91, 22, 248, 23, 152
-            ]
+                2, 121, 190, 102, 126, 249, 220, 187, 172, 85, 160, 98, 149,
+                206, 135, 11, 7, 2, 155, 252, 219, 45, 206, 40, 217, 89, 242,
+                129, 91, 22, 248, 23, 152,
+            ],
         };
 
         let affine_point = c_affine_point.to_affine_point();
@@ -442,7 +461,8 @@ mod tests {
 
     #[test]
     fn test_affine_point_to_c_vec64() {
-        let mut affine_points: Vec<AffinePoint> = Vec::with_capacity(R as usize);
+        let mut affine_points: Vec<AffinePoint> =
+            Vec::with_capacity(R as usize);
 
         for _ in 0..R {
             let random_scalar = Scalar::random(rand::thread_rng());
@@ -463,32 +483,30 @@ mod tests {
     }
 
     #[test]
-    fn test_interactive_proof_to_c() {
-
-    }
+    fn test_interactive_proof_to_c() {}
 
     #[test]
-    fn test_interactive_proof_to_c_vec64() {
-
-    }
+    fn test_interactive_proof_to_c_vec64() {}
 
     #[test]
     fn test_transmit_init_zero_share_phase2to4_to_c() {
-        let transmit_init_zero_share_phase2to4 = TransmitInitZeroSharePhase2to4 {
-            parties: PartiesMessage {
-                sender: 1,
-                receiver: 2,
-            },
+        let transmit_init_zero_share_phase2to4 =
+            TransmitInitZeroSharePhase2to4 {
+                parties: PartiesMessage {
+                    sender: 1,
+                    receiver: 2,
+                },
 
-            commitment: [
-                1, 35, 69, 103, 137, 171, 205, 239,
-                253, 210, 167, 124, 81, 38, 5, 0,
-                144, 143, 142, 141, 140, 139, 138, 137,
-                136, 135, 134, 133, 132, 131, 130, 129,
-            ],
-        };
+                commitment: [
+                    1, 35, 69, 103, 137, 171, 205, 239, 253, 210, 167, 124, 81,
+                    38, 5, 0, 144, 143, 142, 141, 140, 139, 138, 137, 136, 135,
+                    134, 133, 132, 131, 130, 129,
+                ],
+            };
 
-        let c_transmit = CTransmitInitZeroSharePhase2to4::from(&transmit_init_zero_share_phase2to4);
+        let c_transmit = CTransmitInitZeroSharePhase2to4::from(
+            &transmit_init_zero_share_phase2to4,
+        );
 
         assert_eq!(
             c_transmit.parties.sender,
@@ -507,20 +525,24 @@ mod tests {
     #[test]
     fn test_unique_keep_derivation_phase2to3_to_c() {
         let cc_salt: [u8; 64] = [
-            1, 35, 69, 103, 137, 171, 205, 239, 253, 210, 167, 124, 81, 38, 5, 0, 144, 143, 142,
-            141, 140, 139, 138, 137, 136, 135, 134, 133, 132, 131, 130, 129, 1, 35, 69, 103, 137,
-            171, 205, 239, 253, 210, 167, 124, 81, 38, 5, 0, 144, 143, 142, 141, 140, 139, 138,
-            137, 136, 135, 134, 133, 132, 131, 130, 129,
+            1, 35, 69, 103, 137, 171, 205, 239, 253, 210, 167, 124, 81, 38, 5,
+            0, 144, 143, 142, 141, 140, 139, 138, 137, 136, 135, 134, 133, 132,
+            131, 130, 129, 1, 35, 69, 103, 137, 171, 205, 239, 253, 210, 167,
+            124, 81, 38, 5, 0, 144, 143, 142, 141, 140, 139, 138, 137, 136,
+            135, 134, 133, 132, 131, 130, 129,
         ];
         let unique_keep_derivation_phase2to3 = UniqueKeepDerivationPhase2to3 {
             aux_chain_code: [
-                1, 35, 69, 103, 137, 171, 205, 239, 253, 210, 167, 124, 81, 38, 5, 0, 144, 143,
-                142, 141, 140, 139, 138, 137, 136, 135, 134, 133, 132, 131, 130, 129,
+                1, 35, 69, 103, 137, 171, 205, 239, 253, 210, 167, 124, 81, 38,
+                5, 0, 144, 143, 142, 141, 140, 139, 138, 137, 136, 135, 134,
+                133, 132, 131, 130, 129,
             ],
             cc_salt: cc_salt.to_vec(),
         };
 
-        let c_unique_keep = CUniqueKeepDerivationPhase2to3::from(&unique_keep_derivation_phase2to3);
+        let c_unique_keep = CUniqueKeepDerivationPhase2to3::from(
+            &unique_keep_derivation_phase2to3,
+        );
 
         assert_eq!(
             c_unique_keep.aux_chain_code,
@@ -537,12 +559,15 @@ mod tests {
         let broadcast_derivation_phase2to4 = BroadcastDerivationPhase2to4 {
             sender_index: 1,
             cc_commitment: [
-                1, 35, 69, 103, 137, 171, 205, 239, 253, 210, 167, 124, 81, 38, 5, 0, 144, 143,
-                142, 141, 140, 139, 138, 137, 136, 135, 134, 133, 132, 131, 130, 129,
+                1, 35, 69, 103, 137, 171, 205, 239, 253, 210, 167, 124, 81, 38,
+                5, 0, 144, 143, 142, 141, 140, 139, 138, 137, 136, 135, 134,
+                133, 132, 131, 130, 129,
             ],
         };
 
-        let c_broadcast = CBroadcastDerivationPhase2to4::from(&broadcast_derivation_phase2to4);
+        let c_broadcast = CBroadcastDerivationPhase2to4::from(
+            &broadcast_derivation_phase2to4,
+        );
 
         assert_eq!(
             c_broadcast.sender_index,

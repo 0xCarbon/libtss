@@ -1,8 +1,9 @@
-use dkls23::protocols::dkg;
 use crate::dkls23::utilities::c_types::{
-    CBroadcastDerivationPhase2to4, CPhase2Out, CProofCommitment, CSessionData,
-    CScalar, CScalarVec, CTransmitInitZeroSharePhase2to4Vec, CUniqueKeepDerivationPhase2to3,
+    CBroadcastDerivationPhase2to4, CPhase2Out, CProofCommitment, CScalar,
+    CScalarVec, CSessionData, CTransmitInitZeroSharePhase2to4Vec,
+    CUniqueKeepDerivationPhase2to3,
 };
+use dkls23::protocols::dkg;
 
 #[no_mangle]
 pub extern "C" fn dkls_phase1(session: &CSessionData) -> CScalarVec {
@@ -15,7 +16,7 @@ pub extern "C" fn dkls_phase1(session: &CSessionData) -> CScalarVec {
 #[no_mangle]
 pub extern "C" fn dkls_phase2(
     session: &CSessionData,
-    c_poly_fragments: &CScalarVec
+    c_poly_fragments: &CScalarVec,
 ) -> CPhase2Out {
     let session_data = CSessionData::to_session(session);
     let poly_fragments = c_poly_fragments.to_vec();
@@ -32,7 +33,8 @@ pub extern "C" fn dkls_phase2(
     let c_poly_point = CScalar::from(&poly_point);
     let c_proof_commitment = CProofCommitment::from(&proof_commitment);
     // let zero_keep = BTreeMap
-    let c_zero_transmit_vec = CTransmitInitZeroSharePhase2to4Vec::from(&zero_transmit);
+    let c_zero_transmit_vec =
+        CTransmitInitZeroSharePhase2to4Vec::from(&zero_transmit);
     let c_bip_keep = CUniqueKeepDerivationPhase2to3::from(&bip_keep);
     let c_bip_broadcast = CBroadcastDerivationPhase2to4::from(&bip_broadcast);
 
