@@ -237,6 +237,29 @@ pub struct CPartiesMessage {
 }
 
 #[repr(C)]
+pub struct CTransmitInitZeroSharePhase2to4Vec {
+    pub data: *const CTransmitInitZeroSharePhase2to4,
+    pub len: usize,
+}
+
+impl CTransmitInitZeroSharePhase2to4Vec {
+    pub fn from(
+        zero_transmit_vec: &Vec<TransmitInitZeroSharePhase2to4>,
+    ) -> Self {
+        let mut c_zero_transmit_vec: Vec<CTransmitInitZeroSharePhase2to4> = Vec::new();
+        for zero_transmit in zero_transmit_vec.iter() {
+            c_zero_transmit_vec.push(
+                CTransmitInitZeroSharePhase2to4::from(&zero_transmit)
+            );
+        }
+        let len = zero_transmit_vec.len();
+        let data = Box::into_raw(c_zero_transmit_vec.into_boxed_slice()) as *const CTransmitInitZeroSharePhase2to4;
+
+        CTransmitInitZeroSharePhase2to4Vec { data, len }
+    }
+}
+
+#[repr(C)]
 pub struct CTransmitInitZeroSharePhase2to4 {
     pub parties: CPartiesMessage,
     pub commitment: CHashOutput,
@@ -286,9 +309,9 @@ pub struct CPhase2Out {
     pub poly_point: CScalar,
     pub proof_commitment: CProofCommitment,
     //pub zero_keep: CBTreeMap<u8, KeepInitZeroSharePhase2to3>,
-    pub zero_transmit: *const CTransmitInitZeroSharePhase2to4, // share_count - 1
+    pub zero_transmit: CTransmitInitZeroSharePhase2to4Vec, // share_count - 1
     pub bip_keep: CUniqueKeepDerivationPhase2to3,
-    pub bip_broadcast: CBroadcastDerivationPhase2to4,
+    //pub bip_broadcast: CBroadcastDerivationPhase2to4,
 }
 
 #[cfg(test)]
