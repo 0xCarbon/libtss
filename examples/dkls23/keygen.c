@@ -10,4 +10,5 @@ int main() {
     //print_scalar_vec(&scalars);
 
     Phase2Out phase2_out = dkls_phase2(session_data_1, &scalars);
+    print_phase_2(&phase2_out);
 }

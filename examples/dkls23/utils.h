@@ -9,3 +9,4 @@ SessionData* create_session(
 );
 
 void print_scalar_vec(const ScalarVec* scalar_vec);
+void print_phase_2(const Phase2Out* phase2);
