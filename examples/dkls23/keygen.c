@@ -9,6 +9,5 @@ int main() {
     ScalarVec scalars = dkls_phase1(session_data_1);
     //print_scalar_vec(&scalars);
 
-    dkls_phase2(session_data_1, &scalars);
-
+    Phase2Out phase2_out = dkls_phase2(session_data_1, &scalars);
 }
