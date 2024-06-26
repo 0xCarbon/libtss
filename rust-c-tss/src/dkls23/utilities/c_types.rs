@@ -8,21 +8,24 @@ use dkls23::protocols::Parameters;
 
 use dkls23::utilities::ot::base::{OTReceiver, OTSender};
 use dkls23::utilities::proofs::{
-    CPProof, DLogProof, EncProof, InteractiveDLogProof, RandomCommitments, R, T,
+    CPProof, DLogProof, EncProof, InteractiveDLogProof, RandomCommitments,
 };
-
-use dkls23::SECURITY;
 
 use k256::{
     elliptic_curve::{ff::PrimeField, sec1::FromEncodedPoint},
     AffinePoint, EncodedPoint, FieldBytes, Scalar,
 };
 
+pub const SECURITY: usize = 32;
+pub const R: usize = 64;
+pub const T: usize = 32;
+pub const T_8: usize = T / 8;
 pub const SECP256K1_ENCODED_SIZE: usize = 33;
+pub const SALT_LEN: usize = 2 * SECURITY;
 
 pub type CChainCode = [u8; 32];
-pub type CSeed = [u8; SECURITY as usize];
-pub type CHashOutput = [u8; SECURITY as usize];
+pub type CSeed = [u8; SECURITY];
+pub type CHashOutput = [u8; SECURITY];
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -107,9 +110,8 @@ impl CAffinePoint {
             .expect("Failed to convert to AffinePoint")
     }
 
-    pub fn from_vec64(point_vec: &Vec<AffinePoint>) -> [Self; R as usize] {
-        let mut points: [CAffinePoint; R as usize] =
-            [CAffinePoint::default(); R as usize];
+    pub fn from_vec64(point_vec: &Vec<AffinePoint>) -> [Self; R] {
+        let mut points: [CAffinePoint; R] = [CAffinePoint::default(); R];
 
         for (i, point) in point_vec.iter().enumerate() {
             let c_affine_point = CAffinePoint::from(&point);
@@ -152,20 +154,20 @@ impl CSessionData {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct CInteractiveDLogProof {
-    pub challenge: [u8; (T / 8) as usize],
+    pub challenge: [u8; T_8],
     pub challenge_response: CScalar,
 }
 
 impl CInteractiveDLogProof {
     fn default() -> Self {
         CInteractiveDLogProof {
-            challenge: [0; (T / 8) as usize],
+            challenge: [0; T_8],
             challenge_response: CScalar::default(),
         }
     }
 
     pub fn from(proof: &InteractiveDLogProof) -> Self {
-        let mut challenge: [u8; (T / 8) as usize] = [0; (T / 8) as usize];
+        let mut challenge: [u8; T_8] = [0; T_8];
         challenge.copy_from_slice(proof.challenge.as_slice());
 
         CInteractiveDLogProof {
@@ -174,11 +176,9 @@ impl CInteractiveDLogProof {
         }
     }
 
-    pub fn from_vec64(
-        proofs: &Vec<InteractiveDLogProof>,
-    ) -> [Self; R as usize] {
-        let mut c_proofs: [CInteractiveDLogProof; R as usize] =
-            [CInteractiveDLogProof::default(); R as usize];
+    pub fn from_vec64(proofs: &Vec<InteractiveDLogProof>) -> [Self; R] {
+        let mut c_proofs: [CInteractiveDLogProof; R] =
+            [CInteractiveDLogProof::default(); R];
         for (i, proof) in proofs.iter().enumerate() {
             c_proofs[i] = CInteractiveDLogProof::from(&proof);
         }
@@ -189,8 +189,8 @@ impl CInteractiveDLogProof {
 #[repr(C)]
 pub struct CDLogProof {
     pub point: CAffinePoint,
-    pub rand_commitments: [CAffinePoint; R as usize],
-    pub proofs: [CInteractiveDLogProof; R as usize],
+    pub rand_commitments: [CAffinePoint; R],
+    pub proofs: [CInteractiveDLogProof; R],
 }
 
 impl CDLogProof {
@@ -232,7 +232,7 @@ impl CProofCommitment {
 #[repr(C)]
 pub struct CKeepInitZeroSharePhase2to3 {
     pub seed: CSeed,
-    pub salt: [u8; 2 * SECURITY as usize],
+    pub salt: [u8; SALT_LEN],
 }
 
 #[repr(C)]
@@ -499,15 +499,14 @@ impl CBroadcastDerivationPhase3to4 {
 #[repr(C)]
 pub struct CUniqueKeepDerivationPhase2to3 {
     pub aux_chain_code: CChainCode,
-    pub cc_salt: [u8; 2 * SECURITY as usize],
+    pub cc_salt: [u8; SALT_LEN],
 }
 
 impl CUniqueKeepDerivationPhase2to3 {
     pub fn from(
         unique_keep_derivation_phase2to3: &UniqueKeepDerivationPhase2to3,
     ) -> Self {
-        let mut cc_salt: [u8; 2 * SECURITY as usize] =
-            [0; 2 * SECURITY as usize];
+        let mut cc_salt: [u8; SALT_LEN] = [0; SALT_LEN];
         cc_salt.copy_from_slice(
             unique_keep_derivation_phase2to3.cc_salt.as_slice(),
         );
@@ -521,8 +520,7 @@ impl CUniqueKeepDerivationPhase2to3 {
     }
 
     pub fn to_inner(&self) -> UniqueKeepDerivationPhase2to3 {
-        let mut cc_salt: [u8; 2 * SECURITY as usize] =
-            [0; 2 * SECURITY as usize];
+        let mut cc_salt: [u8; SALT_LEN] = [0; SALT_LEN];
         cc_salt.copy_from_slice(self.cc_salt.as_slice());
 
         UniqueKeepDerivationPhase2to3 {
@@ -729,8 +727,7 @@ mod tests {
 
     #[test]
     fn test_affine_point_to_c_vec64() {
-        let mut affine_points: Vec<AffinePoint> =
-            Vec::with_capacity(R as usize);
+        let mut affine_points: Vec<AffinePoint> = Vec::with_capacity(R);
 
         for _ in 0..R {
             let random_scalar = Scalar::random(rand::thread_rng());
@@ -740,7 +737,7 @@ mod tests {
         }
 
         let c_affine_points = CAffinePoint::from_vec64(&affine_points);
-        assert_eq!(affine_points.len(), R as usize);
+        assert_eq!(affine_points.len(), R);
 
         for i in 0..affine_points.len() {
             let encoded_point = EncodedPoint::from(&affine_points[i]);
@@ -830,7 +827,7 @@ mod tests {
             131, 130, 129,
         ];
 
-        let cc_salt: [u8; 2 * SECURITY as usize] = [
+        let cc_salt: [u8; SALT_LEN] = [
             1, 35, 69, 103, 137, 171, 205, 239, 253, 210, 167, 124, 81, 38, 5,
             0, 144, 143, 142, 141, 140, 139, 138, 137, 136, 135, 134, 133, 132,
             131, 130, 129, 1, 35, 69, 103, 137, 171, 205, 239, 253, 210, 167,
@@ -1009,13 +1006,13 @@ mod tests {
         let random_point = ProjectivePoint::GENERATOR * random_scalar;
         let dlog_proof = DLogProof {
             point: AffinePoint::from(random_point),
-            rand_commitments: vec![AffinePoint::from(random_point); R as usize],
+            rand_commitments: vec![AffinePoint::from(random_point); R],
             proofs: vec![
                 InteractiveDLogProof {
-                    challenge: vec![0u8; (T / 8) as usize],
+                    challenge: vec![0u8; T_8],
                     challenge_response: random_scalar,
                 };
-                R as usize
+                R
             ],
         };
 
@@ -1054,7 +1051,7 @@ mod tests {
             dlog_proof,
             nonce: random_scalar,
             enc_proofs,
-            seed: [0u8; SECURITY as usize],
+            seed: [0u8; SECURITY],
         };
 
         let c_transmit = CTransmitInitMulPhase3to4::from(&transmit);
@@ -1075,7 +1072,7 @@ mod tests {
     #[test]
     fn test_keep_init_zero_share_phase3to4_to_c() {
         let keep = KeepInitZeroSharePhase3to4 {
-            seed: [0u8; SECURITY as usize],
+            seed: [0u8; SECURITY],
         };
 
         let c_keep = CKeepInitZeroSharePhase3to4::from(&keep);
@@ -1114,13 +1111,13 @@ mod tests {
         let random_point = ProjectivePoint::GENERATOR * random_scalar;
         let dlog_proof = DLogProof {
             point: AffinePoint::from(random_point),
-            rand_commitments: vec![AffinePoint::from(random_point); R as usize],
+            rand_commitments: vec![AffinePoint::from(random_point); R],
             proofs: vec![
                 InteractiveDLogProof {
-                    challenge: vec![0u8; (T / 8) as usize],
+                    challenge: vec![0u8; T_8],
                     challenge_response: random_scalar,
                 };
-                R as usize
+                R
             ],
         };
 
@@ -1141,7 +1138,7 @@ mod tests {
     #[test]
     fn test_ot_receiver_to_c() {
         let receiver = OTReceiver {
-            seed: [0u8; SECURITY as usize],
+            seed: [0u8; SECURITY],
         };
 
         let c_receiver = COTReceiver::from(&receiver);
@@ -1155,13 +1152,13 @@ mod tests {
         let random_point = ProjectivePoint::GENERATOR * random_scalar;
         let dlog_proof = DLogProof {
             point: AffinePoint::from(random_point),
-            rand_commitments: vec![AffinePoint::from(random_point); R as usize],
+            rand_commitments: vec![AffinePoint::from(random_point); R],
             proofs: vec![
                 InteractiveDLogProof {
-                    challenge: vec![0u8; (T / 8) as usize],
+                    challenge: vec![0u8; T_8],
                     challenge_response: random_scalar,
                 };
-                R as usize
+                R
             ],
         };
 
@@ -1171,7 +1168,7 @@ mod tests {
         };
 
         let ot_receiver = OTReceiver {
-            seed: [0u8; SECURITY as usize],
+            seed: [0u8; SECURITY],
         };
 
         let correlation: Vec<bool> = vec![true, false, true];
@@ -1278,13 +1275,13 @@ mod tests {
         let random_point = ProjectivePoint::GENERATOR * random_scalar;
         let dlog_proof = DLogProof {
             point: AffinePoint::from(random_point),
-            rand_commitments: vec![AffinePoint::from(random_point); R as usize],
+            rand_commitments: vec![AffinePoint::from(random_point); R],
             proofs: vec![
                 InteractiveDLogProof {
-                    challenge: vec![0u8; (T / 8) as usize],
+                    challenge: vec![0u8; T_8],
                     challenge_response: random_scalar,
                 };
-                R as usize
+                R
             ],
         };
 
@@ -1323,7 +1320,7 @@ mod tests {
             dlog_proof: dlog_proof.clone(),
             nonce: random_scalar,
             enc_proofs: enc_proofs.clone(),
-            seed: [0u8; SECURITY as usize],
+            seed: [0u8; SECURITY],
         };
 
         let transmit2 = TransmitInitMulPhase3to4 {
@@ -1334,7 +1331,7 @@ mod tests {
             dlog_proof,
             nonce: random_scalar,
             enc_proofs,
-            seed: [1u8; SECURITY as usize],
+            seed: [1u8; SECURITY],
         };
 
         let vec = vec![transmit1, transmit2];
