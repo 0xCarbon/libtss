@@ -693,6 +693,7 @@ mod tests {
     use k256::elliptic_curve::ff::Field;
     use k256::ProjectivePoint;
     use rand;
+    use rand::Rng;
 
     #[test]
     fn test_session_data_from_c() {
@@ -1252,16 +1253,22 @@ mod tests {
             seed: [0u8; SECURITY],
         };
 
-        let correlation: Vec<bool> = vec![true, false, true];
-        let vec_r: Vec<Scalar> =
-            vec![random_scalar, random_scalar, random_scalar];
+        let mut correlation: [bool; KAPPA] = [true; KAPPA];
+        for i in 0..KAPPA {
+            correlation[i] = rand::thread_rng().gen();
+        }
+
+        let mut vec_r: [Scalar; KAPPA] = [Scalar::default(); KAPPA];
+        for i in 0..KAPPA {
+            vec_r[i] = Scalar::random(rand::thread_rng());
+        }
 
         let keep = KeepInitMulPhase3to4 {
             ot_sender,
             nonce: random_scalar,
             ot_receiver,
-            correlation: correlation.clone(),
-            vec_r: vec_r.clone(),
+            correlation: correlation.to_vec(),
+            vec_r: vec_r.to_vec(),
         };
 
         let c_keep = CKeepInitMulPhase3to4::from(&keep);
@@ -1276,16 +1283,16 @@ mod tests {
         );
         assert_eq!(c_keep.nonce.bytes, CScalar::from(&keep.nonce).bytes);
         assert_eq!(c_keep.ot_receiver.seed, keep.ot_receiver.seed);
-        assert_eq!(
-            unsafe {
-                std::slice::from_raw_parts(
-                    c_keep.correlation,
-                    c_keep.correlation_len,
-                )
-            },
-            correlation.as_slice()
-        );
-        assert_eq!(c_keep.vec_r.to_vec(), vec_r);
+        assert_eq!(c_keep.correlation.len(), KAPPA);
+        assert_eq!(c_keep.vec_r.len(), KAPPA);
+        assert_eq!(c_keep.correlation, keep.correlation.as_slice());
+        let keep_vec_r = keep.vec_r.as_slice();
+        for i in 0..KAPPA {
+            assert_eq!(
+                c_keep.vec_r[i].bytes,
+                CScalar::from(&keep_vec_r[i]).bytes
+            );
+        }
     }
 
     #[test]
