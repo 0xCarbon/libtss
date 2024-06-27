@@ -532,7 +532,7 @@ pub struct CKeepInitMulPhase3to4 {
     pub nonce: CScalar,
     pub ot_receiver: COTReceiver,
     pub correlation: [bool; KAPPA],
-    pub vec_r: CScalarVec,
+    pub vec_r: [CScalar; KAPPA],
 }
 
 impl CKeepInitMulPhase3to4 {
@@ -540,12 +540,17 @@ impl CKeepInitMulPhase3to4 {
         let mut correlation: [bool; KAPPA] = [false; KAPPA];
         correlation.copy_from_slice(keep.correlation.as_slice());
 
+        let mut vec_r: [CScalar; KAPPA] = [CScalar::default(); KAPPA];
+        for (i, scalar) in keep.vec_r.iter().enumerate() {
+            vec_r[i] = CScalar::from(&scalar);
+        }
+
         CKeepInitMulPhase3to4 {
             ot_sender: COTSender::from(&keep.ot_sender),
             nonce: CScalar::from(&keep.nonce),
             ot_receiver: COTReceiver::from(&keep.ot_receiver),
             correlation,
-            vec_r: CScalarVec::from(&keep.vec_r),
+            vec_r,
         }
     }
 }
