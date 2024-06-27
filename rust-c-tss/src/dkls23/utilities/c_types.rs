@@ -427,20 +427,20 @@ impl CKeepInitZeroSharePhase3to4 {
 pub struct CTransmitInitZeroSharePhase3to4 {
     pub parties: CPartiesMessage,
     pub seed: CSeed,
-    pub salt: *const u8,
-    pub salt_len: usize,
+    pub salt: [u8; SALT_LEN],
 }
 
 impl CTransmitInitZeroSharePhase3to4 {
     pub fn from(transmit: &TransmitInitZeroSharePhase3to4) -> Self {
+        let mut salt: [u8; SALT_LEN] = [0; SALT_LEN];
+        salt.copy_from_slice(transmit.salt.as_slice());
         CTransmitInitZeroSharePhase3to4 {
             parties: CPartiesMessage {
                 sender: transmit.parties.sender,
                 receiver: transmit.parties.receiver,
             },
             seed: transmit.seed,
-            salt: transmit.salt.as_ptr(),
-            salt_len: transmit.salt.len(),
+            salt,
         }
     }
 }
@@ -478,19 +478,20 @@ pub struct CKeepInitMulPhase3to4 {
     pub ot_sender: COTSender,
     pub nonce: CScalar,
     pub ot_receiver: COTReceiver,
-    pub correlation: *const bool,
-    pub correlation_len: usize,
+    pub correlation: [bool; KAPPA],
     pub vec_r: CScalarVec,
 }
 
 impl CKeepInitMulPhase3to4 {
     pub fn from(keep: &KeepInitMulPhase3to4) -> Self {
+        let mut correlation: [bool; KAPPA] = [false; KAPPA];
+        correlation.copy_from_slice(keep.correlation.as_slice());
+
         CKeepInitMulPhase3to4 {
             ot_sender: COTSender::from(&keep.ot_sender),
             nonce: CScalar::from(&keep.nonce),
             ot_receiver: COTReceiver::from(&keep.ot_receiver),
-            correlation: keep.correlation.as_ptr(),
-            correlation_len: keep.correlation.len(),
+            correlation,
             vec_r: CScalarVec::from(&keep.vec_r),
         }
     }
@@ -500,17 +501,18 @@ impl CKeepInitMulPhase3to4 {
 pub struct CBroadcastDerivationPhase3to4 {
     pub sender_index: u8,
     pub aux_chain_code: CChainCode,
-    pub cc_salt: *const u8,
-    pub cc_salt_len: usize,
+    pub cc_salt: [u8; SALT_LEN],
 }
 
 impl CBroadcastDerivationPhase3to4 {
     pub fn from(broadcast: &BroadcastDerivationPhase3to4) -> Self {
+        let mut cc_salt: [u8; SALT_LEN] = [0; SALT_LEN];
+        cc_salt.copy_from_slice(broadcast.cc_salt.as_slice());
+
         CBroadcastDerivationPhase3to4 {
             sender_index: broadcast.sender_index,
             aux_chain_code: broadcast.aux_chain_code,
-            cc_salt: broadcast.cc_salt.as_ptr(),
-            cc_salt_len: broadcast.cc_salt.len(),
+            cc_salt,
         }
     }
 }
@@ -1101,14 +1103,21 @@ mod tests {
 
     #[test]
     fn test_transmit_init_zero_share_phase3to4_to_c() {
-        let salt: Vec<u8> = vec![1, 2, 3, 4, 5];
+        let salt: [u8; SALT_LEN] = [
+            1, 35, 69, 103, 137, 171, 205, 239, 253, 210, 167, 124, 81, 38, 5,
+            0, 144, 143, 142, 141, 140, 139, 138, 137, 136, 135, 134, 133, 132,
+            131, 130, 129, 1, 35, 69, 103, 137, 171, 205, 239, 253, 210, 167,
+            124, 81, 38, 5, 0, 144, 143, 142, 141, 140, 139, 138, 137, 136,
+            135, 134, 133, 132, 131, 130, 129,
+        ];
+
         let transmit = TransmitInitZeroSharePhase3to4 {
             parties: PartiesMessage {
                 sender: 1,
                 receiver: 2,
             },
-            seed: [0u8; SECURITY as usize],
-            salt: salt.clone(),
+            seed: [0u8; SECURITY],
+            salt: salt.to_vec(),
         };
 
         let c_transmit = CTransmitInitZeroSharePhase3to4::from(&transmit);
@@ -1116,12 +1125,7 @@ mod tests {
         assert_eq!(c_transmit.parties.sender, transmit.parties.sender);
         assert_eq!(c_transmit.parties.receiver, transmit.parties.receiver);
         assert_eq!(c_transmit.seed, transmit.seed);
-        assert_eq!(
-            unsafe {
-                std::slice::from_raw_parts(c_transmit.salt, c_transmit.salt_len)
-            },
-            salt.as_slice()
-        );
+        assert_eq!(c_transmit.salt.to_vec(), transmit.salt);
     }
 
     #[test]
