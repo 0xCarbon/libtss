@@ -20,6 +20,7 @@ pub const SECURITY: usize = 32;
 pub const R: usize = 64;
 pub const T: usize = 32;
 pub const T_8: usize = T / 8;
+pub const KAPPA: usize = 256;
 pub const SECP256K1_ENCODED_SIZE: usize = 33;
 pub const SALT_LEN: usize = 2 * SECURITY;
 
@@ -292,12 +293,20 @@ impl CTransmitInitZeroSharePhase2to4 {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct CRandomCommitments {
     pub rc_g: CAffinePoint,
     pub rc_h: CAffinePoint,
 }
 
 impl CRandomCommitments {
+    fn default() -> Self {
+        CRandomCommitments {
+            rc_g: CAffinePoint::default(),
+            rc_h: CAffinePoint::default(),
+        }
+    }
+
     pub fn from(commitments: &RandomCommitments) -> Self {
         CRandomCommitments {
             rc_g: CAffinePoint::from(&commitments.rc_g),
@@ -307,6 +316,7 @@ impl CRandomCommitments {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct CCPProof {
     pub base_g: CAffinePoint,
     pub base_h: CAffinePoint,
@@ -316,6 +326,16 @@ pub struct CCPProof {
 }
 
 impl CCPProof {
+    fn default() -> Self {
+        CCPProof {
+            base_g: CAffinePoint::default(),
+            base_h: CAffinePoint::default(),
+            point_u: CAffinePoint::default(),
+            point_v: CAffinePoint::default(),
+            challenge_response: CScalar::default(),
+        }
+    }
+
     pub fn from(proof: &CPProof) -> Self {
         CCPProof {
             base_g: CAffinePoint::from(&proof.base_g),
@@ -328,6 +348,7 @@ impl CCPProof {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct CEncProof {
     pub proof0: CCPProof,
     pub proof1: CCPProof,
@@ -338,6 +359,17 @@ pub struct CEncProof {
 }
 
 impl CEncProof {
+    fn default() -> Self {
+        CEncProof {
+            proof0: CCPProof::default(),
+            proof1: CCPProof::default(),
+            commitments0: CRandomCommitments::default(),
+            commitments1: CRandomCommitments::default(),
+            challenge0: CScalar::default(),
+            challenge1: CScalar::default(),
+        }
+    }
+
     pub fn from(proof: &EncProof) -> Self {
         CEncProof {
             proof0: CCPProof::from(&proof.proof0),
@@ -351,35 +383,22 @@ impl CEncProof {
 }
 
 #[repr(C)]
-pub struct CEncProofVec {
-    pub data: *const CEncProof,
-    pub len: usize,
-}
-
-impl CEncProofVec {
-    pub fn from(enc_proofs: &Vec<EncProof>) -> Self {
-        let mut c_enc_proofs: Vec<CEncProof> = Vec::new();
-        for proof in enc_proofs.iter() {
-            c_enc_proofs.push(CEncProof::from(&proof));
-        }
-        let len = c_enc_proofs.len();
-        let data =
-            Box::into_raw(c_enc_proofs.into_boxed_slice()) as *const CEncProof;
-        CEncProofVec { data, len }
-    }
-}
-
-#[repr(C)]
 pub struct CTransmitInitMulPhase3to4 {
     pub parties: CPartiesMessage,
     pub dlog_proof: CDLogProof,
     pub nonce: CScalar,
-    pub enc_proofs: CEncProofVec,
+    pub enc_proofs: [CEncProof; KAPPA],
     pub seed: CSeed,
 }
 
 impl CTransmitInitMulPhase3to4 {
     pub fn from(transmit: &TransmitInitMulPhase3to4) -> Self {
+        let mut enc_proofs: [CEncProof; KAPPA] = [CEncProof::default(); KAPPA];
+
+        for (i, proof) in transmit.enc_proofs.iter().enumerate() {
+            enc_proofs[i] = CEncProof::from(&proof);
+        }
+
         CTransmitInitMulPhase3to4 {
             parties: CPartiesMessage {
                 sender: transmit.parties.sender,
@@ -387,7 +406,7 @@ impl CTransmitInitMulPhase3to4 {
             },
             dlog_proof: CDLogProof::from(&transmit.dlog_proof),
             nonce: CScalar::from(&transmit.nonce),
-            enc_proofs: CEncProofVec::from(&transmit.enc_proofs),
+            enc_proofs,
             seed: transmit.seed,
         }
     }
