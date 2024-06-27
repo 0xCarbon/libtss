@@ -274,13 +274,13 @@ impl<A> CBTreeMap<A> {
         }
     }
 
-    pub fn from<B>(zero_keep: &BTreeMap<u8, B>) -> Self
+    pub fn from<B>(btree_map: &BTreeMap<u8, B>) -> Self
     where
         A: From<B>,
         B: Clone,
     {
         let mut out: Vec<CBTreeMapData<A>> = Vec::new();
-        for (k, v) in zero_keep.iter() {
+        for (k, v) in btree_map.iter() {
             let map = CBTreeMapData {
                 key: *k,
                 val: A::from(v.clone()),
@@ -470,9 +470,12 @@ pub struct CKeepInitZeroSharePhase3to4 {
     pub seed: CSeed,
 }
 
-impl CKeepInitZeroSharePhase3to4 {
-    pub fn from(keep: &KeepInitZeroSharePhase3to4) -> Self {
-        CKeepInitZeroSharePhase3to4 { seed: keep.seed }
+impl From<KeepInitZeroSharePhase3to4> for CKeepInitZeroSharePhase3to4 {
+    fn from(zero_keep: KeepInitZeroSharePhase3to4) -> Self {
+        let mut seed: CSeed = [0; SECURITY];
+        seed.copy_from_slice(zero_keep.seed.as_slice());
+
+        CKeepInitZeroSharePhase3to4 { seed }
     }
 }
 
@@ -535,8 +538,8 @@ pub struct CKeepInitMulPhase3to4 {
     pub vec_r: [CScalar; KAPPA],
 }
 
-impl CKeepInitMulPhase3to4 {
-    pub fn from(keep: &KeepInitMulPhase3to4) -> Self {
+impl From<KeepInitMulPhase3to4> for CKeepInitMulPhase3to4 {
+    fn from(keep: KeepInitMulPhase3to4) -> Self {
         let mut correlation: [bool; KAPPA] = [false; KAPPA];
         correlation.copy_from_slice(keep.correlation.as_slice());
 
@@ -679,9 +682,9 @@ pub struct CPhase2Out {
 
 #[repr(C)]
 pub struct CPhase3Out {
-    pub zero_keep: CKeepInitZeroSharePhase3to4,
+    pub zero_keep: CBTreeMap<CKeepInitZeroSharePhase3to4>,
     pub zero_transmit: CTransmitInitZeroSharePhase3to4Vec,
-    // pub mul_keep: CKeepInitMulPhase3to4BTreeMap,
+    pub mul_keep: CBTreeMap<CKeepInitMulPhase3to4>,
     pub mul_transmit: CTransmitInitMulPhase3to4Vec,
     pub bip_broadcast: CBroadcastDerivationPhase3to4,
 }
@@ -1155,7 +1158,7 @@ mod tests {
             seed: [0u8; SECURITY],
         };
 
-        let c_keep = CKeepInitZeroSharePhase3to4::from(&keep);
+        let c_keep = CKeepInitZeroSharePhase3to4::from(keep);
 
         assert_eq!(c_keep.seed, keep.seed);
     }
@@ -1271,7 +1274,7 @@ mod tests {
             vec_r: vec_r.to_vec(),
         };
 
-        let c_keep = CKeepInitMulPhase3to4::from(&keep);
+        let c_keep = CKeepInitMulPhase3to4::from(keep);
 
         assert_eq!(
             c_keep.ot_sender.s.bytes,

@@ -1,7 +1,10 @@
 use crate::dkls23::utilities::c_types::{
-    CBTreeMap, CBroadcastDerivationPhase2to4, CKeepInitZeroSharePhase2to3,
-    CPhase2Out, CProofCommitment, CScalar, CScalarVec, CSessionData,
-    CTransmitInitZeroSharePhase2to4Vec, CUniqueKeepDerivationPhase2to3,
+    CBTreeMap, CBroadcastDerivationPhase2to4, CBroadcastDerivationPhase3to4,
+    CKeepInitMulPhase3to4, CKeepInitZeroSharePhase2to3,
+    CKeepInitZeroSharePhase3to4, CPhase2Out, CPhase3Out, CProofCommitment,
+    CScalar, CScalarVec, CSessionData, CTransmitInitMulPhase3to4Vec,
+    CTransmitInitZeroSharePhase2to4Vec, CTransmitInitZeroSharePhase3to4Vec,
+    CUniqueKeepDerivationPhase2to3,
 };
 use dkls23::protocols::dkg;
 
@@ -52,7 +55,7 @@ pub extern "C" fn dkls_phase2(
 #[no_mangle]
 pub extern "C" fn dkls_phase3(
     c_session: &CSessionData,
-    c_zero_kept: &CKeepInitZeroSharePhase2to3BTreeMap,
+    c_zero_kept: &CBTreeMap<CKeepInitZeroSharePhase2to3>,
     c_bip_kept: &CUniqueKeepDerivationPhase2to3,
 ) -> CPhase3Out {
     let session = c_session.to_session();
@@ -61,18 +64,19 @@ pub extern "C" fn dkls_phase3(
 
     let (zero_keep, zero_transmit, mul_keep, mul_transmit, bip_broadcast) =
         dkg::phase3(&session, &zero_kept, &bip_kept);
-
-    //let c_zero_keep = CKeepInitZeroSharePhase3to4BTreeMap::from(&zero_keep);
+    let c_zero_keep: CBTreeMap<CKeepInitZeroSharePhase3to4> =
+        CBTreeMap::from(&zero_keep);
     let c_zero_transmit =
         CTransmitInitZeroSharePhase3to4Vec::from(&zero_transmit);
-    //let c_mul_keep = CKeepInitMulPhase3to4BTreeMap::from(&mul_keep);
+    let c_mul_keep: CBTreeMap<CKeepInitMulPhase3to4> =
+        CBTreeMap::from(&mul_keep);
     let c_mul_transmit = CTransmitInitMulPhase3to4Vec::from(&mul_transmit);
     let c_bip_broadcast = CBroadcastDerivationPhase3to4::from(&bip_broadcast);
 
     CPhase3Out {
-        //zero_keep: c_zero_keep,
+        zero_keep: c_zero_keep,
         zero_transmit: c_zero_transmit,
-        //mul_keep: c_mul_keep,
+        mul_keep: c_mul_keep,
         mul_transmit: c_mul_transmit,
         bip_broadcast: c_bip_broadcast,
     }
