@@ -30,6 +30,10 @@ pub type CChainCode = [u8; 32];
 pub type CSeed = [u8; SECURITY];
 pub type CHashOutput = [u8; SECURITY];
 
+pub trait ToInner<T> {
+    fn to_inner(&self) -> T;
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct CScalar {
@@ -247,9 +251,15 @@ impl From<KeepInitZeroSharePhase2to3> for CKeepInitZeroSharePhase2to3 {
         let mut seed: CSeed = [0; SECURITY];
         seed.copy_from_slice(zero_keep.seed.as_slice());
 
-        CKeepInitZeroSharePhase2to3 {
-            seed,
-            salt,
+        CKeepInitZeroSharePhase2to3 { seed, salt }
+    }
+}
+
+impl ToInner<KeepInitZeroSharePhase2to3> for CKeepInitZeroSharePhase2to3 {
+    fn to_inner(&self) -> KeepInitZeroSharePhase2to3 {
+        KeepInitZeroSharePhase2to3 {
+            seed: self.seed,
+            salt: self.salt.to_vec(),
         }
     }
 }
@@ -291,6 +301,21 @@ impl<A> CBTreeMap<A> {
         let data =
             Box::into_raw(out.into_boxed_slice()) as *const CBTreeMapData<A>;
         CBTreeMap { data, len }
+    }
+
+    pub fn to_inner<B>(&self) -> BTreeMap<u8, B>
+    where
+        A: ToInner<B>,
+    {
+        let mut btree_map: BTreeMap<u8, B> = BTreeMap::new();
+        let elements =
+            unsafe { std::slice::from_raw_parts(self.data, self.len) };
+        for el in elements.iter() {
+            let key = el.key;
+            let val = el.val.to_inner();
+            btree_map.insert(key, val);
+        }
+        btree_map
     }
 }
 
@@ -1158,7 +1183,7 @@ mod tests {
             seed: [0u8; SECURITY],
         };
 
-        let c_keep = CKeepInitZeroSharePhase3to4::from(keep);
+        let c_keep = CKeepInitZeroSharePhase3to4::from(keep.clone());
 
         assert_eq!(c_keep.seed, keep.seed);
     }
@@ -1274,7 +1299,7 @@ mod tests {
             vec_r: vec_r.to_vec(),
         };
 
-        let c_keep = CKeepInitMulPhase3to4::from(keep);
+        let c_keep = CKeepInitMulPhase3to4::from(keep.clone());
 
         assert_eq!(
             c_keep.ot_sender.s.bytes,
