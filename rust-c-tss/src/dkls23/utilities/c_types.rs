@@ -1,10 +1,12 @@
 use dkls23::protocols::dkg::{
     BroadcastDerivationPhase2to4, BroadcastDerivationPhase3to4,
-    KeepInitMulPhase3to4, KeepInitZeroSharePhase3to4, ProofCommitment,
-    SessionData, TransmitInitMulPhase3to4, TransmitInitZeroSharePhase2to4,
+    KeepInitMulPhase3to4, KeepInitZeroSharePhase2to3,
+    KeepInitZeroSharePhase3to4, ProofCommitment, SessionData,
+    TransmitInitMulPhase3to4, TransmitInitZeroSharePhase2to4,
     TransmitInitZeroSharePhase3to4, UniqueKeepDerivationPhase2to3,
 };
 use dkls23::protocols::Parameters;
+use std::collections::BTreeMap;
 
 use dkls23::utilities::ot::base::{OTReceiver, OTSender};
 use dkls23::utilities::proofs::{
@@ -231,14 +233,65 @@ impl CProofCommitment {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 pub struct CKeepInitZeroSharePhase2to3 {
     pub seed: CSeed,
     pub salt: [u8; SALT_LEN],
 }
 
+impl From<KeepInitZeroSharePhase2to3> for CKeepInitZeroSharePhase2to3 {
+    fn from(zero_keep: KeepInitZeroSharePhase2to3) -> Self {
+        let mut salt: [u8; SALT_LEN] = [0; SALT_LEN];
+        salt.copy_from_slice(zero_keep.salt.as_slice());
+
+        let mut seed: CSeed = [0; SECURITY];
+        seed.copy_from_slice(zero_keep.seed.as_slice());
+
+        CKeepInitZeroSharePhase2to3 {
+            seed,
+            salt,
+        }
+    }
+}
+
 #[repr(C)]
-pub struct CBTreeMap {
-    pub index: u8,
+pub struct CBTreeMapData<T> {
+    pub key: u8,
+    pub val: T,
+}
+
+#[repr(C)]
+pub struct CBTreeMap<A> {
+    pub data: *const CBTreeMapData<A>,
+    pub len: usize,
+}
+
+impl<A> CBTreeMap<A> {
+    pub fn new() -> Self {
+        CBTreeMap {
+            len: 0,
+            data: std::ptr::null(),
+        }
+    }
+
+    pub fn from<B>(zero_keep: &BTreeMap<u8, B>) -> Self
+    where
+        A: From<B>,
+        B: Clone,
+    {
+        let mut out: Vec<CBTreeMapData<A>> = Vec::new();
+        for (k, v) in zero_keep.iter() {
+            let map = CBTreeMapData {
+                key: *k,
+                val: A::from(v.clone()),
+            };
+            out.push(map);
+        }
+        let len = out.len();
+        let data =
+            Box::into_raw(out.into_boxed_slice()) as *const CBTreeMapData<A>;
+        CBTreeMap { data, len }
+    }
 }
 
 #[repr(C)]
@@ -613,7 +666,7 @@ impl CTransmitInitMulPhase3to4Vec {
 pub struct CPhase2Out {
     pub poly_point: CScalar,
     pub proof_commitment: CProofCommitment,
-    //pub zero_keep: CBTreeMap<u8, KeepInitZeroSharePhase2to3>,
+    pub zero_keep: CBTreeMap<CKeepInitZeroSharePhase2to3>,
     pub zero_transmit: CTransmitInitZeroSharePhase2to4Vec, // share_count - 1
     pub bip_keep: CUniqueKeepDerivationPhase2to3,
     pub bip_broadcast: CBroadcastDerivationPhase2to4,

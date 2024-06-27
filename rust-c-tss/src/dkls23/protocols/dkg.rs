@@ -1,9 +1,7 @@
 use crate::dkls23::utilities::c_types::{
-    CBroadcastDerivationPhase2to4, CBroadcastDerivationPhase3to4,
-    CKeepInitMulPhase3to4BTreeMap, CKeepInitZeroSharePhase3to4, CPhase2Out,
-    CPhase3Out, CProofCommitment, CScalar, CScalarVec, CSessionData,
-    CTransmitInitMulPhase3to4Vec, CTransmitInitZeroSharePhase2to4Vec,
-    CTransmitInitZeroSharePhase3to4Vec, CUniqueKeepDerivationPhase2to3,
+    CBTreeMap, CBroadcastDerivationPhase2to4, CKeepInitZeroSharePhase2to3,
+    CPhase2Out, CProofCommitment, CScalar, CScalarVec, CSessionData,
+    CTransmitInitZeroSharePhase2to4Vec, CUniqueKeepDerivationPhase2to3,
 };
 use dkls23::protocols::dkg;
 
@@ -34,7 +32,8 @@ pub extern "C" fn dkls_phase2(
 
     let c_poly_point = CScalar::from(&poly_point);
     let c_proof_commitment = CProofCommitment::from(&proof_commitment);
-    // let zero_keep = BTreeMap
+    let c_zero_keep: CBTreeMap<CKeepInitZeroSharePhase2to3> =
+        CBTreeMap::from(&zero_keep);
     let c_zero_transmit_vec =
         CTransmitInitZeroSharePhase2to4Vec::from(&zero_transmit);
     let c_bip_keep = CUniqueKeepDerivationPhase2to3::from(&bip_keep);
@@ -43,6 +42,7 @@ pub extern "C" fn dkls_phase2(
     CPhase2Out {
         poly_point: c_poly_point,
         proof_commitment: c_proof_commitment,
+        zero_keep: c_zero_keep,
         zero_transmit: c_zero_transmit_vec,
         bip_keep: c_bip_keep,
         bip_broadcast: c_bip_broadcast,
