@@ -1,12 +1,12 @@
 #include "utils.h"
 
-SessionData* create_session(
+CSessionData* create_session(
     uint8_t party_index,
     uint8_t threshold,
     uint8_t share_count,
     size_t session_id_len
 ) {
-    SessionData *session_data = malloc(sizeof(*session_data) +
+    CSessionData *session_data = malloc(sizeof(*session_data) +
                                        session_id_len * sizeof(uint8_t));
     session_data->session_id = malloc(session_id_len * sizeof(uint8_t));
 
@@ -15,7 +15,7 @@ SessionData* create_session(
         session_data->session_id[i] = byte;
     }
 
-    Parameters p;
+    CParameters p;
     p.threshold = threshold;
     p.share_count = share_count;
 
@@ -34,14 +34,14 @@ void print_bytes(const uint8_t* bytes, const char* label, size_t len) {
     printf("\n");
 }
 
-void print_scalar_vec(const ScalarVec* scalar_vec) {
+void print_scalar_vec(const CScalarVec* scalar_vec) {
     for (uint8_t i = 0; i < scalar_vec->len; i++) {
         print_bytes(scalar_vec->data[i].bytes, "scalar", 32);
         printf("\n");
     }
 }
 
-void print_dlog_proof(const DLogProof* dlog_proof) {
+void print_dlog_proof(const CDLogProof* dlog_proof) {
     printf("DLogProof {\n");
     print_bytes(dlog_proof->point.bytes, "point", SECP256K1_ENCODED_SIZE);
     printf("rand_commitments:\n");
@@ -60,7 +60,7 @@ void print_dlog_proof(const DLogProof* dlog_proof) {
     printf("}\n");
 }
 
-void print_proof_commitment(const ProofCommitment* proof) {
+void print_proof_commitment(const CProofCommitment* proof) {
     printf("ProofCommitment {\n");
     printf("index: %d\n", proof->index);
     print_dlog_proof(&proof->proof);
@@ -68,7 +68,15 @@ void print_proof_commitment(const ProofCommitment* proof) {
     printf("}");
 }
 
-void print_phase_2(const Phase2Out* phase2) {
-    print_bytes(phase2->poly_point.bytes, "scalar", 32);
-    print_proof_commitment(&phase2->proof_commitment);
+void print_keep_zero_2_3(const CBTreeMap_CKeepInitZeroSharePhase2to3* zero_keep) {
+    printf("CKeepInitZeroSharePhase2to3BTreeMap: {\n");
+    printf("len: %d\n", zero_keep->len);
+    for (size_t i = 0; i < zero_keep->len; i++) {
+        CBTreeMapData_CKeepInitZeroSharePhase2to3 map = zero_keep->data[i];
+        printf("key: %d\n", map.key);
+        printf("val: {\n");
+        print_bytes(map.val.salt, "salt", SALT_LEN);
+        print_bytes(map.val.seed, "seed", SECURITY);
+        printf("}");
+    }
 }
