@@ -1,3 +1,6 @@
+#ifndef KEYGEN_H
+#define KEYGEN_H
+
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -35,7 +38,7 @@ typedef struct CSessionData {
   struct CParameters parameters;
   uint8_t party_index;
   uintptr_t session_id_len;
-  uint8_t *session_id;
+  const uint8_t *session_id;
 } CSessionData;
 
 typedef struct CAffinePoint {
@@ -223,3 +226,4 @@ struct CPhase2Out dkls_phase2(const struct CSessionData *session,
 struct CPhase3Out dkls_phase3(const struct CSessionData *c_session,
                               const struct CBTreeMap_CKeepInitZeroSharePhase2to3 *c_zero_kept,
                               const struct CUniqueKeepDerivationPhase2to3 *c_bip_kept);
+#endif
