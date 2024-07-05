@@ -5,7 +5,7 @@ CC = gcc
 CFLAGS = -Wall -Wextra -O2
 
 # Source files
-SRCS = src/client/main.c src/client/dkls23.c src/client/utils/files.c
+SRCS = src/c-client/main.c src/c-client/dkls23.c src/c-client/utils/files.c
 
 # Object files
 OBJS = $(SRCS:.c=.o)
