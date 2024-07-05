@@ -5,7 +5,7 @@ CC = gcc
 CFLAGS = -Wall -Wextra -O2
 
 # Source files
-SRCS = src/c-client/main.c src/c-client/dkls23.c src/c-client/utils/files.c
+SRCS = src/main.c src/dkls23.c src/utils/files.c
 
 # Object files
 OBJS = $(SRCS:.c=.o)
@@ -14,14 +14,14 @@ OBJS = $(SRCS:.c=.o)
 EXEC = ffi_tss_client
 
 # Output directory for the cdylib
-OUT_DIR = ../target/release
+OUT_DIR = ../../target/release
 
 # Default target
 all: $(OUT_DIR)/libffi_tss.so $(EXEC)
 
 # Build the Rust library
 $(OUT_DIR)/libffi_tss.so:
-	cd .. && cargo build --release
+	cd ../.. && cargo build --release
 
 # Link object files to create the executable
 $(EXEC): $(OBJS)

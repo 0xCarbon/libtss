@@ -8,8 +8,12 @@ fn main() {
     let bin_filename = "ffi_tss_client";
     let lib_filename = "libffi_tss.so";
     let ffi_tss_lib_dir = "../target/release";
+    let c_client_dir = "c-client";
 
-    let status = Command::new("make").status().expect("Failed to build");
+    let status = Command::new("make")
+        .current_dir(c_client_dir)
+        .status()
+        .expect("Failed to build");
 
     if !status.success() {
         panic!("C project build failed");
@@ -18,7 +22,7 @@ fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
 
     // move the executable to the internal build path
-    let mut src_path = PathBuf::from(".").join(bin_filename);
+    let mut src_path = PathBuf::from(&c_client_dir).join(bin_filename);
     let mut dest_path = PathBuf::from(&out_dir).join(bin_filename);
     fs::rename(&src_path, &dest_path).expect("Failed to move C executable");
 
