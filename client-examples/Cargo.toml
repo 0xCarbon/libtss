@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-ffi_tss = { path = "../rust-c-tss" }
+ffi_tss = { path = ".." }
 dkls23 = { path = "../../DKLs23", features=["insecure-rng"] }
 serde_json = "1.0"
 sha2 = "0.10.8"

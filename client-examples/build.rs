@@ -7,7 +7,7 @@ fn main() {
     // Define the path to the C project
     let bin_filename = "ffi_tss_client";
     let lib_filename = "libffi_tss.so";
-    let ffi_tss_lib_dir = "../rust-c-tss/target/release";
+    let ffi_tss_lib_dir = "../target/release";
 
     let status = Command::new("make").status().expect("Failed to build");
 
