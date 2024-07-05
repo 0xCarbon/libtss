@@ -1,29 +1,93 @@
-use crate::dkls23::utilities::c_types::{
-    CBTreeMap, CBroadcastDerivationPhase2to4, CBroadcastDerivationPhase3to4,
-    CKeepInitMulPhase3to4, CKeepInitZeroSharePhase2to3,
-    CKeepInitZeroSharePhase3to4, CPhase2Out, CPhase3Out, CProofCommitment,
-    CScalar, CScalarVec, CSessionData, CTransmitInitMulPhase3to4Vec,
-    CTransmitInitZeroSharePhase2to4Vec, CTransmitInitZeroSharePhase3to4Vec,
-    CUniqueKeepDerivationPhase2to3,
+use crate::dkls23::utilities::cjson::CJson;
+use dkls23::protocols::dkg::{
+    phase1, phase2, phase3, phase4, BroadcastDerivationPhase2to4,
+    BroadcastDerivationPhase3to4, KeepInitMulPhase3to4,
+    KeepInitZeroSharePhase2to3, KeepInitZeroSharePhase3to4, ProofCommitment,
+    SessionData, TransmitInitMulPhase3to4, TransmitInitZeroSharePhase2to4,
+    TransmitInitZeroSharePhase3to4, UniqueKeepDerivationPhase2to3,
 };
-use dkls23::protocols::dkg;
+use dkls23::protocols::Party;
+use k256::Scalar;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::os::raw::c_char;
 
+// DKG structs
+#[derive(Deserialize, Serialize)]
+pub struct Phase1In {
+    pub session: SessionData,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct Phase1Out {
+    pub fragments: Vec<Scalar>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct Phase2In {
+    pub session: SessionData,
+    pub poly_fragments: Vec<Scalar>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct Phase2Out {
+    pub poly_point: Scalar,
+    pub proof_commitment: ProofCommitment,
+    pub zero_keep: BTreeMap<u8, KeepInitZeroSharePhase2to3>,
+    pub zero_transmit: Vec<TransmitInitZeroSharePhase2to4>,
+    pub bip_keep: UniqueKeepDerivationPhase2to3,
+    pub bip_broadcast: BroadcastDerivationPhase2to4,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct Phase3In {
+    pub session: SessionData,
+    pub zero_kept: BTreeMap<u8, KeepInitZeroSharePhase2to3>,
+    pub bip_kept: UniqueKeepDerivationPhase2to3,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct Phase3Out {
+    pub zero_keep: BTreeMap<u8, KeepInitZeroSharePhase3to4>,
+    pub zero_transmit: Vec<TransmitInitZeroSharePhase3to4>,
+    pub mul_keep: BTreeMap<u8, KeepInitMulPhase3to4>,
+    pub mul_transmit: Vec<TransmitInitMulPhase3to4>,
+    pub bip_broadcast: BroadcastDerivationPhase3to4,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct Phase4In {
+    pub session: SessionData,
+    pub poly_point: Scalar,
+    pub proofs_commitments: Vec<ProofCommitment>,
+    pub zero_kept: BTreeMap<u8, KeepInitZeroSharePhase3to4>,
+    pub zero_received_phase2: Vec<TransmitInitZeroSharePhase2to4>,
+    pub zero_received_phase3: Vec<TransmitInitZeroSharePhase3to4>,
+    pub mul_kept: BTreeMap<u8, KeepInitMulPhase3to4>,
+    pub mul_received: Vec<TransmitInitMulPhase3to4>,
+    pub bip_broadcast_2to4: BTreeMap<u8, BroadcastDerivationPhase2to4>,
+    pub bip_broadcast_3to4: BTreeMap<u8, BroadcastDerivationPhase3to4>,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct Phase4Out {
+    pub party: Party,
+}
+
+// DKG Phases
 #[no_mangle]
-pub extern "C" fn dkls_phase1(session: &CSessionData) -> CScalarVec {
-    let session_data = CSessionData::to_session(session);
-    let scalars: Vec<k256::Scalar> = dkg::phase1(&session_data);
+pub extern "C" fn dkls_dkg_phase1(data: *const c_char) -> *const c_char {
+    let phase1_in: Phase1In = Phase1In::from_json(data);
+    let fragments = phase1(&phase1_in.session);
 
-    CScalarVec::from(&scalars)
+    Phase1Out { fragments }.to_json()
 }
 
 #[no_mangle]
-pub extern "C" fn dkls_phase2(
-    session: &CSessionData,
-    c_poly_fragments: &CScalarVec,
-) -> CPhase2Out {
-    let session_data = CSessionData::to_session(session);
-    let poly_fragments = c_poly_fragments.to_vec();
-
+pub extern "C" fn dkls_dkg_phase2(
+    phase2_json_in: *const c_char,
+) -> *const c_char {
+    let phase2_in: Phase2In = Phase2In::from_json(phase2_json_in);
     let (
         poly_point,
         proof_commitment,
@@ -31,53 +95,62 @@ pub extern "C" fn dkls_phase2(
         zero_transmit,
         bip_keep,
         bip_broadcast,
-    ) = dkg::phase2(&session_data, poly_fragments.as_slice());
+    ) = phase2(&phase2_in.session, &phase2_in.poly_fragments);
 
-    let c_poly_point = CScalar::from(&poly_point);
-    let c_proof_commitment = CProofCommitment::from(&proof_commitment);
-    let c_zero_keep: CBTreeMap<CKeepInitZeroSharePhase2to3> =
-        CBTreeMap::from(&zero_keep);
-    let c_zero_transmit_vec =
-        CTransmitInitZeroSharePhase2to4Vec::from(&zero_transmit);
-    let c_bip_keep = CUniqueKeepDerivationPhase2to3::from(&bip_keep);
-    let c_bip_broadcast = CBroadcastDerivationPhase2to4::from(&bip_broadcast);
-
-    CPhase2Out {
-        poly_point: c_poly_point,
-        proof_commitment: c_proof_commitment,
-        zero_keep: c_zero_keep,
-        zero_transmit: c_zero_transmit_vec,
-        bip_keep: c_bip_keep,
-        bip_broadcast: c_bip_broadcast,
+    Phase2Out {
+        poly_point,
+        proof_commitment,
+        zero_keep,
+        zero_transmit,
+        bip_keep,
+        bip_broadcast,
     }
+    .to_json()
 }
 
 #[no_mangle]
-pub extern "C" fn dkls_phase3(
-    c_session: &CSessionData,
-    c_zero_kept: &CBTreeMap<CKeepInitZeroSharePhase2to3>,
-    c_bip_kept: &CUniqueKeepDerivationPhase2to3,
-) -> CPhase3Out {
-    let session = c_session.to_session();
-    let zero_kept = c_zero_kept.to_inner();
-    let bip_kept = c_bip_kept.to_inner();
-
+pub extern "C" fn dkls_dkg_phase3(
+    phase3_json_in: *const c_char,
+) -> *const c_char {
+    let phase3_in: Phase3In = Phase3In::from_json(phase3_json_in);
     let (zero_keep, zero_transmit, mul_keep, mul_transmit, bip_broadcast) =
-        dkg::phase3(&session, &zero_kept, &bip_kept);
-    let c_zero_keep: CBTreeMap<CKeepInitZeroSharePhase3to4> =
-        CBTreeMap::from(&zero_keep);
-    let c_zero_transmit =
-        CTransmitInitZeroSharePhase3to4Vec::from(&zero_transmit);
-    let c_mul_keep: CBTreeMap<CKeepInitMulPhase3to4> =
-        CBTreeMap::from(&mul_keep);
-    let c_mul_transmit = CTransmitInitMulPhase3to4Vec::from(&mul_transmit);
-    let c_bip_broadcast = CBroadcastDerivationPhase3to4::from(&bip_broadcast);
+        phase3(
+            &phase3_in.session,
+            &phase3_in.zero_kept,
+            &phase3_in.bip_kept,
+        );
 
-    CPhase3Out {
-        zero_keep: c_zero_keep,
-        zero_transmit: c_zero_transmit,
-        mul_keep: c_mul_keep,
-        mul_transmit: c_mul_transmit,
-        bip_broadcast: c_bip_broadcast,
+    Phase3Out {
+        zero_keep,
+        zero_transmit,
+        mul_keep,
+        mul_transmit,
+        bip_broadcast,
+    }
+    .to_json()
+}
+
+#[no_mangle]
+pub extern "C" fn dkls_dkg_phase4(
+    phase4_json_in: *const c_char,
+) -> *const c_char {
+    let phase4_in: Phase4In = Phase4In::from_json(phase4_json_in);
+
+    match phase4(
+        &phase4_in.session,
+        &phase4_in.poly_point,
+        &phase4_in.proofs_commitments,
+        &phase4_in.zero_kept,
+        &phase4_in.zero_received_phase2,
+        &phase4_in.zero_received_phase3,
+        &phase4_in.mul_kept,
+        &phase4_in.mul_received,
+        &phase4_in.bip_broadcast_2to4,
+        &phase4_in.bip_broadcast_3to4,
+    ) {
+        Ok(party) => Phase4Out { party }.to_json(),
+        Err(abort) => {
+            panic!("Party {} aborted: {:?}", abort.index, abort.description);
+        }
     }
 }
