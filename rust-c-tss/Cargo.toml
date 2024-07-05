@@ -1,5 +1,5 @@
 [package]
-name = "rust-c-tss"
+name = "ffi_tss"
 version = "0.1.0"
 edition = "2021"
 
@@ -7,7 +7,7 @@ edition = "2021"
 # dkls23 = { git = "ssh://git@github.com/0xCarbon/DKLs23.git" }
 # just for the sake of testing, before merging the deterministic feature on
 # main branch, we are using a local branch.
-dkls23 = { path = "../../DKLs23" }
+dkls23 = { path = "../../DKLs23", features=["insecure-rng"] }
 k256 = { version = "0.13", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
