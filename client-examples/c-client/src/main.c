@@ -12,6 +12,8 @@ int main(int argc, const char* argv[]) {
 
     if (strcmp(argv[1], "dkg") == 0 || strcmp(argv[1], "sign") == 0) {
         ins_len = outs_len = 4;
+    } else if(strcmp(argv[1], "verify") == 0) {
+        ins_len = outs_len = 1;
     } else {
         return EXIT_FAILURE;
     }
@@ -25,6 +27,8 @@ int main(int argc, const char* argv[]) {
         dkg(ins, outs);
     } else if (strcmp(argv[1], "sign") == 0) {
         sign(ins, outs);
+    } else if (strcmp(argv[1], "verify") == 0) {
+        verify(ins, outs);
     }
 
     writelines(argv[3], outs, outs_len);
