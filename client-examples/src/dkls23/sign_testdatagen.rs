@@ -6,13 +6,20 @@ use dkls23::protocols::{re_key::re_key, Parameters};
 use dkls23::utilities::{hashes::hash, rng};
 use ffi_tss::dkls23::protocols::signing::{
     Phase1In, Phase1Out, Phase2In, Phase2Out, Phase3In, Phase3Out, Phase4In,
-    Phase4Out,
+    Phase4Out, VerifyIn,
 };
-use ffi_tss::k256::{elliptic_curve::Field, Scalar};
+use ffi_tss::k256::{
+    elliptic_curve::scalar::IsHigh, elliptic_curve::Field,
+    elliptic_curve::ScalarPrimitive, Scalar,
+};
 use rand::Rng;
 
-use crate::utils::{files::write_to_file, hash::sha256_str};
+use crate::utils::{
+    files::read_from_file, files::write_to_file, hash::sha256_str,
+};
 use std::collections::BTreeMap;
+
+use hex;
 
 pub fn sign_input_gen(input_filename: &str, output_filename: &str) {
     // Disclaimer: this implementation is not the most efficient,
@@ -267,4 +274,50 @@ pub fn sign_input_gen(input_filename: &str, output_filename: &str) {
     write_to_file(hashes, output_filename);
 
     println!("DKLs23::Signing finished!");
+}
+
+pub fn verify_ecdsa_signature_input_gen(
+    input_filename: &str,
+    output_filename: &str,
+) {
+    println!("verify:: input file: {}", input_filename);
+    let phases = read_from_file(input_filename);
+    if phases.len() != 4 {
+        panic!("");
+    }
+
+    let mut inputs: Vec<String> = Vec::new();
+    let phase4_in: Phase4In =
+        serde_json::from_str(&phases[3].as_str()).unwrap();
+
+    // Obtaining signature from phase4 input - See DKLs23::signing::sign_phase4
+    let mut numerator = Scalar::ZERO;
+    let mut denominator = Scalar::ZERO;
+    for message in phase4_in.received {
+        numerator += &message.w;
+        denominator += &message.u;
+    }
+
+    let mut s = numerator * (denominator.invert().unwrap());
+
+    // Normalize signature into "low S" form as described in
+    // BIP-0062 Dealing with Malleability: https://github.com/bitcoin/bips/blob/master/bip-0062.mediawiki
+    if phase4_in.normalize && s.is_high().into() {
+        s = ScalarPrimitive::from(-s).into();
+    }
+
+    let signature = hex::encode(s.to_bytes().as_slice());
+
+    inputs.push(
+        serde_json::to_string(&VerifyIn {
+            msg: phase4_in.sign_data.message_hash,
+            pk: phase4_in.party.pk,
+            x_coord: phase4_in.x_coord,
+            signature,
+        })
+        .unwrap(),
+    );
+
+    write_to_file(inputs, output_filename);
+    println!("DKLs23::Verify ECDSA signature input data generation finished!");
 }

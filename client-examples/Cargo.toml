@@ -6,6 +6,7 @@ edition = "2021"
 [dependencies]
 ffi_tss = { path = ".." }
 dkls23 = { path = "../../DKLs23", features=["insecure-rng"] }
+hex = "0.4"
 serde_json = "1.0"
 sha2 = "0.10.8"
 rand = "0.8"
