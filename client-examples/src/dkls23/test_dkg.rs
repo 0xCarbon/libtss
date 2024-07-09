@@ -37,6 +37,7 @@ mod tests {
         println!("DKLs23::Running DKG on c-client using FFI TSS lib");
         let mut command = Command::new(bin_path.to_str().unwrap());
         command.env("LD_LIBRARY_PATH", out_dir.to_str().unwrap());
+        command.arg("dkg");
         command.arg(in_path.to_str().unwrap());
         command.arg(ffi_out_path.to_str().unwrap());
         let _ = match command.output() {
