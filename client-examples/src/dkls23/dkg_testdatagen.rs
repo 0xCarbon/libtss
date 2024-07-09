@@ -41,7 +41,7 @@ pub fn dkg_input_gen(input_filename: &str, output_filename: &str) {
     }
 
     // Phase 1
-    println!("DKG - Phase 1");
+    println!("DKLs23::DKG - Phase 1");
     // for testing purpose, we are saving only the first party results.
     inputs.push(
         serde_json::to_string(&Phase1In {
@@ -79,7 +79,7 @@ pub fn dkg_input_gen(input_filename: &str, output_filename: &str) {
     }
 
     // Phase 2
-    println!("DKG - Phase 2");
+    println!("DKLs23::DKG - Phase 2");
     inputs.push(
         serde_json::to_string(&Phase2In {
             session: all_data[0].clone(),
@@ -148,7 +148,7 @@ pub fn dkg_input_gen(input_filename: &str, output_filename: &str) {
     // In practice, the messages received should be grouped into a BTreeMap.
 
     // Phase 3
-    println!("DKG - Phase 3");
+    println!("DKLs23::DKG - Phase 3");
     inputs.push(
         serde_json::to_string(&Phase3In {
             session: all_data[0].clone(),
@@ -228,7 +228,7 @@ pub fn dkg_input_gen(input_filename: &str, output_filename: &str) {
     }
 
     // Phase 4
-    println!("DKG - Phase 4");
+    println!("DKLs23::DKG - Phase 4");
     inputs.push(
         serde_json::to_string(&Phase4In {
             session: all_data[0].clone(),
@@ -263,7 +263,7 @@ pub fn dkg_input_gen(input_filename: &str, output_filename: &str) {
         match result {
             Err(abort) => {
                 panic!(
-                    "Party {} aborted: {:?}",
+                    "DKLS23::DKG::Party {} aborted: {:?}",
                     abort.index, abort.description
                 );
             }
@@ -285,5 +285,5 @@ pub fn dkg_input_gen(input_filename: &str, output_filename: &str) {
     write_to_file(inputs, input_filename);
     write_to_file(hashes, output_filename);
 
-    println!("DKG finished!");
+    println!("DKLS23::DKG finished!");
 }

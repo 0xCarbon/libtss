@@ -24,17 +24,17 @@ mod tests {
         // Search for dkg data file. If not exists, we run DKLs23 in insecure mode and save the output
         // of each phase as SHA-256 hashes and we save the inputs of each as json strings.
         if !in_path.exists() || !out_path.exists() {
-            println!("Running DKLs23 on deterministic mode...");
+            println!("DKLS23::Running DKG on deterministic mode...");
             dkg_testdatagen::dkg_input_gen(
                 in_path.to_str().unwrap(),
                 out_path.to_str().unwrap(),
             );
         } else {
-            println!("DKLs23 data cached");
+            println!("DKLs23::DKG data cached");
         }
 
         // run the C program
-        println!("Running DKLs23 client: using FFI TSS lib");
+        println!("DKLs23::Running DKG on c-client using FFI TSS lib");
         let mut command = Command::new(bin_path.to_str().unwrap());
         command.env("LD_LIBRARY_PATH", out_dir.to_str().unwrap());
         command.arg(in_path.to_str().unwrap());
@@ -51,11 +51,11 @@ mod tests {
         let obtained_hashes: Vec<String> =
             lines.iter().map(|l| sha256_str(l)).collect();
 
-        println!("Validating DKLs23 DKG:");
+        println!("DKLs23::Validating DKG:");
         assert_eq!(obtained_hashes.len(), expected_hashes.len());
         for i in 0..obtained_hashes.len() {
             assert_eq!(obtained_hashes[i], expected_hashes[i]);
-            println!("Phase {}: Passed!", i + 1);
+            println!("DKLs23::DKG Phase {}: Passed!", i + 1);
         }
     }
 }
