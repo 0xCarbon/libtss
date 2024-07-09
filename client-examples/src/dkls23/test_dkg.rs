@@ -25,7 +25,10 @@ mod tests {
         // of each phase as SHA-256 hashes and we save the inputs of each as json strings.
         if !in_path.exists() || !out_path.exists() {
             println!("Running DKLs23 on deterministic mode...");
-            dkg_testdatagen::dkg_input_gen(in_path.to_str().unwrap(), out_path.to_str().unwrap());
+            dkg_testdatagen::dkg_input_gen(
+                in_path.to_str().unwrap(),
+                out_path.to_str().unwrap(),
+            );
         } else {
             println!("DKLs23 data cached");
         }
@@ -45,7 +48,8 @@ mod tests {
 
         let expected_hashes = read_from_file(out_path.to_str().unwrap());
         let lines = read_from_file(ffi_out_path.to_str().unwrap());
-        let obtained_hashes: Vec<String> = lines.iter().map(|l| sha256_str(l)).collect();
+        let obtained_hashes: Vec<String> =
+            lines.iter().map(|l| sha256_str(l)).collect();
 
         println!("Validating DKLs23 DKG:");
         assert_eq!(obtained_hashes.len(), expected_hashes.len());
