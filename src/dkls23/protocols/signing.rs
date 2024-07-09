@@ -1,9 +1,12 @@
 use crate::dkls23::utilities::cjson::CJson;
 use dkls23::protocols::signing::{
-    Broadcast3to4, KeepPhase1to2, KeepPhase2to3, SignData, TransmitPhase1to2,
-    TransmitPhase2to3, UniqueKeep1to2, UniqueKeep2to3,
+    verify_ecdsa_signature, Broadcast3to4, KeepPhase1to2, KeepPhase2to3,
+    SignData, TransmitPhase1to2, TransmitPhase2to3, UniqueKeep1to2,
+    UniqueKeep2to3,
 };
 use dkls23::protocols::Party;
+use dkls23::utilities::hashes::HashOutput;
+use k256::AffinePoint;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::os::raw::c_char;
@@ -68,6 +71,19 @@ pub struct Phase4Out {
     pub rec_id: u8,
 }
 
+#[derive(Deserialize, Serialize)]
+pub struct VerifyIn {
+    pub msg: HashOutput,
+    pub pk: AffinePoint,
+    pub x_coord: String,
+    pub signature: String,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct VerifyOut {
+    pub valid: bool,
+}
+
 impl CJson for Phase1In {}
 impl CJson for Phase1Out {}
 impl CJson for Phase2In {}
@@ -76,6 +92,8 @@ impl CJson for Phase3In {}
 impl CJson for Phase3Out {}
 impl CJson for Phase4In {}
 impl CJson for Phase4Out {}
+impl CJson for VerifyIn {}
+impl CJson for VerifyOut {}
 
 #[no_mangle]
 pub extern "C" fn dkls_sign_phase1(
@@ -153,4 +171,18 @@ pub extern "C" fn dkls_sign_phase4(
             panic!("Party {} aborted: {:?}", abort.index, abort.description);
         }
     }
+}
+
+#[no_mangle]
+pub extern "C" fn dkls_verify_ecdsa_signature(
+    verify_json_in: *const c_char,
+) -> *const c_char {
+    let verify_in: VerifyIn = VerifyIn::from_json(verify_json_in);
+    let valid = verify_ecdsa_signature(
+        &verify_in.msg,
+        &verify_in.pk,
+        &verify_in.x_coord,
+        &verify_in.signature,
+    );
+    VerifyOut { valid }.to_json()
 }
