@@ -1,0 +1,97 @@
+buildscript {
+  ext.safeExtGet = {prop, fallback ->
+    rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+  }
+  repositories {
+    google()
+    gradlePluginPortal()
+  }
+  dependencies {
+    classpath("com.android.tools.build:gradle:7.3.1")
+    classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:1.7.22")
+  }
+}
+
+apply plugin: 'com.android.library'
+apply plugin: 'com.facebook.react'
+apply plugin: 'org.jetbrains.kotlin.android'
+
+android {
+  compileSdkVersion safeExtGet('compileSdkVersion', 33)
+  namespace "com.zerox.rtntss"
+}
+
+repositories {
+  mavenCentral()
+  google()
+}
+
+dependencies {
+  implementation 'com.facebook.react:react-native'
+  implementation 'net.java.dev.jna:jna:5.14.0@aar'
+}
+
+// Define paths to the Rust library and the NDK
+def rustLibDir = System.getenv("RUST_LIB_TSS_PATH")
+def ndkDir = System.getenv("ANDROID_NDK_HOME")
+
+// Define a task to create the jniLibs directories if they do not exist
+task createJniLibsDirs {
+  doLast {
+    def jniLibsDirs = [
+      "src/main/jniLibs/arm64-v8a",
+      "src/main/jniLibs/armeabi-v7a",
+      "src/main/jniLibs/x86",
+      "src/main/jniLibs/x86_64"
+    ]
+    jniLibsDirs.each { dir ->
+      def file = file(dir)
+      if (!file.exists()) {
+        file.mkdirs()
+      }
+    }
+  }
+}
+
+// Define a task to build the Rust library for each target
+def rustTargets = [
+  "aarch64-linux-android",
+  "armv7-linux-androideabi",
+  "i686-linux-android",
+  "x86_64-linux-android"
+]
+
+rustTargets.each { target ->
+  task "buildRustLibFor${target.replace('-', '_')}"(type: Exec) {
+    workingDir rustLibDir
+    commandLine "cargo", "build", "--target", target, "--release"
+    environment "PATH", "${ndkDir}/toolchains/llvm/prebuilt/linux-x86_64/bin:${System.env.PATH}"
+  }
+}
+
+def jniLibsDir = file("${projectDir}/src/main/jniLibs")
+
+// Define a task to copy the built .so files to the appropriate jniLibs directory
+task copyRustLibs(type: Copy) {
+  dependsOn rustTargets.collect { tasks["buildRustLibFor${it.replace('-', '_')}"] }
+  into jniLibsDir
+  from("${rustLibDir}/target/aarch64-linux-android/release") {
+    include "libffi_tss.so"
+    into "arm64-v8a"
+  }
+  from("${rustLibDir}/target/armv7-linux-androideabi/release") {
+    include "libffi_tss.so"
+    into "armeabi-v7a"
+  }
+  from("${rustLibDir}/target/i686-linux-android/release") {
+    include "libffi_tss.so"
+    into "x86"
+  }
+  from("${rustLibDir}/target/x86_64-linux-android/release") {
+    include "libffi_tss.so"
+    into "x86_64"
+  }
+}
+
+// Ensure the Rust library is built and copied before the Java compilation
+preBuild.dependsOn createJniLibsDirs, copyRustLibs
