@@ -2,6 +2,8 @@ import React from 'react';
 import { useState } from 'react';
 import { Text, TouchableOpacity, View, SafeAreaView, ScrollView, StyleSheet } from 'react-native';
 
+import ZeroxTSS from 'rn-tss-module/js/NativeTss';
+
 const getSession = (party_index: number) => ({
     // using hardcoded session_id and parameters in order to reproduce DKLs23
     // deterministic results (if wanted)
@@ -13,9 +15,20 @@ const getSession = (party_index: number) => ({
     party_index,
 })
 
+const dkgPhase1 = async (parties: []) => await Promise.all(
+    parties.map(async session => {
+        const { fragments } = JSON.parse(
+            await ZeroxTSS?.DKLsDkgPhase1(JSON.stringify({ session }))
+        );
+
+        return { session, fragments };
+    })
+);
+
 const DKLsDKG = async (setDKGStatus: Function) => {
     const parties = [getSession(1), getSession(2)];
-    setDKGStatus(JSON.stringify(parties));
+    const phase1Out = await dkgPhase1(parties);
+    setDKGStatus(JSON.stringify(phase1Out));
 }
 
 function App(): React.JSX.Element {
