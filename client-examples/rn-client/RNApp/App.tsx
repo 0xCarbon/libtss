@@ -21,23 +21,26 @@ const dkgPhase1 = async (parties: []) => await Promise.all(
             await ZeroxTSS?.DKLsDkgPhase1(JSON.stringify({ session }))
         );
 
-        return { session, fragments };
+        return { fragments };
     })
 );
 
 const DKLsDKG = async (setDKGStatus: Function) => {
     const parties = [getSession(1), getSession(2)];
     const phase1Out = await dkgPhase1(parties);
-    setDKGStatus(JSON.stringify(phase1Out));
+    setDKGStatus(JSON.stringify({
+        'party 1': phase1Out[0],
+        'party 2': phase1Out[1],
+    }, null, 2));
 }
 
 function App(): React.JSX.Element {
-    const [DKGStatus, setDKGStatus] = useState("dkg was not start yet");
+    const [DKGStatus, setDKGStatus] = useState("DKG hasn't started yet.");
     return (
         <SafeAreaView>
           <ScrollView contentContainerStyle={styles.container}>
             <View style={styles.titleContainer}>
-              <Text style={styles.title}>DKLs23 - Distributed Key Generation Example</Text>
+              <Text style={styles.title}>DKLs23 - DKG phase 1 example</Text>
             </View>
             <View style={styles.statusContainer}>
               <Text>{DKGStatus}</Text>
@@ -47,7 +50,7 @@ function App(): React.JSX.Element {
                 style={styles.button}
                 onPress={() => DKLsDKG(setDKGStatus)}
               >
-                <Text style={styles.buttonText}>Generate key shares</Text>
+                <Text style={styles.buttonText}>Test DKG phase 1</Text>
               </TouchableOpacity>
             </View>
           </ScrollView>
