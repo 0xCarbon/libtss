@@ -1,0 +1,38 @@
+{
+  "name": "rn-tss-module",
+  "version": "0.0.1",
+  "description": "TSS methods (DKLs23 and Frost) with Turbo Modules",
+  "react-native": "js/index",
+  "source": "js/index",
+  "files": [
+    "js",
+    "android",
+    "ios",
+    "rtn-tss.podspec",
+    "!android/build",
+    "!ios/build",
+    "!**/__tests__",
+    "!**/__fixtures__",
+    "!**/__mocks__"
+  ],
+  "keywords": [
+    "react-native",
+    "ios",
+    "android"
+  ],
+  "repository": "https://github.com/0xCarbon/libmpc/",
+  "author": "Filipe Alves filipe@0xcarbon.org",
+  "license": "MIT",
+  "peerDependencies": {
+    "react": "*",
+    "react-native": "*"
+  },
+  "codegenConfig": {
+    "name": "RTNTssSpec",
+    "type": "modules",
+    "jsSrcsDir": "js",
+    "android": {
+      "javaPackageName": "com.zerox.rtntss"
+    }
+  }
+}

@@ -1,0 +1,42 @@
+version: "3.8"
+
+volumes:
+    postgres-data:
+
+
+services:
+    app:
+        image: ghcr.io/0xcarbon/devcontainer@sha256:7311f3ec408766a0a192648c9d41a4fbc18def6eda39dbf2b60d4b4f93058669
+        env_file:
+            - ../.env
+        environment:
+            - DATABASE_URL=postgres://postgres:password@postgres/template
+            - POSTGRES_USER=postgres
+            - POSTGRES_PASSWORD=password
+            - POSTGRES_DB=template
+        volumes:
+            - ../..:/workspaces:cached
+        depends_on:
+            - postgres
+        network_mode: service:postgres
+
+    postgres:
+        image: postgres:16-bookworm
+        restart: unless-stopped
+        command:
+            - "postgres"
+            - "-c"
+            - "max_wal_size=1GB"
+            - "-c"
+            - "max_connections=1000"
+        volumes:
+            - postgres-data:/var/lib/postgresql/data
+        env_file:
+            - ../.env
+        environment:
+            - POSTGRES_USER=postgres
+            - POSTGRES_PASSWORD=password
+            - POSTGRES_DB=template
+        healthcheck:
+            test: pg_isready -U postgres -h 127.0.0.1
+            interval: 5s

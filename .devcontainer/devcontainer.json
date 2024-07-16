@@ -1,0 +1,43 @@
+{
+    "name": "template",
+    "dockerComposeFile": "docker-compose.yml",
+    "service": "app",
+    "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+    "postCreateCommand": "git config --global --add safe.directory /workspaces/${localWorkspaceFolderBasename}",
+    // Forward to host PSQL, Node, Rust
+    "forwardPorts": [5432, 3000, 8000],
+    // Configure tool-specific properties.
+    "customizations": {
+        // Configure properties specific to VS Code.
+        "vscode": {
+            // Set *default* container specific settings.json values on container create.
+            "settings": {
+                "lldb.executable": "/usr/bin/lldb",
+                // VS Code don't watch files under ./target
+                "files.watcherExclude": {
+                    "**/target/**": true
+                },
+                "rust-analyzer.checkOnSave.command": "clippy"
+            },
+
+            // Add the IDs of extensions you want installed when the container is created.
+            "extensions": [
+                "vadimcn.vscode-lldb",
+                "mutantdino.resourcemonitor",
+                "rust-lang.rust-analyzer",
+                "tamasfe.even-better-toml",
+                "serayuzgur.crates",
+                "dbaeumer.vscode-eslint",
+                "esbenp.prettier-vscode",
+                "bradlc.vscode-tailwindcss",
+                "statelyai.stately-vscode",
+                "adpyke.vscode-sql-formatter",
+                "ms-azuretools.vscode-docker",
+                "ms-vscode.makefile-tools",
+                "github.vscode-github-actions",
+                "jinxdash.prettier-rust",
+                "eamodio.gitlens"
+            ]
+        }
+    }
+}
