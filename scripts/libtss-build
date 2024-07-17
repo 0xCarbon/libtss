@@ -1,0 +1,26 @@
+#!/bin/bash
+export PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
+
+# Define an array of Android targets
+targets=("aarch64-linux-android" "armv7-linux-androideabi" "x86_64-linux-android" "i686-linux-android")
+
+cd $LIBTSS_PATH
+
+# Build for each target in parallel
+cargo build --release &
+for target in "${targets[@]}"; do
+  cargo build --target "$target" --release &
+done
+
+wait
+
+# Create directories for each target
+for target in "${targets[@]}"; do
+  mkdir -p ".build/jniLibs/$target"
+done
+
+# Copy the built shared objects to the appropriate directories
+cp target/release/*.so .build/
+for target in "${targets[@]}"; do
+  cp target/$target/release/*.so .build/jniLibs/$target/
+done

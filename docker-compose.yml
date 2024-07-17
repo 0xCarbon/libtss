@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  libtss:
+    build: .
+    volumes:
+      - .:/workspace
+      - ~/.ssh/0xcarbon_rsa:/root/.ssh/id_rsa:ro
+      - ~/.ssh/0xcarbon_rsa.pub:/root/.ssh/id_rsa.pub:ro
+    environment:
+      - CARGO_NET_GIT_FETCH_WITH_CLI=true

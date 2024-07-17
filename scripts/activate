@@ -1,0 +1,3 @@
+#!/bin/bash
+export LIBTSS_PATH=$(pwd)
+export PATH=$LIBTSS_PATH/scripts:$PATH
