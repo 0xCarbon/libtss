@@ -4,17 +4,14 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# dkls23 = { git = "ssh://git@github.com/0xCarbon/DKLs23.git" }
-# just for the sake of testing, before merging the deterministic feature on
-# main branch, we are using a local branch.
-dkls23 = { path = "../DKLs23", features=["insecure-rng"] }
+dkls23 = { git = "ssh://git@github.com/0xCarbon/DKLs23.git", branch = "feat/deterministic-rng-dkg" }
 k256 = { version = "0.13", features = ["serde"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
-[dev-dependencies]
-# to run deterministic tests, we must enable this feature flag
-dkls23 = { path = "../DKLs23", features=["insecure-rng"] }
+[features]
+default = []
+deterministic = ["dkls23/insecure-rng"]
 
 [lib]
 crate-type = ["cdylib", "lib"]
