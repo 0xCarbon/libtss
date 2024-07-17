@@ -14,14 +14,14 @@ OBJS = $(SRCS:.c=.o)
 EXEC = ffi_tss_client
 
 # Output directory for the cdylib
-OUT_DIR = ../../target/release
+OUT_DIR = ../../target/debug
 
 # Default target
 all: $(OUT_DIR)/libffi_tss.so $(EXEC)
 
 # Build the Rust library
 $(OUT_DIR)/libffi_tss.so:
-	cd ../.. && cargo build --release
+	cd ../.. && cargo build --features deterministic
 
 # Link object files to create the executable
 $(EXEC): $(OBJS)
