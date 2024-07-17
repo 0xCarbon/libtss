@@ -1,0 +1,2 @@
+#!/bin/bash
+cd $LIBTSS_PATH/client-examples && cargo test -- --nocapture

@@ -1,0 +1,11 @@
+#!/bin/bash
+cd $LIBTSS_PATH
+
+cargo clean
+rm -rf .build
+
+cd client-examples
+cargo clean
+
+cd c-client
+make clean
