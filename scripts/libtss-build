@@ -3,6 +3,7 @@ export PATH=$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH
 
 # Define an array of Android targets
 targets=("aarch64-linux-android" "armv7-linux-androideabi" "x86_64-linux-android" "i686-linux-android")
+targets_paths=("arm64-v8a" "armeabi-v7a" "x86_64" "x86")
 
 cd $LIBTSS_PATH
 
@@ -15,12 +16,12 @@ done
 wait
 
 # Create directories for each target
-for target in "${targets[@]}"; do
-  mkdir -p ".build/jniLibs/$target"
+for path in "${targets_paths[@]}"; do
+  mkdir -p ".build/jniLibs/$path"
 done
 
 # Copy the built shared objects to the appropriate directories
 cp target/release/*.so .build/
-for target in "${targets[@]}"; do
-  cp target/$target/release/*.so .build/jniLibs/$target/
+for i in "${!targets[@]}"; do
+  cp target/${targets[$i]}/release/*.so .build/jniLibs/${targets_paths[$i]}/
 done
