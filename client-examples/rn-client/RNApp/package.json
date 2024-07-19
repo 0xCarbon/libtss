@@ -10,9 +10,9 @@
     "test": "jest"
   },
   "dependencies": {
+    "@0xcarbon/rn-tss-module": "1.0.0",
     "react": "18.2.0",
-    "react-native": "0.74.3",
-    "rn-tss-module": "../rn-tss-module"
+    "react-native": "0.74.3"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
