@@ -10,6 +10,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git && \
     rm -rf /var/lib/apt/lists/*
 
+# Install Go
+RUN curl -LO https://golang.org/dl/go1.22.5.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.22.5.linux-amd64.tar.gz && \
+    rm go1.22.5.linux-amd64.tar.gz
+
+# Set Go environment variables
+ENV PATH=/usr/local/go/bin:$PATH
+
 # Install Android NDK and toolchains
 RUN curl -o ndk.zip https://dl.google.com/android/repository/android-ndk-r25b-linux.zip && \
     unzip ndk.zip && \

@@ -35,6 +35,8 @@
 *.idb
 *.pdb
 *.mod*
+!go.mod
+!*/go.mod
 *.cmd
 .tmp_versions/
 modules.order
