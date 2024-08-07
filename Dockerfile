@@ -7,8 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     unzip \
     gcc \
     make \
-    git \
-    openssh-client && \
+    git && \
     rm -rf /var/lib/apt/lists/*
 
 # Install Android NDK and toolchains
@@ -27,9 +26,6 @@ RUN rustup target add x86_64-unknown-linux-gnu \
     armv7-linux-androideabi \
     x86_64-linux-android \
     i686-linux-android
-
-# Add known hosts to avoid SSH prompt
-RUN mkdir -p /root/.ssh && ssh-keyscan github.com >> /root/.ssh/known_hosts
 
 # Set the working directory
 WORKDIR /workspace

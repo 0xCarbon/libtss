@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-dkls23 = { git = "ssh://git@github.com/0xCarbon/DKLs23.git", branch = "feat/deterministic-rng-dkg" }
+dkls23 = { git = "https://github.com/0xCarbon/DKLs23.git" }
 ffi_tss = { path = ".." }
 hex = "0.4"
 serde_json = "1.0"
@@ -12,7 +12,7 @@ sha2 = "0.10.8"
 rand = "0.8"
 
 [dev-dependencies]
-dkls23 = { git = "ssh://git@github.com/0xCarbon/DKLs23.git", branch = "feat/deterministic-rng-dkg", features=["insecure-rng"] }
+dkls23 = { git = "https://github.com/0xCarbon/DKLs23.git", features=["insecure-rng"] }
 
 [build-dependencies]
 cc = "1.0"

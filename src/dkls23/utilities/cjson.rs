@@ -15,6 +15,7 @@ pub trait CJson: Serialize {
         CString::new(json_str).unwrap().into_raw()
     }
 
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
     fn from_json<T>(data: *const c_char) -> T
     where
         T: Deserialize<'static>,
