@@ -1,7 +1,6 @@
 package dkls23
 
 /*
-#cgo LDFLAGS: -L../../../target/release -lffi_tss
 #include <stdlib.h>
 #include <stdint.h>
 

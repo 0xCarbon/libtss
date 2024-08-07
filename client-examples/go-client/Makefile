@@ -19,7 +19,8 @@ build-rust:
 .PHONY: run-example
 run-example: build-rust
 	@echo "Running Go example..."
-	LD_LIBRARY_PATH=$(RUST_TARGET) go run $(GO_EXAMPLE)
+	CGO_LDFLAGS="-L$(RUST_TARGET) -lffi_tss" LD_LIBRARY_PATH=$(RUST_TARGET) \
+	    go run $(GO_EXAMPLE)
 
 # Clean build artifacts
 .PHONY: clean
