@@ -1,3 +1,3 @@
-module 0xCarbon.org/libtss-go
+module github.com/0xCarbon/libtss/client-examples/go-client
 
 go 1.22.5
