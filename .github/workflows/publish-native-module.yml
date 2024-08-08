@@ -1,0 +1,51 @@
+name: Publish Native Module Package to GitHub Packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+jobs:
+  publish-npm:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      actions: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@0xcarbon'
+
+      - name: Get the latest run ID of Build Lib TSS workflow
+        id: get_run_id
+        run: |
+          RUN_ID=$(gh run list --workflow "Build Lib TSS" --json databaseId --jq '.[0].databaseId')
+          echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download lib tss .so files artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: libtss
+          run-id: ${{ env.RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Copy .so files
+        run: |
+          cp -r jniLibs ${{ vars.ANDROID_LIBS_PATH }}
+
+      - name: Publish package to GitHub Packages
+        run: npm publish --access restricted
+        working-directory: ${{ vars.NATIVE_MODULE_PATH }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

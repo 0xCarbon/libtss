@@ -2,7 +2,7 @@ import React from 'react';
 import { useState } from 'react';
 import { Text, TouchableOpacity, View, SafeAreaView, ScrollView, StyleSheet } from 'react-native';
 
-import ZeroxTSS from 'rn-tss-module/js/NativeTss';
+import ZeroxTSS from '@0xcarbon/rn-tss-module/js/NativeTss';
 
 const getSession = (party_index: number) => ({
     // using hardcoded session_id and parameters in order to reproduce DKLs23

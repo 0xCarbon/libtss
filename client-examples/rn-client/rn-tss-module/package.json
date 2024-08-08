@@ -1,6 +1,6 @@
 {
-  "name": "rn-tss-module",
-  "version": "0.0.1",
+  "name": "@0xcarbon/rn-tss-module",
+  "version": "1.0.0",
   "description": "TSS methods (DKLs23 and Frost) with Turbo Modules",
   "react-native": "js/index",
   "source": "js/index",
@@ -20,7 +20,7 @@
     "ios",
     "android"
   ],
-  "repository": "https://github.com/0xCarbon/libmpc/",
+  "repository": "https://github.com/0xCarbon/libtss/",
   "author": "Filipe Alves filipe@0xcarbon.org",
   "license": "MIT",
   "peerDependencies": {
