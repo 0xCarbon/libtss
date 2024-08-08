@@ -1,0 +1,36 @@
+name: Build Lib TSS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-libs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker
+        uses: docker/setup-buildx-action@v2
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/0xcarbon_rsa
+          echo "${{ secrets.SSH_PUBLIC_KEY }}" > ~/.ssh/0xcarbon_rsa.pub
+          chmod 600 ~/.ssh/0xcarbon_rsa
+          chmod 644 ~/.ssh/0xcarbon_rsa.pub
+
+      - name: Run libtss-docker-build script
+        run: |
+          scripts/libtss-docker-build
+
+      - name: Upload .build directory as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: libtss
+          path: .build
