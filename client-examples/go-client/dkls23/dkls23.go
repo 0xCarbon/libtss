@@ -23,7 +23,10 @@ extern const char* dkls_sign_phase4(const char* data);
 
 extern const char* dkls_verify_ecdsa_signature(const char* data);
 
-extern const char* dkls_derivation(const char* data);
+extern const char* dkls_derive_from_path(const char* data);
+extern const char* dkls_party_derive_from_path(const char* data);
+extern const char* dkls_derive_child(const char* data);
+extern const char* dkls_party_derive_child(const char* data);
 
 extern const char* dkls_re_key(const char* data);
 */
@@ -85,8 +88,20 @@ func VerifyECDSASignature(data string) string {
 }
 
 // Derivation
-func Derivation(data string) string {
-    return callFFIFunc(C.ffi_func(C.dkls_derivation), data);
+func DeriveFromPath(data string) string {
+    return callFFIFunc(C.ffi_func(C.dkls_derive_from_path), data);
+}
+
+func PartyDeriveFromPath(data string) string {
+    return callFFIFunc(C.ffi_func(C.dkls_party_derive_from_path), data);
+}
+
+func DeriveChild(data string) string {
+    return callFFIFunc(C.ffi_func(C.dkls_derive_child), data);
+}
+
+func PartyDeriveChild(data string) string {
+    return callFFIFunc(C.ffi_func(C.dkls_party_derive_child), data);
 }
 
 // Re-key
