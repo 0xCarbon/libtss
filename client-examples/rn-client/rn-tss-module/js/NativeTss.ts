@@ -14,7 +14,10 @@ export interface Spec extends TurboModule {
 
     DKLsVerifyECDSASignature(data: string): Promise<string>;
 
-    DKLsDerivation(data: string): Promise<string>;
+    DKLsDeriveFromPath(data: string): Promise<string>;
+    DKLsPartyDeriveFromPath(data: string): Promise<string>;
+    DKLsDeriveChild(data: string): Promise<string>;
+    DKLsPartyDeriveChild(data: string): Promise<string>;
 
     DKLsReKey(data: string): Promise<string>;
 }

@@ -21,7 +21,10 @@ private interface LibTssRust : Library {
 
     fun dkls_verify_ecdsa_signature(json_in: String): String
 
-    fun dkls_derivation(json_in: String): String
+    fun dkls_derive_from_path(json_in: String): String
+    fun dkls_party_derive_from_path(json_in: String): String
+    fun dkls_derive_child(json_in: String): String
+    fun dkls_party_derive_child(json_in: String): String
 
     fun dkls_re_key(json_in: String): String
 }
@@ -129,13 +132,43 @@ class TssModule(reactContext: ReactApplicationContext) : NativeTssSpec(reactCont
     }
 
     // DKLs23 derivation
-    override fun DKLsDerivation(data: String, promise: Promise) {
+    override fun DKLsDeriveFromPath(data: String, promise: Promise) {
         try {
-            val result = libTss.dkls_derivation(data)
+            val result = libTss.dkls_derive_from_path(data)
             promise.resolve(result)
         } catch (e: Exception) {
             e.printStackTrace()
-            promise.reject("DKLS_DERIVATION_ERROR", "An error occurred during DKLsDerivation: ${e.message}", e)
+            promise.reject("DKLS_DERIVATION_ERROR", "An error occurred during DKLsDeriveFromPath: ${e.message}", e)
+        }
+    }
+
+    override fun DKLsPartyDeriveFromPath(data: String, promise: Promise) {
+        try {
+            val result = libTss.dkls_party_derive_from_path(data)
+            promise.resolve(result)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            promise.reject("DKLS_DERIVATION_ERROR", "An error occurred during DKLsPartyDeriveFromPath: ${e.message}", e)
+        }
+    }
+
+    override fun DKLsDeriveChild(data: String, promise: Promise) {
+        try {
+            val result = libTss.dkls_derive_child(data)
+            promise.resolve(result)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            promise.reject("DKLS_DERIVATION_ERROR", "An error occurred during DKLsDeriveChild: ${e.message}", e)
+        }
+    }
+
+    override fun DKLsPartyDeriveChild(data: String, promise: Promise) {
+        try {
+            val result = libTss.dkls_party_derive_child(data)
+            promise.resolve(result)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            promise.reject("DKLS_DERIVATION_ERROR", "An error occurred during DKLsPartyDeriveChild: ${e.message}", e)
         }
     }
 
