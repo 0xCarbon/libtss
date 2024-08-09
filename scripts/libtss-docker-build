@@ -1,2 +1,2 @@
 #!/bin/bash
-docker-compose run libtss sh -c libtss-build
+docker compose run libtss sh -c libtss-build

@@ -1,2 +1,2 @@
 #!/bin/bash
-docker-compose run libtss sh -c libtss-go-example
+docker compose run libtss sh -c libtss-go-example
