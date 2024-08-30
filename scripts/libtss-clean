@@ -4,7 +4,7 @@ cd $LIBTSS_PATH
 cargo clean
 rm -rf .build
 
-cd client-examples
+cd SDK
 cargo clean
 
 cd c-client

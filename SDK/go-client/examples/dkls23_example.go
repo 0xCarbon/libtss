@@ -2,7 +2,7 @@ package main
 
 import (
     "fmt"
-    "github.com/0xCarbon/libtss/client-examples/go-client/dkls23"
+    "github.com/0xCarbon/libtss/SDK/go-client/dkls23"
 )
 
 func main() {
