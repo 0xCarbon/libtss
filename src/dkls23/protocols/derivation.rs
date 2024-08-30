@@ -1,4 +1,4 @@
-use crate::dkls23::utilities::cjson::CJson;
+use crate::utilities::cjson::CJson;
 use dkls23::protocols::derivation::DerivData;
 use dkls23::protocols::Party;
 use serde::{Deserialize, Serialize};

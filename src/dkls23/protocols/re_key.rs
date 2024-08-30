@@ -1,4 +1,4 @@
-use crate::dkls23::utilities::cjson::CJson;
+use crate::utilities::cjson::CJson;
 use dkls23::protocols::derivation::ChainCode;
 use dkls23::protocols::re_key::re_key;
 use dkls23::protocols::{Parameters, Party};

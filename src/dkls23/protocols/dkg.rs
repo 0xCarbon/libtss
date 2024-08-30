@@ -1,4 +1,4 @@
-use crate::dkls23::utilities::cjson::CJson;
+use crate::utilities::cjson::CJson;
 use dkls23::protocols::dkg::{
     phase1, phase2, phase3, phase4, BroadcastDerivationPhase2to4,
     BroadcastDerivationPhase3to4, KeepInitMulPhase3to4,
@@ -107,6 +107,16 @@ pub extern "C" fn dkls_dkg_phase2(
     }
     .to_json()
 }
+
+impl CJson for SessionData {}
+impl CJson for Phase1In {}
+impl CJson for Phase1Out {}
+impl CJson for Phase2In {}
+impl CJson for Phase2Out {}
+impl CJson for Phase3In {}
+impl CJson for Phase3Out {}
+impl CJson for Phase4In {}
+impl CJson for Phase4Out {}
 
 #[no_mangle]
 pub extern "C" fn dkls_dkg_phase3(

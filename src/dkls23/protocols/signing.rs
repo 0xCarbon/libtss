@@ -1,4 +1,4 @@
-use crate::dkls23::utilities::cjson::CJson;
+use crate::utilities::cjson::CJson;
 use dkls23::protocols::signing::{
     verify_ecdsa_signature, Broadcast3to4, KeepPhase1to2, KeepPhase2to3,
     SignData, TransmitPhase1to2, TransmitPhase2to3, UniqueKeep1to2,
