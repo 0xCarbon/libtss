@@ -1,4 +1,4 @@
-name: Publish Native Module Package to GitHub Packages
+name: Publish Native Module
 
 on:
   release:
