@@ -7,8 +7,8 @@ fn main() {
     // Define the path to the C project
     let bin_filename = "ffi_tss_client";
     let lib_filename = "libffi_tss.so";
-    let ffi_tss_lib_dir = "../target/debug";
-    let c_client_dir = "c-client";
+    let ffi_tss_lib_dir = "../../../target/debug";
+    let c_client_dir = "../../c-client";
 
     let status = Command::new("make")
         .current_dir(c_client_dir)
