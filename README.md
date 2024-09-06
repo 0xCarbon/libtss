@@ -19,6 +19,37 @@
 ## Overview
 Libtss is a Rust-based library that encapsulates various Threshold Signature Schemes (TSS), including our own [DKLs23](https://github.com/0xCarbon/DKLs23) implementation and others like Frost (in development). It provides an easy way to integrate with other programming languages via JSON serialization/deserialization and FFI (foreign function interface).The repository features client examples demonstrating integration with other languages, such as a C client and a React Native client. Additionally, it includes a sub-project, a React Native Turbo Module, published as an npm package, making it easy to integrate performant and memory-safe TSS methods, encapsulated in libtss, originally in Rust in React Native applications.
 
+## Libtss SDK
+
+You can use the Libtss runtime **embedded in different
+languages** with the libtss SDK:
+
+|                  | Language                             | Package                      | Documentation         |
+| ---------------- | ------------------------------------ | ---------------------------- | --------------------- |
+| ![Rust logo]     | [**Rust**][Rust integration]         | [`libtss` Rust crate] | [Learn][rust docs]    |
+| ![C logo]        | [**C**][C integration]               | [`libtss.h` header] | [Learn][c docs]       |
+| ![Go logo]       | [**Go**][go integration]             | _no published package_ | [Learn][go docs]      |
+| ![react logo]    | [**React Native**][RN integration]   | [`libtss` NPM package]        | [Learn][rn docs]      |
+
+[rust logo]: .assets/languages/rust.svg
+[c logo]: .assets/languages/c.svg
+[go logo]: .assets/languages/go.svg
+[react logo]: .assets/languages/react.svg
+
+[rust integration]: https://github.com/wasmerio/wasmer/tree/main/lib/api
+[c integration]: SDK/c-client/main.c
+[go integration]: https://github.com/wasmerio/wasmer-go
+[RN integration]: SDK/rn-client
+
+[`libtss` NPM package]: https://github.com/0xCarbon/libtss/pkgs/npm/rn-tss-module
+[`libtss` Go package]: https://github.com/0xCarbon/libtss/pkgs/npm/rn-tss-module
+[`libtss` Rust crate]: https://github.com/0xCarbon/libtss/pkgs/npm/rn-tss-module
+[`libtss.h` header]: https://github.com/0xCarbon/libtss/pkgs/npm/rn-tss-module
+
+[rust docs]: https://github.com/0xCarbon/libtss
+[rn docs]: https://github.com/0xCarbon/libtss
+[c docs]: https://docs.rs/wasmer-c-api/*/wasmer/wasm_c_api/index.html
+[go docs]: SDK/c-client/
 
 ## Manual Setup for Cross-Compilation Environment
 
