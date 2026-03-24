@@ -1,0 +1,50 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.*" />
+    <PackageReference Include="xunit" Version="2.*" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Libtss\Libtss.csproj" />
+  </ItemGroup>
+
+  <!-- Stage the native library for integration tests (prefer release, fall back to debug) -->
+  <!-- Linux -->
+  <ItemGroup>
+    <None Include="..\..\..\target\release\liblibtss_ffi.so"
+          Condition="Exists('..\..\..\target\release\liblibtss_ffi.so')"
+          CopyToOutputDirectory="PreserveNewest" Link="liblibtss_ffi.so" />
+    <None Include="..\..\..\target\debug\liblibtss_ffi.so"
+          Condition="!Exists('..\..\..\target\release\liblibtss_ffi.so') And Exists('..\..\..\target\debug\liblibtss_ffi.so')"
+          CopyToOutputDirectory="PreserveNewest" Link="liblibtss_ffi.so" />
+  </ItemGroup>
+  <!-- macOS -->
+  <ItemGroup>
+    <None Include="..\..\..\target\release\liblibtss_ffi.dylib"
+          Condition="Exists('..\..\..\target\release\liblibtss_ffi.dylib')"
+          CopyToOutputDirectory="PreserveNewest" Link="liblibtss_ffi.dylib" />
+    <None Include="..\..\..\target\debug\liblibtss_ffi.dylib"
+          Condition="!Exists('..\..\..\target\release\liblibtss_ffi.dylib') And Exists('..\..\..\target\debug\liblibtss_ffi.dylib')"
+          CopyToOutputDirectory="PreserveNewest" Link="liblibtss_ffi.dylib" />
+  </ItemGroup>
+  <!-- Windows -->
+  <ItemGroup>
+    <None Include="..\..\..\target\release\libtss_ffi.dll"
+          Condition="Exists('..\..\..\target\release\libtss_ffi.dll')"
+          CopyToOutputDirectory="PreserveNewest" Link="libtss_ffi.dll" />
+    <None Include="..\..\..\target\debug\libtss_ffi.dll"
+          Condition="!Exists('..\..\..\target\release\libtss_ffi.dll') And Exists('..\..\..\target\debug\libtss_ffi.dll')"
+          CopyToOutputDirectory="PreserveNewest" Link="libtss_ffi.dll" />
+  </ItemGroup>
+
+</Project>

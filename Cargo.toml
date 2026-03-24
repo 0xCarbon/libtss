@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = ["libtss", "libtss-ffi", "examples/tokio-tss"]
+exclude = ["libtss-wasm", "libtss-dotnet", "libtss-python"]
+
+[workspace.package]
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/0xCarbon/libtss"
+publish = false
+
+[workspace.dependencies]
+frost-core = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
+frost-secp256k1-tr = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
+frost-secp256k1 = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
+frost-ed25519 = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
+frost-p256 = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
+frost-ristretto255 = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
+frost-ed448 = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
+dkls23-secp256k1 = { git = "https://github.com/0xCarbon/DKLs23", branch = "main", features = ["serde"] }
+dkls23-secp256r1 = { git = "https://github.com/0xCarbon/DKLs23", branch = "main", features = ["serde"] }
+zeroize = { version = "1", features = ["derive"] }
+slotmap = "1"
+k256 = "=0.14.0-rc.8"
+p256 = "0.14.0-rc.3"
+subtle = "2.6"
+rand_core = { version = "0.6", features = ["getrandom"] }

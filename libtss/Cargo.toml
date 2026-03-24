@@ -1,0 +1,33 @@
+[package]
+name = "libtss"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "Threshold signing library unifying FROST and DKLs23"
+
+[dependencies]
+frost-core.workspace = true
+frost-secp256k1-tr.workspace = true
+frost-secp256k1.workspace = true
+frost-ed25519.workspace = true
+frost-p256.workspace = true
+frost-ristretto255.workspace = true
+frost-ed448.workspace = true
+dkls23-secp256k1.workspace = true
+dkls23-secp256r1.workspace = true
+zeroize.workspace = true
+slotmap.workspace = true
+k256.workspace = true
+p256.workspace = true
+subtle.workspace = true
+postcard = { version = "1", features = ["alloc"] }
+serde = { version = "1", features = ["derive"] }
+hmac = "0.12"
+sha2 = "0.10"
+thiserror = "2"
+rand_core.workspace = true
+
+[dev-dependencies]
+trybuild = "1"

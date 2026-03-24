@@ -1,0 +1,30 @@
+[package]
+name = "libtss-ffi-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+libtss-ffi = { path = ".." }
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "fuzz_ffi_deserialize"
+path = "fuzz_targets/fuzz_ffi_deserialize.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_ffi_sign"
+path = "fuzz_targets/fuzz_ffi_sign.rs"
+doc = false
+
+[[bin]]
+name = "fuzz_ffi_handle"
+path = "fuzz_targets/fuzz_ffi_handle.rs"
+doc = false

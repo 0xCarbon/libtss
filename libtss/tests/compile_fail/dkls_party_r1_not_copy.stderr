@@ -1,0 +1,11 @@
+error[E0277]: the trait bound `Party<p256::NistP256>: Copy` is not satisfied
+ --> tests/compile_fail/dkls_party_r1_not_copy.rs:5:19
+  |
+5 |     assert_copy::<dkls23_secp256r1::Party>();
+  |                   ^^^^^^^^^^^^^^^^^^^^^^^ the trait `Copy` is not implemented for `Party<p256::NistP256>`
+  |
+note: required by a bound in `assert_copy`
+ --> tests/compile_fail/dkls_party_r1_not_copy.rs:2:19
+  |
+2 | fn assert_copy<T: Copy>() {}
+  |                   ^^^^ required by this bound in `assert_copy`

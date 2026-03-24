@@ -1,0 +1,6 @@
+target/
+.git/
+node_modules/
+libtss-rn/android/build/
+libtss-rn/android/.gradle/
+*.log

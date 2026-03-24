@@ -1,0 +1,90 @@
+name: Publish React Native Module
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish (e.g. 0.2.0)"
+        required: true
+        type: string
+
+jobs:
+  publish:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, x86_64-linux-android, aarch64-apple-ios, aarch64-apple-ios-sim
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-ndk
+        run: |
+          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+          cargo binstall cargo-ndk --no-confirm
+
+      - name: Install Android NDK
+        id: ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27c
+
+      - name: Build Android aarch64
+        run: cargo ndk --target aarch64-linux-android --platform 21 -- build --release -p libtss-ffi
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+
+      - name: Build Android x86_64
+        run: cargo ndk --target x86_64-linux-android --platform 21 -- build --release -p libtss-ffi
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+
+      - name: Build iOS device (aarch64)
+        run: cargo build --release --target aarch64-apple-ios -p libtss-ffi
+
+      - name: Build iOS simulator (aarch64)
+        run: cargo build --release --target aarch64-apple-ios-sim -p libtss-ffi
+
+      - name: Bundle native artifacts
+        run: |
+          # Android
+          mkdir -p libtss-rn/android/libs/aarch64-linux-android libtss-rn/android/libs/x86_64-linux-android libtss-rn/android/include
+          cp target/aarch64-linux-android/release/liblibtss_ffi.a libtss-rn/android/libs/aarch64-linux-android/
+          cp target/x86_64-linux-android/release/liblibtss_ffi.a libtss-rn/android/libs/x86_64-linux-android/
+          cp libtss-ffi/libtss.h libtss-rn/android/include/
+          # iOS
+          mkdir -p libtss-rn/ios/libs/aarch64-apple-ios libtss-rn/ios/libs/aarch64-apple-ios-sim libtss-rn/ios/include
+          cp target/aarch64-apple-ios/release/liblibtss_ffi.a libtss-rn/ios/libs/aarch64-apple-ios/
+          cp target/aarch64-apple-ios-sim/release/liblibtss_ffi.a libtss-rn/ios/libs/aarch64-apple-ios-sim/
+          cp libtss-ffi/libtss.h libtss-rn/ios/include/
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        working-directory: libtss-rn
+        run: npm install
+
+      - name: Test
+        working-directory: libtss-rn
+        run: npm test
+
+      - name: Build TypeScript
+        working-directory: libtss-rn
+        run: npm run build
+
+      - name: Bump version
+        working-directory: libtss-rn
+        run: npm version ${{ inputs.version }} --no-git-tag-version
+
+      - name: Publish
+        working-directory: libtss-rn
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

@@ -1,0 +1,48 @@
+[package]
+name = "libtss-wasm"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "WASM bindings for the libtss threshold signing library"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["console_error_panic_hook"]
+console_error_panic_hook = ["dep:console_error_panic_hook"]
+testing = []  # Exposes test-only constructors for SecureKeyShare
+
+[dependencies]
+libtss = { path = "../libtss" }
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+console_error_panic_hook = { version = "0.1", optional = true }
+zeroize = { version = "1", features = ["derive"] }
+getrandom = { version = "0.2", features = ["js"] }
+
+[dependencies.web-sys]
+version = "0.3"
+features = [
+    "console",
+    "Crypto",
+    "SubtleCrypto",
+    "CryptoKey",
+    "AesGcmParams",
+    "AesKeyGenParams",
+]
+
+[dev-dependencies]
+wasm-bindgen-test = "0.3"
+
+# This crate is intentionally NOT part of the root workspace (wasm32-unknown-unknown
+# is incompatible with the native targets used by the rest of the workspace).
+# The empty [workspace] prevents Cargo from traversing upward.
+[workspace]
+
+[profile.release]
+opt-level = "s"
+lto = true

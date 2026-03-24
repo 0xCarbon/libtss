@@ -1,0 +1,175 @@
+# 01 - Overview
+
+## Problem Statement
+
+Threshold signing is critical infrastructure for custody solutions, cross-chain bridges,
+and distributed key management. Two complementary protocols dominate the space:
+
+- **FROST (RFC 9591)**: Threshold Schnorr signatures -- 2-round signing, BIP-340/Taproot
+  compatible, minimal assumptions (discrete log hardness only).
+- **DKLs23**: Threshold ECDSA -- 3-round signing, OT-based (no Paillier/Strong RSA),
+  state-of-the-art performance (~5-10x faster than GG20).
+
+No single library provides both protocols with production-grade security and
+multi-language support. The current landscape has critical gaps:
+
+| Library | Language | Protocol | Issues |
+|---------|----------|----------|--------|
+| tss-lib (Binance) | Go | GG18 ECDSA | TSSHOCK-vulnerable, non-constant-time `math/big`, 9 signing rounds, protocol declared obsolete by authors |
+| multi-party-sig (Taurus) | Go | CMP/FROST/DKLS | Unaudited, known DKLS OT reuse vulnerability (GHSA-7f6p-phw2-8253) |
+| bytemare/frost | Go | RFC 9591 | No BIP-340 tweaking, no Taproot support, no ECDSA |
+| kryptology (Coinbase) | Go | GG20/FROST | Archived, GG20 protocol obsolete |
+| Silence Labs dkls23 | Rust | DKLs23 only | No FROST. Production-quality, audited, but single-protocol. |
+| ZCash Foundation frost | Rust | FROST only | No ECDSA. NCC-audited, 7 ciphersuites, but single-protocol. |
+
+Two production-quality Rust protocol implementations exist but are separate crates
+with incompatible APIs, no unified interface, and no multi-language FFI story:
+- **ZCash Foundation FROST** (v3.0.0-rc.0): NCC-audited, 7 ciphersuites including secp256k1 Taproot
+- **0xCarbon DKLs23** (v0.4.1): Multi-crate workspace (`dkls23-core` + curve-specific crates),
+  curve-generic types (`Party<C: DklsCurve>`, `PublicKeyPackage<C>`, `DkgSession<C>`,
+  `SignSession<'a, C>`), supports secp256k1 and secp256r1 (NIST P-256). Full protocol with
+  DKG, signing, refresh, BIP-32 derivation, versioned domain-separated oracle tags, structured
+  ban/recoverable abort classification, session state machines, typed `PartyIndex`,
+  `PublicKeyPackage`, `EcdsaSignature`, `AddressScheme<C>` trait with blockchain-specific
+  address functions, feature-gated serde
+
+## Goals
+
+**libtss** is a Rust library that unifies these implementations behind a single API
+and exposes them via C ABI for consumption by any language:
+
+1. **Unified session API**: Protocol-agnostic `new()` → `next()` loop for DKG, signing, and refresh — same client code works for both FROST and DKLs23
+2. **Protocol selection by ciphersuite**: FROST for Schnorr/BIP-340/Taproot; DKLs23 for ECDSA — chosen once at DKG time, transparent thereafter
+3. **Single `Message` type**: Opaque protocol messages with `from`/`to` routing — clients never parse protocol internals
+4. **C ABI + target bindings**: `extern "C"` functions consumed by Go (cgo on Linux), Rust (direct), and React Native (via native modules on Android/iOS)
+5. **Transport-agnostic**: Pure computation — bytes in, bytes out. No network, no async runtime, no threads inside FFI. The application owns all I/O.
+6. **Secret safety**: All key material in Rust memory with `zeroize`-on-drop. Consumers get opaque handles, never raw key bytes.
+7. **BIP compatibility**: BIP-32 non-hardened derivation, BIP-340 x-only keys, BIP-341 Taproot tweaking
+8. **Key lifecycle**: DKG, signing, refresh (proactive security), repair (share recovery)
+
+## Non-Goals
+
+- Reimplementing FROST or DKLs23 from scratch
+- Network transport layer (the library is transport-agnostic, like DKLs23 itself)
+- Coordinator/orchestrator service (the library provides building blocks)
+- Async runtime or thread management inside the library
+- Hardened BIP-32 derivation (requires MPC hash computation, out of scope for v1)
+- Post-quantum security (neither protocol supports it)
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────────────────────────┐
+│  Applications                                                        │
+│                                                                      │
+│  Go app (Linux)   Rust app         React Native (Android/iOS)        │
+│  (cgo)            (direct crate)   (native modules via C ABI)        │
+├──────────────────────────────────────────────────────────────────────┤
+│  Thin Language Bindings                                              │
+│                                                                      │
+│  libtss-go/        (direct dep)    libtss-rn/                        │
+│  Idiomatic Go      No wrapper      JS/TS bridge over                 │
+│  types + errors    needed          native modules                    │
+│                                                                      │
+├──────────────────────────────────────────────────────────────────────┤
+│  C ABI (extern "C" + cbindgen header)                                │
+│                                                                      │
+│  libtss.h -- stable C header, generated by cbindgen                  │
+│  liblibtss.a / liblibtss.so / libtss.dylib / libtss.wasm            │
+│                                                                      │
+│  Functions: tss_dkg_new(), tss_sign_next(), tss_frost_aggregate()   │
+│  Types: TssHandle (u64), TssBuffer, TssSlice, Message (TLV)         │
+│  Convention: unified session API (new → next loop), any protocol     │
+├──────────────────────────────────────────────────────────────────────┤
+│  libtss (Rust crate)                                                 │
+│                                                                      │
+│  Unified API layer                                                   │
+│    Protocol dispatch, handle registry, error mapping                 │
+│    catch_unwind at every extern "C" entry point                      │
+│    Zeroize on Drop for all secret types                              │
+│                                                                      │
+│  ┌──────────────────────┐  ┌──────────────────────────────────┐     │
+│  │ frost-secp256k1-tr   │  │ dkls23-core (curve-generic)      │     │
+│  │ frost-secp256k1      │  │ dkls23-secp256k1                 │     │
+│  │ frost-ed25519        │  │ dkls23-secp256r1                 │     │
+│  │ frost-p256           │  │   DKG, signing, refresh          │     │
+│  │ frost-ristretto255   │  │   BIP-32 derivation, re-key      │     │
+│  │ frost-ed448          │  │   OT (base + extension)          │     │
+│  │ frost-rerandomized   │  │   Two-party multiplication       │     │
+│  │                      │  │                                  │     │
+│  │ Constant-time via    │  │   Constant-time via k256/p256    │     │
+│  │ k256/dalek/p256      │  │   Zeroize on all secrets         │     │
+│  │ Zeroize on all       │  │                                  │     │
+│  │ secrets              │  │                                  │     │
+│  └──────────────────────┘  └──────────────────────────────────┘     │
+└──────────────────────────────────────────────────────────────────────┘
+```
+
+### Why Rust-First (Not Go Wrapping Rust)
+
+A Go library wrapping Rust via FFI would be a dead end for multi-language support:
+Java would need Java→Go→Rust (double FFI). A Rust library with C ABI lets every
+language do one hop.
+
+This mirrors DKLs23's own design philosophy: the protocol crate has no network layer
+because it's meant to be embedded in any application runtime. libtss follows the same
+principle -- pure computation, no I/O, no runtime. The application controls transport,
+concurrency, and storage.
+
+| Approach | Go (Linux) | Rust | React Native | Complexity |
+|----------|------------|------|--------------|------------|
+| Go wrapping Rust | Native | Impossible | Impossible | High |
+| **Rust with C ABI** | cgo (1 hop) | Direct crate dep | Native module (1 hop) | **Low** |
+
+### Output Artifacts
+
+| Artifact | Format | Target |
+|----------|--------|--------|
+| `liblibtss.a` | Static library | Linux x86_64/aarch64 (Go cgo, Rust static linking) |
+| `liblibtss.so` | Shared library | Linux dynamic linking |
+| `liblibtss.a` (Android) | Static library | Android ARM64/x86_64 (React Native native module) |
+| `liblibtss.a` (iOS) | Static library | iOS ARM64 (React Native native module) |
+| `libtss.h` | C header | All C ABI consumers (generated by cbindgen) |
+| `libtss-go/` | Go module | `go get` for Go projects (Linux) |
+| `libtss-rn/` | npm package | React Native bridge (Android + iOS) |
+
+## Supported Configurations
+
+### FROST Ciphersuites
+
+| Ciphersuite | Curve | Use Case |
+|-------------|-------|----------|
+| `FROST-secp256k1-TR` | secp256k1 | Bitcoin Taproot (BIP-340/341) |
+| `FROST-secp256k1` | secp256k1 | Bitcoin legacy Schnorr |
+| `FROST-Ed25519` | Edwards25519 | Ed25519 signatures (Solana, Cardano) |
+| `FROST-P256` | NIST P-256 | TLS, WebAuthn, enterprise |
+| `FROST-Ristretto255` | ristretto255 | Privacy protocols, ZK systems |
+| `FROST-Ed448` | Edwards448 | High-security applications |
+
+### DKLs23
+
+| Configuration | Curve | Use Case |
+|---------------|-------|----------|
+| `DKLs23-secp256k1` | secp256k1 | Bitcoin/Ethereum/Cosmos/TRON ECDSA |
+| `DKLs23-secp256r1` | NIST P-256 | NEO3/Sui ECDSA |
+
+### Threshold Parameters
+
+Both protocols support arbitrary `(t, n)` configurations where:
+- `t` (threshold/min_signers): minimum number of signers required (must be >= 2)
+- `n` (share_count/max_signers): total number of key share holders
+- Constraint: `2 <= t <= n`
+
+## Versioning
+
+The specification and library follow semantic versioning. The C ABI and wire format
+include version identifiers to enable forward-compatible upgrades. The C header is
+considered a stable interface -- breaking changes require a major version bump.
+
+## References
+
+- [RFC 9591 - Two-Round Threshold Schnorr Signatures with FROST](https://www.rfc-editor.org/rfc/rfc9591.html)
+- [DKLs23 - Threshold ECDSA in Three Rounds](https://eprint.iacr.org/2023/765)
+- [BIP-340 - Schnorr Signatures for secp256k1](https://bips.dev/340/)
+- [BIP-341 - Taproot](https://bips.dev/341/)
+- [BIP-32 - Hierarchical Deterministic Wallets](https://bips.dev/32/)

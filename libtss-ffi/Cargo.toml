@@ -1,0 +1,26 @@
+[package]
+name = "libtss-ffi"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+description = "C ABI bindings for libtss"
+
+[lib]
+crate-type = ["cdylib", "staticlib", "rlib"]
+
+[dependencies]
+libc = "0.2"
+libtss = { path = "../libtss" }
+zeroize = { workspace = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[build-dependencies]
+cbindgen = "0.27"
+
+[[bench]]
+name = "benchmarks"
+harness = false

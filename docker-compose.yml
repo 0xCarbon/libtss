@@ -1,0 +1,36 @@
+services:
+  base:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - go-pkg:/root/go/pkg
+    working_dir: /workspace
+
+  test:
+    extends: base
+    command: make test
+
+  bench:
+    extends: base
+    command: cargo bench --workspace
+
+  build-all:
+    extends: base
+    command: >
+      bash -c "make build &&
+      make android-arm64 &&
+      make android-x86_64 &&
+      cd libtss-go && go build -v ./..."
+
+  fuzz:
+    extends: base
+    command: bash -c "cd libtss-ffi && cargo +nightly fuzz run fuzz_ffi_sign"
+
+volumes:
+  cargo-registry:
+  cargo-git:
+  go-pkg:

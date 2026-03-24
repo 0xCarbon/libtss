@@ -1,0 +1,197 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Build
+        run: cargo build --workspace
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --workspace
+
+      - name: Test (release)
+        run: cargo test --workspace --release
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  coverage:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin@0.32.7 --locked
+
+      - name: Generate coverage
+        run: cargo tarpaulin --workspace --out xml --out html --timeout 300
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            tarpaulin-report.html
+            cobertura.xml
+          retention-days: 14
+
+  bench-smoke:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Benchmark smoke test
+        run: cargo bench --workspace -- --test
+
+  fuzz-smoke:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@nightly
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz
+
+      - name: Fuzz ffi_deserialize (60s)
+        working-directory: libtss-ffi
+        run: cargo +nightly fuzz run fuzz_ffi_deserialize -- -max_total_time=60
+
+      - name: Fuzz ffi_sign (60s)
+        working-directory: libtss-ffi
+        run: cargo +nightly fuzz run fuzz_ffi_sign -- -max_total_time=60
+
+      - name: Fuzz ffi_handle (60s)
+        working-directory: libtss-ffi
+        run: cargo +nightly fuzz run fuzz_ffi_handle -- -max_total_time=60
+
+  cbindgen:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build (generates header via build.rs)
+        run: cargo build -p libtss-ffi
+
+      - name: Verify header was generated
+        run: test -f libtss-ffi/libtss.h
+
+  cross-compile:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    strategy:
+      matrix:
+        include:
+          - target: aarch64-unknown-linux-gnu
+            linker: aarch64-linux-gnu-gcc
+            packages: gcc-aarch64-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cross-compilation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.packages }}
+
+      - name: Cross-compile build
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: ${{ matrix.linker }}
+        run: cargo build --release -p libtss-ffi --target ${{ matrix.target }}
+
+  android-build:
+    runs-on: ubuntu-latest
+    needs: build-and-test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, armv7-linux-androideabi, x86_64-linux-android, i686-linux-android
+
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26c
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build Android libraries
+        run: bash scripts/build-android.sh
+
+      - name: Upload jniLibs Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-jniLibs
+          path: jniLibs/
+          retention-days: 7
+

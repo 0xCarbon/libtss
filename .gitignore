@@ -1,0 +1,70 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# Build artifacts
+*.a
+*.so
+*.dylib
+*.dll
+*.o
+*.d
+
+# Generated (libtss-ffi/libtss.h is tracked for consumers without cbindgen)
+
+# Go
+libtss-go/tss/*.a
+libtss-go/tss/*.so
+libtss-go/tss/*.h
+!libtss-go/tss/tss_ffi.h
+
+# WASM
+libtss-wasm/target/
+libtss-wasm/pkg/
+
+# .NET
+libtss-dotnet/**/bin/
+libtss-dotnet/**/obj/
+
+# Python
+libtss-python/__pycache__/
+libtss-python/**/__pycache__/
+libtss-python/*.egg-info/
+libtss-python/dist/
+libtss-python/build/
+
+# Node.js
+libtss-node/node_modules/
+libtss-node/lib/
+libtss-node/package-lock.json
+
+# React Native
+libtss-rn/node_modules/
+libtss-rn/lib/
+libtss-rn/package-lock.json
+libtss-rn/ios/build/
+libtss-rn/ios/libs/
+libtss-rn/ios/include/
+libtss-rn/android/build/
+libtss-rn/android/.gradle/
+libtss-rn/android/libs/
+libtss-rn/android/include/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Internal tooling
+.coder/
+.gemini/
+.geminiignore
+.tracking/
+ISSUE.md
+libtss/wip/
