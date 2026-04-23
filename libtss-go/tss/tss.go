@@ -1,7 +1,8 @@
 package tss
 
 /*
-#cgo LDFLAGS: -L${SRCDIR}/../../target/debug -L${SRCDIR}/../../target/release -l:liblibtss_ffi.a -ldl -lm -lpthread
+#cgo linux LDFLAGS: -L${SRCDIR}/../../target/debug -L${SRCDIR}/../../target/release -l:liblibtss_ffi.a -ldl -lm -lpthread
+#cgo darwin LDFLAGS: -L${SRCDIR}/../../target/debug -L${SRCDIR}/../../target/release -llibtss_ffi -lm -framework Security -framework CoreFoundation
 #include "tss_ffi.h"
 */
 import "C"
