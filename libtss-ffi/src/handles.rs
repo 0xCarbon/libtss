@@ -46,6 +46,17 @@ pub extern "C" fn tss_handle_group_key(handle: TssHandle, out: *mut TssBuffer) -
 }
 
 #[no_mangle]
+pub extern "C" fn tss_handle_chain_code(handle: TssHandle, out: *mut TssBuffer) -> TssStatus {
+    ffi_entry!({
+        let out = unsafe { out.as_mut() }
+            .ok_or_else(|| libtss::TssError::InvalidConfig("out is null".into()))?;
+        let ks = borrow_key_share(handle)?;
+        *out = TssBuffer::from_vec(ks.chain_code()?);
+        Ok(())
+    })
+}
+
+#[no_mangle]
 pub extern "C" fn tss_handle_pubkey_package(handle: TssHandle, out: *mut TssBuffer) -> TssStatus {
     ffi_entry!({
         let out = unsafe { out.as_mut() }

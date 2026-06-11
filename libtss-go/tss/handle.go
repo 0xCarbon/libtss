@@ -118,6 +118,24 @@ func (h *KeyShareHandle) GroupKey() ([]byte, error) {
 	return bufferToBytes(&out), nil
 }
 
+// ChainCode returns the 32-byte BIP-32 chain code this share derives children
+// with. Pair it with GroupKey to build a BIP-32 xpub whose off-MPC pubkey
+// derivation matches the child shares each party derives via DeriveChild /
+// DerivePath.
+func (h *KeyShareHandle) ChainCode() ([]byte, error) {
+	handle, err := h.native.value()
+	if err != nil {
+		return nil, err
+	}
+	var out C.struct_TssBuffer
+	if err := callStatus(func() C.TssStatus {
+		return C.tss_handle_chain_code(handle, &out)
+	}); err != nil {
+		return nil, err
+	}
+	return bufferToBytes(&out), nil
+}
+
 func (h *KeyShareHandle) PublicKeyPackage() (PublicKeyPackage, error) {
 	handle, err := h.native.value()
 	if err != nil {

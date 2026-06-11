@@ -101,6 +101,26 @@ impl KeyShareHandle {
         self.public_key_package.verifying_key().to_vec()
     }
 
+    /// Return the 32-byte BIP-32 chain code this share derives children with.
+    ///
+    /// For DKLs23 it is the chain code established at DKG time (the value
+    /// `derive_child` mixes into the HMAC); for FROST it is
+    /// `SHA-256(group verifying key)`, matching the deterministic chain code
+    /// `derive.rs` uses. The chain code is public material: callers wrap it with
+    /// the group key into a BIP-32 xpub so off-MPC pubkey derivation matches the
+    /// child shares each party derives locally.
+    pub fn chain_code(&self) -> Result<Vec<u8>, TssError> {
+        REGISTRY.with::<KeyShareInner, _>(self.id, |inner| -> Result<Vec<u8>, TssError> {
+            Ok(match inner {
+                KeyShareInner::DKLs23(party, _) => party.derivation_data.chain_code.to_vec(),
+                KeyShareInner::DKLs23Secp256r1(party, _) => {
+                    party.derivation_data.chain_code.to_vec()
+                }
+                _ => Sha256::digest(self.public_key_package.verifying_key()).to_vec(),
+            })
+        })?
+    }
+
     pub fn ciphersuite(&self) -> Ciphersuite {
         self.suite
     }

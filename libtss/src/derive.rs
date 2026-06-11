@@ -380,4 +380,23 @@ mod tests {
             Err(TssError::ProtocolMismatch)
         ));
     }
+
+    #[test]
+    fn chain_code_dkls_exposes_dkg_value() {
+        // dkls_handle seeds every party's derivation_data.chain_code with
+        // [1u8; 32]; chain_code() must surface exactly that 32-byte value so an
+        // off-MPC xpub can be built from it.
+        let handle = dkls_handle();
+        assert_eq!(handle.chain_code().unwrap(), vec![1u8; 32]);
+    }
+
+    #[test]
+    fn chain_code_frost_is_sha256_of_group_key() {
+        // FROST has no DKG chain code; derive.rs derives it as
+        // SHA-256(group key), and chain_code() must report the same value.
+        use sha2::{Digest, Sha256};
+        let handle = frost_handle();
+        let expected = Sha256::digest(handle.group_verifying_key()).to_vec();
+        assert_eq!(handle.chain_code().unwrap(), expected);
+    }
 }

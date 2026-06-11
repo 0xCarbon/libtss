@@ -181,6 +181,8 @@ TssStatus tss_handle_verifying_share(TssHandle handle, struct TssBuffer *out);
 
 TssStatus tss_handle_group_key(TssHandle handle, struct TssBuffer *out);
 
+TssStatus tss_handle_chain_code(TssHandle handle, struct TssBuffer *out);
+
 TssStatus tss_handle_pubkey_package(TssHandle handle, struct TssBuffer *out);
 
 uint8_t tss_handle_ciphersuite(TssHandle handle);
