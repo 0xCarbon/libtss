@@ -137,6 +137,62 @@ export function derivePath(
 	return new KeyShareHandle(outHandle[0]);
 }
 
+// ── Scalar Tweaks ──────────────────────────────────────────────────────────
+
+const TWEAK_SCALAR_BYTES = 32;
+
+function assertTweakScalar(scalar: Uint8Array): void {
+	if (scalar.length !== TWEAK_SCALAR_BYTES) {
+		throw new Error(`tweak must be ${TWEAK_SCALAR_BYTES} bytes`);
+	}
+}
+
+/**
+ * Returns a new key share whose secret is `k + tweak (mod n)`.
+ *
+ * `tweak` is a 32-byte big-endian scalar, reduced mod n — LND's per-commitment
+ * "single tweak" convention. The group key, verifying shares, derivation data
+ * and address all move by the same tweak, so a threshold set of tweaked shares
+ * signs under the tweaked group key. Supported only for the DKLs23 ECDSA
+ * ciphersuites (Secp256k1ECDSA / Secp256r1ECDSA); any other suite throws a
+ * `TssError` with `PROTO_MISMATCH`. A tweak that lands the group key on the
+ * identity point throws a `TssError` with `TWEAK`. A wrong-length tweak throws
+ * a plain `Error` before reaching the native library. The parent handle stays
+ * valid; the returned handle must be freed like any other key share.
+ */
+export function tweakAdd(
+	keyShare: KeyShareHandle,
+	tweak: Uint8Array,
+): KeyShareHandle {
+	assertTweakScalar(tweak);
+	const outHandle: [bigint] = [0n];
+	checkStatus(
+		lib.tss_tweak_add(keyShare.handle, tweak, tweak.length, outHandle),
+	);
+	return new KeyShareHandle(outHandle[0]);
+}
+
+/**
+ * Returns a new key share whose secret is `k * factor (mod n)`.
+ *
+ * `factor` is a 32-byte big-endian scalar, reduced mod n — the building block
+ * of LND's revocation ("double") tweak. A factor that reduces to zero throws a
+ * `TssError` with `TWEAK`. Ciphersuite support, the wrong-length check and the
+ * remaining error mapping match `tweakAdd`. The parent handle stays valid; the
+ * returned handle must be freed like any other key share.
+ */
+export function tweakMul(
+	keyShare: KeyShareHandle,
+	factor: Uint8Array,
+): KeyShareHandle {
+	assertTweakScalar(factor);
+	const outHandle: [bigint] = [0n];
+	checkStatus(
+		lib.tss_tweak_mul(keyShare.handle, factor, factor.length, outHandle),
+	);
+	return new KeyShareHandle(outHandle[0]);
+}
+
 // ── FROST Operations ───────────────────────────────────────────────────────
 
 export function frostTweakKeyShare(

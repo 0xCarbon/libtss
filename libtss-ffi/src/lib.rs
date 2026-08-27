@@ -11,6 +11,7 @@ pub mod messages;
 pub mod registry;
 pub mod repair;
 pub mod session;
+pub mod tweak;
 pub mod types;
 
 #[macro_export]

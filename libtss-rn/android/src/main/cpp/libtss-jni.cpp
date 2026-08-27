@@ -92,6 +92,8 @@ TssStatus tss_refresh_next(
     bool* out_complete);
 void tss_session_free(TssHandle session);
 const char* tss_version(void);
+TssStatus tss_tweak_add(TssHandle key_share, const uint8_t* tweak, size_t tweak_len, TssHandle* out_handle);
+TssStatus tss_tweak_mul(TssHandle key_share, const uint8_t* factor, size_t factor_len, TssHandle* out_handle);
 }
 
 class UtfChars {
@@ -898,6 +900,56 @@ Java_com_libtss_LibtssModule_nativeImportKeyShareRaw(JNIEnv* env, jclass, jint s
         static_cast<uint8_t>(suite),
         &out);
     explicit_bzero(vec.data(), vec.size());
+    if (!ensure_status(env, status)) {
+        return nullptr;
+    }
+
+    return handle_to_jstring(env, out);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_libtss_LibtssModule_nativeTweakAdd(JNIEnv* env, jclass, jstring keyShareHandle, jstring tweak) {
+    TssHandle key_share = 0;
+    if (!parse_handle(env, keyShareHandle, &key_share)) {
+        return nullptr;
+    }
+
+    std::vector<uint8_t> tweak_bytes;
+    if (!decode_base64(env, tweak, &tweak_bytes)) {
+        return nullptr;
+    }
+
+    TssHandle out = 0;
+    TssStatus status = tss_tweak_add(
+        key_share,
+        tweak_bytes.empty() ? nullptr : tweak_bytes.data(),
+        tweak_bytes.size(),
+        &out);
+    if (!ensure_status(env, status)) {
+        return nullptr;
+    }
+
+    return handle_to_jstring(env, out);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_libtss_LibtssModule_nativeTweakMul(JNIEnv* env, jclass, jstring keyShareHandle, jstring factor) {
+    TssHandle key_share = 0;
+    if (!parse_handle(env, keyShareHandle, &key_share)) {
+        return nullptr;
+    }
+
+    std::vector<uint8_t> factor_bytes;
+    if (!decode_base64(env, factor, &factor_bytes)) {
+        return nullptr;
+    }
+
+    TssHandle out = 0;
+    TssStatus status = tss_tweak_mul(
+        key_share,
+        factor_bytes.empty() ? nullptr : factor_bytes.data(),
+        factor_bytes.size(),
+        &out);
     if (!ensure_status(env, status)) {
         return nullptr;
     }

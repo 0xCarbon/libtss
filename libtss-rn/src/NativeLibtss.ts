@@ -62,6 +62,8 @@ export interface NativeLibtssModule {
 	initialize(options: { mlock: boolean }): Promise<void>;
 	exportKeyShareSecure(handle: string): Promise<string>;
 	importKeyShareSecure(suite: number, keychainId: string): Promise<string>;
+	tweakAdd(keyShareHandle: string, tweak: string): Promise<string>;
+	tweakMul(keyShareHandle: string, factor: string): Promise<string>;
 }
 
 type ReactNativeModule = {

@@ -14,7 +14,7 @@ libtss/
 │   │   ├── dkls.rs          # DKLs23 protocol wrappers (advanced API)
 │   │   ├── types.rs         # Shared types (Identifier, Signature, Config)
 │   │   ├── derive.rs        # BIP-32 key derivation
-│   │   ├── tweak.rs         # BIP-341 Taproot tweaking
+│   │   ├── tweak.rs         # Scalar tweaks on DKLs23 shares (Lightning per-commitment keys)
 │   │   ├── handle.rs        # Handle registry
 │   │   └── error.rs         # Unified TssError
 │   └── Cargo.toml
@@ -172,7 +172,7 @@ pub enum TssError {
     ProtocolMismatch,
     /// Deserialization of protocol data failed.
     DeserializeFailed(String),
-    /// BIP-341 tweaking error.
+    /// Tweak error (BIP-341 Taproot tweak or DKLs23 scalar tweak).
     TweakError(String),
     /// Session has already completed.
     SessionComplete,
@@ -546,6 +546,27 @@ pub fn derive_path(
     path: &str,
 ) -> Result<KeyShareHandle, TssError>;
 ```
+
+### Scalar Tweaks (DKLs23)
+
+```rust
+/// Key share whose secret is `secret + tweak (mod n)`; `tweak` is a 32-byte
+/// big-endian scalar reduced mod n (LND's per-commitment "single tweak").
+pub fn tweak_add(key_share: &KeyShareHandle, tweak: &[u8]) -> Result<KeyShareHandle, TssError>;
+
+/// Key share whose secret is `secret * factor (mod n)`; building block of LND's
+/// revocation ("double") tweak. A factor reducing to zero is rejected.
+pub fn tweak_mul(key_share: &KeyShareHandle, factor: &[u8]) -> Result<KeyShareHandle, TssError>;
+```
+
+Both return a new handle (the original stays valid) whose secret share, public
+key, derivation data, address and every verifying share in the public key
+package are moved by the same map, so a threshold set of tweaked shares signs
+under the tweaked group key. Supported for `Secp256k1ECDSA` and
+`Secp256r1ECDSA`; other suites return `ProtocolMismatch`. Wrong-length input
+returns `InvalidConfig`; a zero factor or an identity result returns
+`TweakError`. Distinct from the FROST BIP-341 tweak below, which hashes a
+Merkle root into the tweak rather than taking a caller-supplied scalar.
 
 ## FROST-Specific Operations
 

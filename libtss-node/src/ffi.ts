@@ -168,6 +168,14 @@ export const lib: Record<string, (...args: any[]) => any> = {
 	tss_derive_path: native.func(
 		"int32_t tss_derive_path(uint64_t key_share, const char *path, _Out_ uint64_t *out_handle)",
 	),
+
+	// Scalar tweaks
+	tss_tweak_add: native.func(
+		"int32_t tss_tweak_add(uint64_t key_share, const uint8_t *tweak, size_t tweak_len, _Out_ uint64_t *out_handle)",
+	),
+	tss_tweak_mul: native.func(
+		"int32_t tss_tweak_mul(uint64_t key_share, const uint8_t *factor, size_t factor_len, _Out_ uint64_t *out_handle)",
+	),
 };
 /* eslint-enable @typescript-eslint/no-explicit-any */
 

@@ -340,4 +340,29 @@ TssStatus tss_refresh_next(TssHandle session,
 
 void tss_session_free(TssHandle session);
 
+// Apply an additive scalar tweak to a key share: `k' = k + tweak mod n`.
+//
+// `tweak` is a 32-byte big-endian scalar, reduced mod n (LND's per-commitment
+// "single tweak" convention). Supported for the DKLs23 ciphersuites
+// (Secp256k1ECDSA, Secp256r1ECDSA); other suites return
+// `TSS_ERR_PROTO_MISMATCH`. A wrong-length or null `tweak` returns
+// `TSS_ERR_INVALID_CONFIG`; a tweak producing the identity point returns
+// `TSS_ERR_TWEAK`. The original handle stays valid; `out_handle` receives a
+// new key share that must be freed with `tss_handle_free`.
+TssStatus tss_tweak_add(TssHandle key_share,
+                        const uint8_t *tweak,
+                        size_t tweak_len,
+                        TssHandle *out_handle);
+
+// Apply a multiplicative scalar tweak to a key share: `k' = k * factor mod n`.
+//
+// `factor` is a 32-byte big-endian scalar, reduced mod n; it is the building
+// block of LND's revocation ("double") tweak. A factor that reduces to zero
+// returns `TSS_ERR_TWEAK`. Ciphersuite support and the remaining error
+// mapping match `tss_tweak_add`.
+TssStatus tss_tweak_mul(TssHandle key_share,
+                        const uint8_t *factor,
+                        size_t factor_len,
+                        TssHandle *out_handle);
+
 #endif  /* LIBTSS_H */

@@ -98,6 +98,8 @@ const [s3, r1_3] = DkgSession.create(config, 3);
 | `frostSplitKey(suite, secretKey, max, min)` | Split a secret key into FROST shares (wipes input) |
 | `frostTweakKeyShare(ks, merkleRoot?)` | BIP-341 Taproot tweak on a key share |
 | `frostTweakPubkeyPackage(pkg, merkleRoot?)` | BIP-341 Taproot tweak on a public key package |
+| `tweakAdd(ks, tweak)` | Additive scalar tweak `k + tweak` (32-byte big-endian, LND single tweak; DKLs23 only) |
+| `tweakMul(ks, factor)` | Multiplicative scalar tweak `k * factor` (32-byte big-endian, LND revocation tweak; DKLs23 only) |
 
 ### Ciphersuites
 

@@ -174,6 +174,49 @@ related by the same additive tweak. This is expected and does not affect securit
 
 Recommendation: derive keys as needed, refresh the master (root) shares periodically.
 
+## Scalar Tweaks (Lightning)
+
+Lightning derives per-commitment keys from caller-supplied scalars rather than
+BIP-32 indices: LND's single tweak is `k' = k + t (mod n)` and its revocation
+("double") tweak composes `k' = k * a (mod n)` with an additive step. libtss
+exposes both on DKLs23 shares:
+
+```rust
+pub fn tweak_add(key_share: &KeyShareHandle, tweak: &[u8]) -> Result<KeyShareHandle, TssError>;
+pub fn tweak_mul(key_share: &KeyShareHandle, factor: &[u8]) -> Result<KeyShareHandle, TssError>;
+```
+
+```c
+TssStatus tss_tweak_add(TssHandle key_share, const uint8_t *tweak, size_t tweak_len, TssHandle *out_handle);
+TssStatus tss_tweak_mul(TssHandle key_share, const uint8_t *factor, size_t factor_len, TssHandle *out_handle);
+```
+
+Every party applies the same tweak to its share and the public key package is
+moved by the same map (group key and every verifying share). Because Lagrange
+coefficients sum to one, `Σ lᵢ·(xᵢ + t) = sk + t` and `Σ lᵢ·(a·xᵢ) = a·sk`, so
+the tweaked shares sign under the tweaked group key. The DKLs23 base-OT
+correlations, zero-share seeds and multiplication state never depend on the
+share value — the same property BIP-32 derivation relies on — and are reused
+unchanged. The map itself is DKLs23's (`Party::tweak_add` / `tweak_mul` and the
+matching `PublicKeyPackage` methods); libtss parses the scalar, picks the
+address function and wraps the result in a new handle.
+
+| Field | After `tweak_add(t)` | After `tweak_mul(a)` |
+|-------|----------------------|----------------------|
+| `poly_point`, `derivation_data.poly_point` | `x + t` | `a·x` |
+| `pk`, `derivation_data.pk`, group key, verifying shares | `P + t·G` | `a·P` |
+| `address` | recomputed | recomputed |
+| `chain_code`, `depth`, `child_number`, `parent_fingerprint`, `session_id`, OT state | unchanged | unchanged |
+
+Rules: scalars are 32-byte big-endian and reduced mod n (btcec `ModNScalar`
+semantics, so LND tweaks round-trip); a factor that reduces to zero or a result
+equal to the identity point is rejected with `TweakError`; wrong-length input is
+`InvalidConfig`; non-DKLs23 suites return `ProtocolMismatch`. All signers must
+apply the same public tweak before a signing session — a mismatch aborts
+recoverably in signing phase 3. A tweak is not a BIP-32 edge: the derivation
+metadata still describes the un-tweaked ancestor, and `derive_child` on a
+tweaked share is a further additive shift under the unchanged chain code.
+
 ## Share Refresh
 
 Share refresh replaces all participants' shares with new shares of the same secret key.

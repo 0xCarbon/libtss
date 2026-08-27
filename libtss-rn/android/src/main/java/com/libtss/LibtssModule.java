@@ -333,4 +333,16 @@ public final class LibtssModule extends ReactContextBaseJavaModule {
 
     private static native boolean nativeVerify(int suite, String message, String signature, String publicKey);
 
+    @ReactMethod
+    public void tweakAdd(String keyShareHandle, String tweak, Promise promise) {
+        resolve(promise, () -> nativeTweakAdd(keyShareHandle, tweak));
+    }
+
+    @ReactMethod
+    public void tweakMul(String keyShareHandle, String factor, Promise promise) {
+        resolve(promise, () -> nativeTweakMul(keyShareHandle, factor));
+    }
+
+    private static native String nativeTweakAdd(String keyShareHandle, String tweak);
+    private static native String nativeTweakMul(String keyShareHandle, String factor);
 }

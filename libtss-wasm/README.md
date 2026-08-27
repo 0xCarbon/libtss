@@ -217,6 +217,8 @@ console.log("Ed25519 signature (hex):", Buffer.from(sig1.signature).toString("he
 | `suiR1Address(ks)`      | Sui secp256r1 address (suite 7 only)                     |
 | `deriveChild(ks, n)`    | BIP-32 non-hardened child derivation                     |
 | `derivePath(ks, path)`  | BIP-32 path derivation (e.g. `"m/44/60/0/0"`)           |
+| `tweakAdd(ks, tweak)`   | Additive scalar tweak `k + t` (suites 6, 7 only)         |
+| `tweakMul(ks, factor)`  | Multiplicative scalar tweak `k * a` (suites 6, 7 only)   |
 | `messageCount(buf)`     | Count TLV-framed messages in a buffer                    |
 | `messageAt(buf, i)`     | Decode message at index `i` from a buffer                |
 | `messageBuild(from, to, data)` | Build a single TLV-framed message               |

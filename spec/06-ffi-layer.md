@@ -485,6 +485,11 @@ bool tss_verify(uint8_t suite, TssSlice message, TssSlice signature, TssSlice pu
 TssStatus tss_derive_child(TssHandle key_share, uint32_t child_number, TssHandle *out);
 TssStatus tss_derive_path(TssHandle key_share, const char *path, TssHandle *out);
 
+/// Scalar tweaks on DKLs23 shares: k' = k + tweak, k' = k * factor (mod n).
+/// 32-byte big-endian scalars reduced mod n; DKLs23 suites only.
+TssStatus tss_tweak_add(TssHandle key_share, const uint8_t *tweak, size_t tweak_len, TssHandle *out_handle);
+TssStatus tss_tweak_mul(TssHandle key_share, const uint8_t *factor, size_t factor_len, TssHandle *out_handle);
+
 // --- Export / Import ---
 TssStatus tss_handle_export(TssHandle handle, TssBuffer *out);
 TssStatus tss_handle_import(const uint8_t *data, size_t data_len, uint8_t suite, TssHandle *out_handle);
@@ -504,10 +509,10 @@ const char* tss_version(void);
 | Message helpers | 3 | count, at, build |
 | FROST-specific | 9 | aggregate, tweak (2), dealer (2), refresh (2), repair (3) |
 | DKLs23-specific | 2 | repair (helper_term, assemble) |
-| Verification + key mgmt | 5 | verify, derive (2), export, import |
+| Verification + key mgmt | 7 | verify, derive (2), tweak (2), export, import |
 | Handle + memory | 9 | handle queries (5) + handle_free + buffer_free + session_free + version |
 | Error | 6 | last_error, last_error_len, last_error_copy, culprit_count, culprit, banned_party |
-| **Total** | **~41** | **Core unified path: 11 functions (sessions + messages)** |
+| **Total** | **~43** | **Core unified path: 11 functions (sessions + messages)** |
 
 The core DKG + signing workflow uses only 7 functions: `tss_dkg_new`, `tss_dkg_next`,
 `tss_sign_new`, `tss_sign_next`, `tss_message_count`, `tss_message_at`, `tss_message_build`.

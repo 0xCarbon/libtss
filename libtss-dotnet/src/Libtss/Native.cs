@@ -288,6 +288,20 @@ internal static unsafe class Native
         [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
         ulong* out_handle);
 
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_tweak_add(
+        ulong key_share,
+        byte* tweak,
+        nuint tweak_len,
+        ulong* out_handle);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_tweak_mul(
+        ulong key_share,
+        byte* factor,
+        nuint factor_len,
+        ulong* out_handle);
+
     // --- Init ---
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
