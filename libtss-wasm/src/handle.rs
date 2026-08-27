@@ -62,6 +62,22 @@ impl WasmKeyShareHandle {
         Uint8Array::from(bytes.as_slice())
     }
 
+    /// Returns the 32-byte BIP-32 chain code of the group key.
+    ///
+    /// Pairs with `groupVerifyingKey()` to assemble a BIP-32 extended public
+    /// key (xpub), so a watch-only consumer can derive non-hardened children
+    /// without any share material.
+    ///
+    /// Supported for suites 6 (Secp256k1ECDSA) and 7 (Secp256r1ECDSA), whose
+    /// DKLs23 DKG establishes the chain code, and suite 0 (Secp256k1Taproot),
+    /// where it is `SHA-256(group key)`. Every other suite rejects with an
+    /// error whose `code` is `"ProtocolMismatch"`.
+    #[wasm_bindgen(js_name = "chainCode")]
+    pub fn chain_code(&self) -> Result<Uint8Array, JsValue> {
+        let bytes = map_err(self.inner.chain_code())?;
+        Ok(Uint8Array::from(bytes.as_slice()))
+    }
+
     /// Returns the serialized `PublicKeyPackage` containing all verifying shares
     /// and the group key. Suitable for storage or transmission to other participants.
     #[wasm_bindgen(js_name = "publicKeyPackage")]

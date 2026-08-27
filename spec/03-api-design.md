@@ -222,6 +222,12 @@ impl KeyShareHandle {
     /// Group public key (combined verification key).
     pub fn group_verifying_key(&self) -> Vec<u8>;
 
+    /// 32-byte BIP-32 chain code paired with the group key; together they form
+    /// an xpub whose off-MPC child derivation matches `derive_child`. Only the
+    /// BIP-32-capable suites (Secp256k1ECDSA, Secp256r1ECDSA, Secp256k1Taproot);
+    /// others return `ProtocolMismatch`.
+    pub fn chain_code(&self) -> Result<Vec<u8>, TssError>;
+
     /// Full public key package (group key + all verifying shares).
     pub fn public_key_package(&self) -> &PublicKeyPackage;
 

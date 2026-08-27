@@ -39,6 +39,7 @@ void tss_handle_free(TssHandle handle);
 TssStatus tss_handle_identifier(TssHandle handle, uint16_t *out_id);
 TssStatus tss_handle_verifying_share(TssHandle handle, TssBuffer *out);
 TssStatus tss_handle_group_key(TssHandle handle, TssBuffer *out);
+TssStatus tss_handle_chain_code(TssHandle handle, TssBuffer *out);
 TssStatus tss_handle_pubkey_package(TssHandle handle, TssBuffer *out);
 uint8_t tss_handle_ciphersuite(TssHandle handle);
 TssStatus tss_handle_export(TssHandle handle, TssBuffer *out);
@@ -573,6 +574,25 @@ RCT_EXPORT_METHOD(handleGroupKey:(NSString *)handle
 
   TssBuffer out{nullptr, 0};
   TssStatus status = tss_handle_group_key(parsed, &out);
+  if (status != TSS_OK) {
+    RejectStatus(reject, status);
+    return;
+  }
+
+  resolve(TakeBase64(out));
+}
+
+RCT_EXPORT_METHOD(handleChainCode:(NSString *)handle
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
+{
+  TssHandle parsed = 0;
+  if (!ParseHandle(handle, &parsed, reject)) {
+    return;
+  }
+
+  TssBuffer out{nullptr, 0};
+  TssStatus status = tss_handle_chain_code(parsed, &out);
   if (status != TSS_OK) {
     RejectStatus(reject, status);
     return;

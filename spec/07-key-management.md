@@ -95,7 +95,7 @@ fn frost_derive_child(key_handle: u64, child_number: u32) -> HandleResult {
 
     // Compute BIP-32 tweak
     let parent_pubkey = key_package.verifying_key().serialize();
-    let chain_code = get_chain_code(key_handle)?;
+    let chain_code = key_handle.chain_code()?;
     let (il, ir) = hmac_sha512(&chain_code, &[&parent_pubkey, &child_number.to_be_bytes()]);
     let delta = Scalar::deserialize(&il)?;
 
@@ -150,6 +150,21 @@ The `Party::derive_child` method:
 | Max child number | 2^31 - 1 | Non-hardened only (bit 31 = 0) |
 | Hardened derivation | Not supported | Requires MPC hash (future work) |
 | Path format | `m/N/N/N/...` | Standard BIP-32 path notation |
+
+### Exposing the Chain Code (xpub Construction)
+
+`KeyShareHandle::chain_code()` (C ABI `tss_handle_chain_code`) returns the 32-byte
+chain code paired with `group_verifying_key()`. Wrapping the two into a BIP-32
+extended public key lets a host derive child public keys off-MPC that match the
+child shares every party derives with `derive_child` / `derive_path`.
+
+| Ciphersuite | Chain code | Agreement with an external CKDpub |
+|-------------|------------|-----------------------------------|
+| Secp256k1ECDSA / Secp256r1ECDSA (DKLs23) | Established at DKG; children carry the BIP-32 `IR` | Any depth |
+| Secp256k1Taproot (FROST) | `SHA-256(group verifying key)`, re-derived from each child's key | Depth 1 only — FROST derivation never carries `IR` (follow-up) |
+| All others | Not available | `ProtocolMismatch` — these suites have no BIP-32 derivation |
+
+The chain code is public material; exposing it reveals nothing about the shares.
 
 ### Security Note: Derivation + Refresh
 

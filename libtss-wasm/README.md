@@ -224,7 +224,7 @@ console.log("Ed25519 signature (hex):", Buffer.from(sig1.signature).toString("he
 
 ### Classes
 
-- **`WasmKeyShareHandle`** — holds a participant's key share in the in-memory registry
+- **`WasmKeyShareHandle`** — holds a participant's key share in the in-memory registry; `groupVerifyingKey()` and `chainCode()` (32-byte BIP-32 chain code, suites 0/6/7 only) together form the xpub for watch-only derivation
 - **`SecureKeyShare`** — opaque wrapper keeping key share plaintext in WASM linear memory (zeroed on drop)
 - **`WasmDkgSession`** — drives DKG protocol rounds; use `WasmDkgSession.create()`
 - **`WasmSignSession`** — drives signing protocol rounds; use `WasmSignSession.newFrost()` / `newDkls()` / `newDklsR1()`

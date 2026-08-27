@@ -135,6 +135,69 @@ public class IntegrationTests
     }
 
     [Fact]
+    public void ChainCode_Taproot_IsSha256OfGroupKey()
+    {
+        RequireNativeLibrary();
+        Tss.Init();
+
+        var (handles, _) = FrostOperations.GenerateDealer(
+            Ciphersuite.Secp256k1Taproot, maxSigners: 3, minSigners: 2);
+        try
+        {
+            byte[] chainCode = handles[0].ChainCode;
+            Assert.Equal(32, chainCode.Length);
+            Assert.Equal(SHA256.HashData(handles[0].GroupVerifyingKey), chainCode);
+        }
+        finally
+        {
+            foreach (var h in handles)
+                h.Dispose();
+        }
+    }
+
+    [Fact]
+    public void ChainCode_ChangesAfterDeriveChild()
+    {
+        RequireNativeLibrary();
+        Tss.Init();
+
+        var (handles, _) = FrostOperations.GenerateDealer(
+            Ciphersuite.Secp256k1Taproot, maxSigners: 3, minSigners: 2);
+        try
+        {
+            using var child = DeriveOperations.DeriveChild(handles[0], childNumber: 7);
+            byte[] childChainCode = child.ChainCode;
+            Assert.Equal(32, childChainCode.Length);
+            Assert.NotEqual(handles[0].ChainCode, childChainCode);
+        }
+        finally
+        {
+            foreach (var h in handles)
+                h.Dispose();
+        }
+    }
+
+    [Fact]
+    public void ChainCode_UnsupportedSuite_Throws()
+    {
+        RequireNativeLibrary();
+        Tss.Init();
+
+        var (handles, _) = FrostOperations.GenerateDealer(
+            Ciphersuite.Ed25519, maxSigners: 3, minSigners: 2);
+        try
+        {
+            var ex = Assert.Throws<TssException>(() => handles[0].ChainCode);
+            Assert.Equal(TssStatus.ProtoMismatch, ex.Code);
+        }
+        finally
+        {
+            foreach (var h in handles)
+                h.Dispose();
+        }
+    }
+
+    [Fact]
     public void WipeBytes_ZerosArray()
     {
         var data = new byte[] { 1, 2, 3, 4, 5 };

@@ -6,6 +6,8 @@ Requires the native library to be built:
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
 import sys
 
@@ -28,6 +30,7 @@ from libtss import (
     version,
 )
 from libtss import frost
+from libtss.derive import derive_child
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -286,6 +289,39 @@ class TestKeyShareHandle:
 
         for s in shares[1:]:
             s.close()
+
+    def test_chain_code_dkls_matches_bip32(self):
+        shares, _ = run_dkg(
+            Ciphersuite.SECP256K1_ECDSA, 2, 2,
+            session_id=b"chain-code-test-session",
+        )
+        parent_chain_code = shares[0].chain_code
+        assert len(parent_chain_code) == 32
+        assert shares[1].chain_code == parent_chain_code
+
+        child_number = 7
+        parent_group_key = shares[0].group_verifying_key
+        expected_child_chain_code = hmac.new(
+            parent_chain_code,
+            parent_group_key + child_number.to_bytes(4, "big"),
+            hashlib.sha512,
+        ).digest()[32:]
+
+        children = [derive_child(ks, child_number) for ks in shares]
+        for child in children:
+            assert child.chain_code == expected_child_chain_code
+
+        for ks in children + shares:
+            ks.close()
+
+    def test_chain_code_unsupported_suite_raises(self):
+        handles, _ = frost.generate_dealer(Ciphersuite.ED25519, 3, 2)
+        with pytest.raises(TssError) as excinfo:
+            _ = handles[0].chain_code
+        assert excinfo.value.code == 8  # TSS_ERR_PROTO_MISMATCH
+
+        for h in handles:
+            h.close()
 
 
 class TestDealerKeygen:
