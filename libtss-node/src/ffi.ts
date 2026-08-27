@@ -107,6 +107,9 @@ export const lib: Record<string, (...args: any[]) => any> = {
 	tss_handle_group_key: native.func(
 		"int32_t tss_handle_group_key(uint64_t handle, _Out_ TssBuffer *out)",
 	),
+	tss_handle_chain_code: native.func(
+		"int32_t tss_handle_chain_code(uint64_t handle, _Out_ TssBuffer *out)",
+	),
 	tss_handle_pubkey_package: native.func(
 		"int32_t tss_handle_pubkey_package(uint64_t handle, _Out_ TssBuffer *out)",
 	),

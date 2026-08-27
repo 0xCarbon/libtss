@@ -181,6 +181,14 @@ TssStatus tss_handle_verifying_share(TssHandle handle, struct TssBuffer *out);
 
 TssStatus tss_handle_group_key(TssHandle handle, struct TssBuffer *out);
 
+// Return the 32-byte BIP-32 chain code paired with the group key.
+//
+// Supported for the BIP-32-capable ciphersuites only (Secp256k1ECDSA,
+// Secp256r1ECDSA, Secp256k1Taproot); every other suite returns
+// `TSS_ERR_PROTO_MISMATCH`. Pair with `tss_handle_group_key` to build an
+// extended public key whose off-MPC child derivation matches `tss_derive_child`.
+TssStatus tss_handle_chain_code(TssHandle handle, struct TssBuffer *out);
+
 TssStatus tss_handle_pubkey_package(TssHandle handle, struct TssBuffer *out);
 
 uint8_t tss_handle_ciphersuite(TssHandle handle);

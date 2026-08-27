@@ -47,6 +47,7 @@ export interface NativeLibtssModule {
 	handleIdentifier(handle: string): Promise<number>;
 	handleVerifyingShare(handle: string): Promise<string>;
 	handleGroupKey(handle: string): Promise<string>;
+	handleChainCode(handle: string): Promise<string>;
 	handlePubkeyPackage(handle: string): Promise<string>;
 	handleCiphersuite(handle: string): Promise<number>;
 	exportKeyShare(handle: string): Promise<string>;

@@ -78,6 +78,25 @@ class KeyShareHandle:
         return buffer_to_bytes(buf)
 
     @property
+    def chain_code(self) -> bytes:
+        """32-byte BIP-32 chain code paired with :attr:`group_verifying_key`.
+
+        Only the BIP-32-capable ciphersuites carry a chain code:
+        ``SECP256K1_ECDSA``, ``SECP256R1_ECDSA`` and ``SECP256K1_TAPROOT``.
+        For every other suite (e.g. ``ED25519``) this raises
+        :class:`~libtss.TssError` with ``code == 8`` (protocol mismatch).
+
+        Together with :attr:`group_verifying_key` this is enough to build a
+        BIP-32 extended public key (xpub) whose off-MPC non-hardened child
+        derivation matches :func:`libtss.derive.derive_child`.
+        """
+        self._check()
+        buf = TssBuffer()
+        status = get_lib().tss_handle_chain_code(self._handle, ctypes.byref(buf))
+        check_status(status)
+        return buffer_to_bytes(buf)
+
+    @property
     def verifying_share(self) -> bytes:
         """Public verification key for this specific share."""
         self._check()
