@@ -226,9 +226,30 @@ pub fn frost_apply_refresh(
 
 ### DKLs23 Complete Refresh
 
-DKLs23 refresh uses `RefreshSession::new`, which re-runs the full DKG
-(including OT re-initialization). This is the recommended mode when OT
-state may have been partially compromised.
+DKLs23 refresh uses `RefreshSession::new_dkls(key_share, session_id)` (C ABI:
+`tss_refresh_new_dkls`), which re-runs DKG with a zero-constant polynomial and
+re-initializes the OT and zero-share state from scratch. Three message rounds
+follow the same shape as DKG phases 2–4, minus the BIP-32 derivation
+broadcasts; the chain code is carried over unchanged. dkls23's
+`refresh_complete_phase4` returns only the refreshed `Party`, so libtss rebuilds
+the public key package itself: every verifying share moves by its party's
+correction point (`share'(j) = share(j) + G·correction_j`, read from the
+broadcast proof commitments) while the group key stays put, and the result is
+self-checked against the new share before a handle is created.
+
+Two properties bind callers:
+
+- **All `n` parties must refresh together under one fresh `session_id`.** The
+  refreshed party records it as its session id, and signing salts the
+  two-party multiplication transcript with it, so pre- and post-refresh shares
+  never co-sign. A partial refresh leaves the group unsignable until the
+  stragglers are repaired from the majority generation and refreshed again.
+- **Only secp256k1 shares are supported.** FROST and secp256r1 shares return
+  `ProtocolMismatch`; a hollow share from [`repair_assemble`](#dkls23-share-repair)
+  is accepted — turning it back into a signing share is the point.
+
+This is also the recommended mode when OT state may have been partially
+compromised.
 
 ### FROST Dealer/Receiver Refresh
 
@@ -302,14 +323,46 @@ pub fn frost_repair_part3(
 
 ### DKLs23 Share Repair
 
-DKLs23 does not have a built-in repair mechanism equivalent to FROST's RTS. For DKLs23,
-share recovery requires:
+dkls23 has no built-in repair; libtss implements one for secp256k1 as a
+two-step recovery (`repair_helper_term` / `repair_assemble`, C ABI
+`tss_repair_helper_term` / `tss_repair_assemble`) followed by a complete
+refresh. The OT correlations in a `Party` cannot be reconstructed by helpers,
+so repair rebuilds only the *secret share* and leaves the refresh to rebuild
+the rest.
 
-1. Re-running the complete DKG with the recovering party
-2. Or using the re-key function with the reconstructed secret (requires trusted entity)
+**Step 1 — helpers (one round, unicast to the target).** A set of at least
+`t` surviving parties agree on the helper set and a fresh `repair_sid`. Each
+helper `i` sends the target
 
-This is a limitation of the OT-based approach where the Party state includes OT
-correlations that cannot be independently reconstructed.
+```text
+term_i = poly_point_i · λ_i(target) + ZeroShare::compute(helpers \ {i}, "libtss/dkls23-repair/v1" || repair_sid)
+```
+
+`λ_i(target)` is the Lagrange coefficient over the helper indices, so the
+unmasked terms sum to `f(target)`. The masks are the same pairwise zero-share
+seeds signing uses, keyed by a domain-separated session id, and sum to zero
+over the helper set — no new key material and no mask exchange. Any proper
+subset of the terms is uniformly random, so no helper learns the share.
+`repair_helper_term` fails closed with `InvalidShare` if the caller lacks a
+seed pair with any helper counterparty (`ZeroShare::compute` would otherwise
+skip it silently and leave `poly_point · λ` unmasked).
+
+**Step 2 — target.** `repair_assemble` sums the terms, checks
+`G · Σ terms == verifying_share(target)` from the helpers' public key package
+(`InvalidShare` otherwise — no handle is created) and builds a *hollow*
+`Party`: correct `poly_point`, `pk`, address and root-level derivation data
+(`depth 0`, the group chain code), but an empty `ZeroShare` and empty
+multiplication maps. The handle passes import validation, exports, derives
+addresses and refreshes; `SignSession::new_dkls` refuses it with
+`InvalidShare` and it cannot act as a repair helper.
+
+**Step 3 — complete refresh across all `n`.** `RefreshSession::new_dkls`
+rebuilds the OT and zero-share state for every party and re-randomises every
+share under the unchanged group key. Only after this can the repaired party
+sign.
+
+Only master (depth-0) shares are repaired; derived shares are re-derived from
+the refreshed master, per dkls23's own guidance on refreshing derivations.
 
 ## Key Share Persistence
 

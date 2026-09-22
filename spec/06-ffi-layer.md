@@ -341,6 +341,17 @@ TssStatus tss_refresh_receiver(
     TssHandle *out_session
 );
 
+/// Create a DKLs23 complete refresh session (secp256k1 shares only).
+/// Every party of the group runs it under the same fresh session_id and
+/// advances with tss_refresh_next three times. key_share stays valid; the
+/// completed session yields a new handle. tss_refresh_new keeps returning
+/// TSS_ERR_PROTO_MISMATCH for DKLs23 shares; this is the DKLs23 entry point.
+TssStatus tss_refresh_new_dkls(
+    TssHandle key_share,
+    const uint8_t *session_id, size_t session_id_len,
+    TssHandle *out_session, TssBuffer *out_messages
+);
+
 /// Advance the refresh session with received messages.
 TssStatus tss_refresh_next(
     TssHandle session,
@@ -432,6 +443,38 @@ TssStatus tss_frost_repair_part3(
     TssHandle *out_key
 );
 
+// --- Share Repair (DKLs23 secp256k1) ---
+
+/// Helper side: this party's masked term for the target's lost share.
+/// helpers is the full helper set (self included, target excluded) and must
+/// be identical on every helper, as must session_id. out_term is a 32-byte
+/// scalar to unicast to the target (free with tss_buffer_free). A share with
+/// no zero-share pairing to some helper (a hollow share) returns
+/// TSS_ERR_INVALID_SHARE instead of an unmasked term.
+TssStatus tss_repair_helper_term(
+    TssHandle key_share,
+    const uint16_t *helpers, size_t helpers_len,
+    uint16_t target,
+    const uint8_t *session_id, size_t session_id_len,
+    TssBuffer *out_term
+);
+
+/// Target side: sum at least min_signers terms into a hollow share.
+/// pubkey_package is the serialized group package and chain_code its 32-byte
+/// BIP-32 chain code, as the helpers report them. G·Σterms is checked against
+/// the target's verifying share; a mismatch returns TSS_ERR_INVALID_SHARE and
+/// creates no handle. The result cannot sign (tss_sign_new returns
+/// TSS_ERR_INVALID_SHARE) until tss_refresh_new_dkls has run across the group.
+TssStatus tss_repair_assemble(
+    uint8_t suite,
+    TssSlice pubkey_package,
+    TssSlice chain_code,
+    uint16_t target,
+    const TssSlice *terms, size_t terms_len,
+    const uint8_t *session_id, size_t session_id_len,
+    TssHandle *out_key_share
+);
+
 // ============================================================
 // Verification & Key Management
 // ============================================================
@@ -457,9 +500,10 @@ const char* tss_version(void);
 | Category | Functions | Notes |
 |----------|-----------|-------|
 | Initialization | 1 | `tss_init` |
-| Unified sessions | 8 | dkg (2) + sign (2) + refresh (2) + refresh_receiver (1) + session_free (1) |
+| Unified sessions | 9 | dkg (2) + sign (2) + refresh (2) + refresh_receiver (1) + refresh_new_dkls (1) + session_free (1) |
 | Message helpers | 3 | count, at, build |
 | FROST-specific | 9 | aggregate, tweak (2), dealer (2), refresh (2), repair (3) |
+| DKLs23-specific | 2 | repair (helper_term, assemble) |
 | Verification + key mgmt | 5 | verify, derive (2), export, import |
 | Handle + memory | 9 | handle queries (5) + handle_free + buffer_free + session_free + version |
 | Error | 6 | last_error, last_error_len, last_error_copy, culprit_count, culprit, banned_party |

@@ -465,11 +465,13 @@ pub enum RefreshOutput {
 }
 
 impl RefreshSession {
-    /// Interactive share refresh (recommended mode).
-    ///
-    /// FROST: DKG-based refresh with zero-constant polynomial.
-    /// DKLs23: Complete refresh (re-initializes OT/multiplication state).
-    pub fn new(key_share: &KeyShareHandle) -> Result<(Self, Vec<Message>), TssError>;
+    /// FROST dealer refresh: compute and distribute refresh shares to
+    /// `participants` (one round; the dealer applies its own via `next()`).
+    /// Returns `TssError::ProtocolMismatch` for DKLs23 key shares.
+    pub fn new_frost(
+        key_share: &KeyShareHandle,
+        participants: &[Identifier],
+    ) -> Result<(Self, Vec<Message>), TssError>;
 
     /// Create a FROST refresh receiver session (non-dealer participant).
     /// The receiver waits for messages from the dealer refresh and does
@@ -477,11 +479,28 @@ impl RefreshSession {
     /// Returns `TssError::ProtocolMismatch` for DKLs23 key shares.
     pub fn new_frost_receiver(key_share: &KeyShareHandle) -> Result<Self, TssError>;
 
+    /// DKLs23 complete refresh (secp256k1 only): re-runs DKG with a
+    /// zero-constant polynomial and re-initializes the OT/multiplication
+    /// state. All `n` parties must run it under the same fresh `session_id`;
+    /// three message rounds follow. The input handle stays valid and the
+    /// completed output is a new handle. Returns `ProtocolMismatch` for
+    /// FROST and secp256r1 shares, `InvalidConfig` for an empty session id.
+    pub fn new_dkls(
+        key_share: &KeyShareHandle,
+        session_id: &[u8],
+    ) -> Result<(Self, Vec<Message>), TssError>;
+
     pub fn next(&mut self, received: &[Message]) -> Result<RefreshOutput, TssError>;
     pub fn round(&self) -> u8;
+    /// 1 for the FROST dealer/receiver flow, 4 for DKLs23, 0 once complete.
     pub fn num_rounds(&self) -> u8;
 }
 ```
+
+Refreshed DKLs23 shares carry `session_id` as their new party session id,
+which salts signing. Shares from different refresh generations therefore
+never co-sign: a partial refresh leaves the group unsignable until the
+stragglers are repaired from the majority generation and refreshed again.
 
 ## Common Types
 
@@ -618,6 +637,41 @@ pub fn frost_repair_part3(
     sigmas: &[Vec<u8>],
     participant: Identifier,
     pubkeys: &PublicKeyPackage,
+) -> Result<KeyShareHandle, TssError>;
+```
+
+### Share Repair (DKLs23 secp256k1)
+
+One masked term per helper, one round, no new key material: the masks are
+additive shares of zero drawn from the pairwise zero-share seeds every party
+already holds from DKG, under the domain `b"libtss/dkls23-repair/v1" || repair_sid`.
+
+```rust
+/// Called by each helper: `poly_point · λ_self(target) + mask`, a 32-byte scalar
+/// to unicast to the target. `helpers` is the full helper set (self included,
+/// target excluded), identical on every helper. Fails with `InvalidShare` if the
+/// caller lacks a zero-share pairing with any helper (a hollow share), instead of
+/// emitting an unmasked term.
+pub fn repair_helper_term(
+    key_share: &KeyShareHandle,
+    helpers: &[Identifier],
+    target: Identifier,
+    repair_sid: &[u8],
+) -> Result<Zeroizing<Vec<u8>>, TssError>;
+
+/// Called by the target: sums at least `min_signers` terms into a *hollow*
+/// share. Checks `G · Σ terms == verifying_share(target)` and fails with
+/// `InvalidShare` otherwise — no handle is created for a share that does not
+/// match the group. The result holds no OT or zero-share state and cannot sign
+/// (`SignSession::new_dkls` returns `InvalidShare`) until a complete refresh
+/// (`RefreshSession::new_dkls`) has run across all `n` parties.
+pub fn repair_assemble(
+    suite: Ciphersuite,
+    pubkey_package: &PublicKeyPackage,
+    chain_code: &[u8],
+    target: Identifier,
+    terms: &[&[u8]],
+    session_id: &[u8],
 ) -> Result<KeyShareHandle, TssError>;
 ```
 
