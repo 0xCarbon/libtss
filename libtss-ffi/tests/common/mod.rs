@@ -8,7 +8,8 @@ use std::ptr;
 use libtss_ffi::memory::tss_buffer_free;
 use libtss_ffi::messages::{tss_message_at, tss_message_build, tss_message_count};
 use libtss_ffi::session::{
-    tss_dkg_new, tss_dkg_next, tss_session_free, tss_sign_new, tss_sign_next,
+    tss_dkg_new, tss_dkg_next, tss_refresh_new_dkls, tss_refresh_next, tss_session_free,
+    tss_sign_new, tss_sign_next,
 };
 use libtss_ffi::types::{TssBuffer, TssHandle, TssSlice, TSS_OK};
 
@@ -154,18 +155,69 @@ pub fn run_dkg(suite: u8, participants: u16, min_signers: u16) -> Vec<TssHandle>
 /// (all of them sign; `keys[i]` must belong to party `i + 1`) and return the
 /// 64-byte `r || s` signature.
 pub fn run_dkls_sign(keys: &[TssHandle], message_hash: &[u8]) -> Vec<u8> {
-    let n = keys.len();
+    let signers: Vec<(u16, TssHandle)> = keys
+        .iter()
+        .enumerate()
+        .map(|(i, key)| (i as u16 + 1, *key))
+        .collect();
+    run_dkls_sign_ids(&signers, message_hash)
+}
+
+/// Route messages between an arbitrary set of party ids: `parties[i]` is the
+/// id of the party whose blob is `per_party_msgs[i]`.
+pub fn route_messages_ids(per_party_msgs: &[Vec<u8>], parties: &[u16]) -> Vec<Vec<u8>> {
+    let mut routed = vec![Vec::<u8>::new(); parties.len()];
+
+    for (sender_idx, blob) in per_party_msgs.iter().enumerate() {
+        if blob.is_empty() {
+            continue;
+        }
+        let s = slice(blob);
+        let count = tss_message_count(s);
+
+        for i in 0..count {
+            let mut from: u16 = 0;
+            let mut to: u16 = 0;
+            let mut data = TssSlice {
+                data: ptr::null(),
+                len: 0,
+            };
+            assert_eq!(tss_message_at(s, i, &mut from, &mut to, &mut data), TSS_OK);
+
+            let recipients: Vec<usize> = if to != 0 {
+                parties.iter().position(|&p| p == to).into_iter().collect()
+            } else {
+                (0..parties.len()).filter(|&r| r != sender_idx).collect()
+            };
+
+            for recip_idx in recipients {
+                let mut buf = if routed[recip_idx].is_empty() {
+                    TssBuffer::empty()
+                } else {
+                    TssBuffer::from_vec(std::mem::take(&mut routed[recip_idx]))
+                };
+                assert_eq!(
+                    tss_message_build(&mut buf, from, to, data.data, data.len),
+                    TSS_OK
+                );
+                routed[recip_idx] = take_buffer(&mut buf);
+            }
+        }
+    }
+    routed
+}
+
+/// Run a DKLs23 signing session with an explicit quorum: each entry pairs a
+/// party id with that party's key share handle.
+pub fn run_dkls_sign_ids(signers: &[(u16, TssHandle)], message_hash: &[u8]) -> Vec<u8> {
+    let n = signers.len();
+    let ids: Vec<u16> = signers.iter().map(|(id, _)| *id).collect();
     let mut sessions = Vec::new();
     let mut pending = vec![Vec::new(); n];
-    let signer_ids: Vec<u16> = (1..=n as u16).collect();
     let sign_id = b"ffi-test-sign-id";
 
-    for (i, key) in keys.iter().enumerate() {
-        let counterparties: Vec<u16> = signer_ids
-            .iter()
-            .copied()
-            .filter(|&id| id != signer_ids[i])
-            .collect();
+    for (i, (self_id, key)) in signers.iter().enumerate() {
+        let counterparties: Vec<u16> = ids.iter().copied().filter(|id| id != self_id).collect();
         let mut session = 0;
         let mut out_messages = TssBuffer::empty();
         assert_eq!(
@@ -186,7 +238,7 @@ pub fn run_dkls_sign(keys: &[TssHandle], message_hash: &[u8]) -> Vec<u8> {
     }
 
     for _ in 0..8 {
-        let routed = route_messages(&pending, n);
+        let routed = route_messages_ids(&pending, &ids);
         pending = vec![Vec::new(); n];
 
         for (i, session) in sessions.iter().enumerate() {
@@ -219,4 +271,79 @@ pub fn run_dkls_sign(keys: &[TssHandle], message_hash: &[u8]) -> Vec<u8> {
     }
 
     panic!("signing did not complete");
+}
+
+/// Run a DKLs23 complete refresh through the FFI over every key in `keys`
+/// (`keys[i]` belongs to party `i + 1`) and return the refreshed handles in
+/// the same order. The input handles stay valid.
+pub fn run_dkls_refresh(keys: &[TssHandle], session_id: &[u8]) -> Vec<TssHandle> {
+    let n = keys.len();
+    let mut sessions = Vec::new();
+    let mut pending = vec![Vec::new(); n];
+    let mut refreshed = vec![0u64; n];
+
+    for (i, key) in keys.iter().enumerate() {
+        let mut session = 0;
+        let mut messages = TssBuffer::empty();
+        assert_eq!(
+            tss_refresh_new_dkls(
+                *key,
+                session_id.as_ptr(),
+                session_id.len(),
+                &mut session,
+                &mut messages,
+            ),
+            TSS_OK,
+        );
+        sessions.push(session);
+        pending[i] = take_buffer(&mut messages);
+    }
+
+    for _ in 0..8 {
+        if refreshed.iter().all(|h| *h != 0) {
+            break;
+        }
+
+        let routed = route_messages(&pending, n);
+        pending = vec![Vec::new(); n];
+
+        for (index, session) in sessions.iter().enumerate() {
+            if refreshed[index] != 0 {
+                continue;
+            }
+
+            let mut key_share = 0;
+            let mut pubkey_package = TssBuffer::empty();
+            let mut out_messages = TssBuffer::empty();
+            let mut complete = false;
+            assert_eq!(
+                tss_refresh_next(
+                    *session,
+                    slice(&routed[index]),
+                    &mut key_share,
+                    &mut pubkey_package,
+                    &mut out_messages,
+                    &mut complete,
+                ),
+                TSS_OK,
+            );
+
+            let _ = take_buffer(&mut pubkey_package);
+            if complete {
+                refreshed[index] = key_share;
+                let _ = take_buffer(&mut out_messages);
+            } else {
+                pending[index] = take_buffer(&mut out_messages);
+            }
+        }
+    }
+
+    assert!(
+        refreshed.iter().all(|h| *h != 0),
+        "refresh did not complete"
+    );
+    for session in sessions {
+        tss_session_free(session);
+    }
+    refreshed
 }

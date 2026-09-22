@@ -243,6 +243,41 @@ TssStatus tss_message_build(struct TssBuffer *buf,
                             const uint8_t *data,
                             size_t data_len);
 
+// Compute this helper's masked DKLs23 repair term for `target`.
+//
+// `helpers` lists every helper (this party included, the target excluded);
+// all helpers must pass the identical list and `session_id`. `out_term`
+// receives a 32-byte scalar to unicast to the target; free it with
+// `tss_buffer_free`. A share missing a zero-share pairing with any helper
+// (a hollow, not yet refreshed share) returns `TSS_ERR_INVALID_SHARE`
+// rather than an unmasked term.
+TssStatus tss_repair_helper_term(TssHandle key_share,
+                                 const uint16_t *helpers,
+                                 size_t helpers_len,
+                                 uint16_t target,
+                                 const uint8_t *session_id,
+                                 size_t session_id_len,
+                                 struct TssBuffer *out_term);
+
+// Assemble helpers' repair terms into a hollow DKLs23 key share for `target`.
+//
+// `pubkey_package` is the serialized group package and `chain_code` its
+// 32-byte BIP-32 chain code, both as the helpers report them; `terms` holds
+// at least `min_signers` outputs of `tss_repair_helper_term`. The sum of the
+// terms is checked against the target's verifying share and a mismatch
+// returns `TSS_ERR_INVALID_SHARE` without creating a handle. The returned
+// share cannot sign until a `tss_refresh_new_dkls` refresh has run across the
+// whole group. Free it with `tss_handle_free`.
+TssStatus tss_repair_assemble(uint8_t suite,
+                              struct TssSlice pubkey_package,
+                              struct TssSlice chain_code,
+                              uint16_t target,
+                              const struct TssSlice *terms,
+                              size_t terms_len,
+                              const uint8_t *session_id,
+                              size_t session_id_len,
+                              TssHandle *out_key_share);
+
 TssStatus tss_dkg_new(uint8_t suite,
                       uint16_t self_id,
                       uint16_t max_signers,
@@ -279,6 +314,20 @@ TssStatus tss_refresh_new(TssHandle key_share,
                           size_t participants_len,
                           TssHandle *out_session,
                           struct TssBuffer *out_messages);
+
+// Create a DKLs23 complete refresh session for a secp256k1 key share.
+//
+// Every party of the group must run this under the same fresh `session_id`;
+// the refreshed shares are salted with it and cannot co-sign with any other
+// generation. Advance with `tss_refresh_next` three times. `key_share` stays
+// valid; the completed session yields a new handle. Non-DKLs23 shares return
+// `TSS_ERR_PROTO_MISMATCH`; an empty `session_id` returns
+// `TSS_ERR_INVALID_CONFIG`.
+TssStatus tss_refresh_new_dkls(TssHandle key_share,
+                               const uint8_t *session_id,
+                               size_t session_id_len,
+                               TssHandle *out_session,
+                               struct TssBuffer *out_messages);
 
 TssStatus tss_refresh_receiver(TssHandle key_share, TssHandle *out_session);
 

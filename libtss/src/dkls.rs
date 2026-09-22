@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 use dkls23_secp256k1::protocols::dkg::{
-    BroadcastDerivationPhase2to4, BroadcastDerivationPhase3to4, TransmitInitZeroSharePhase2to4,
+    BroadcastDerivationPhase2to4, BroadcastDerivationPhase3to4, KeepInitMulPhase3to4,
+    KeepInitZeroSharePhase2to3, KeepInitZeroSharePhase3to4, TransmitInitZeroSharePhase2to4,
     TransmitInitZeroSharePhase3to4,
 };
 use dkls23_secp256k1::protocols::messages::{MessageTag, PhaseInput, PhaseOutput};
@@ -11,7 +12,8 @@ use dkls23_secp256k1::protocols::{Abort, AbortKind, Parameters, PartyIndex};
 use dkls23_secp256k1::{Party, PublicKeyPackage as DklsPublicKeyPackage};
 use k256::elliptic_curve::sec1::ToSec1Point;
 use k256::elliptic_curve::PrimeField;
-use k256::Scalar;
+use k256::{AffinePoint, ProjectivePoint, Scalar};
+use zeroize::Zeroize;
 
 type Secp256k1 = k256::Secp256k1;
 type DkgSession = dkls23_secp256k1::DkgSession<Secp256k1>;
@@ -46,12 +48,65 @@ pub struct DklsSignState<'a> {
     pub(crate) self_broadcast: Option<Broadcast3to4>,
 }
 
-fn identifier_to_party_index(id: Identifier) -> Result<PartyIndex, TssError> {
+/// Per-party state of a DKLs23 complete refresh, carried between the three
+/// message rounds until `dkls_refresh_phase4` consumes it.
+///
+/// The refresh re-runs DKG with a zero-constant polynomial, so it keeps the
+/// same zero-share and multiplication initialisation material DKG does, plus
+/// the original party and public key package the correction is applied to.
+pub struct DklsRefreshState {
+    pub(crate) party: Party,
+    pub(crate) pubkey: DklsPublicKeyPackage,
+    pub(crate) refresh_sid: Vec<u8>,
+    pub(crate) self_id: Identifier,
+    pub(crate) share_count: u8,
+    pub(crate) self_fragment: Option<Scalar>,
+    pub(crate) correction_value: Option<Scalar>,
+    pub(crate) self_proof_commitment: Option<ProofCommitment>,
+    pub(crate) zero_kept_2to3: Option<BTreeMap<PartyIndex, KeepInitZeroSharePhase2to3>>,
+    pub(crate) zero_kept_3to4: Option<BTreeMap<PartyIndex, KeepInitZeroSharePhase3to4>>,
+    pub(crate) mul_kept_3to4: Option<BTreeMap<PartyIndex, KeepInitMulPhase3to4<Secp256k1>>>,
+    pub(crate) phase2_input: Option<PhaseInput>,
+}
+
+impl Drop for DklsRefreshState {
+    fn drop(&mut self) {
+        self.refresh_sid.zeroize();
+        if let Some(fragment) = self.self_fragment.as_mut() {
+            fragment.zeroize();
+        }
+        if let Some(correction) = self.correction_value.as_mut() {
+            correction.zeroize();
+        }
+        if let Some(kept) = self.zero_kept_2to3.as_mut() {
+            for value in kept.values_mut() {
+                value.seed.zeroize();
+                value.salt.zeroize();
+            }
+        }
+        if let Some(kept) = self.zero_kept_3to4.as_mut() {
+            for value in kept.values_mut() {
+                value.seed.zeroize();
+            }
+        }
+        if let Some(kept) = self.mul_kept_3to4.as_mut() {
+            for value in kept.values_mut() {
+                value.ot_sender.s.zeroize();
+                value.ot_receiver.seed.zeroize();
+                value.nonce.zeroize();
+                value.vec_r.zeroize();
+                value.correlation.zeroize();
+            }
+        }
+    }
+}
+
+pub(crate) fn identifier_to_party_index(id: Identifier) -> Result<PartyIndex, TssError> {
     let value = u8::try_from(id.as_u16()).map_err(|_| TssError::InvalidIdentifier)?;
     PartyIndex::new(value).map_err(|_| TssError::InvalidIdentifier)
 }
 
-fn identifier_to_session_party_index(
+pub(crate) fn identifier_to_session_party_index(
     id: Identifier,
     share_count: u8,
 ) -> Result<PartyIndex, TssError> {
@@ -62,7 +117,7 @@ fn identifier_to_session_party_index(
     Ok(index)
 }
 
-fn party_index_to_identifier(index: PartyIndex) -> Result<Identifier, TssError> {
+pub(crate) fn party_index_to_identifier(index: PartyIndex) -> Result<Identifier, TssError> {
     Identifier::new(u16::from(index.as_u8()))
 }
 
@@ -151,7 +206,7 @@ fn phase_input_p2p<T: MessageTag>(input: &PhaseInput, sender: u8) -> Result<T, T
     input.get_p2p(sender).map_err(message_error)
 }
 
-fn scalar_from_message(data: &[u8]) -> Result<Scalar, TssError> {
+pub(crate) fn scalar_from_message(data: &[u8]) -> Result<Scalar, TssError> {
     let bytes: [u8; 32] = data
         .try_into()
         .map_err(|_| TssError::DeserializeFailed("invalid scalar fragment length".into()))?;
@@ -213,24 +268,7 @@ pub fn dkls_dkg_phase1(
     let parameters = Parameters::new(threshold, share_count)
         .map_err(|_| TssError::InvalidConfig("invalid DKLs23 parameters".into()))?;
     let session = DkgSession::new(parameters, self_index, session_id);
-    let fragments = session.phase1();
-    let self_position = usize::from(self_index.as_u8() - 1);
-    let self_fragment: Scalar = fragments[self_position];
-    let mut messages = Vec::with_capacity(usize::from(share_count.saturating_sub(1)));
-
-    for (index, fragment) in fragments.into_iter().enumerate() {
-        let receiver = u16::try_from(index + 1)
-            .map_err(|_| TssError::InvalidIdentifier)
-            .and_then(Identifier::new)?;
-        if receiver == self_id {
-            continue;
-        }
-        messages.push(Message {
-            from: self_id,
-            to: Some(receiver),
-            data: fragment.to_bytes().to_vec(),
-        });
-    }
+    let (self_fragment, messages) = fragment_messages(session.phase1(), self_id, self_index)?;
 
     Ok((
         DklsDkgState {
@@ -247,29 +285,52 @@ pub fn dkls_dkg_phase1(
     ))
 }
 
-pub fn dkls_dkg_phase2(
-    state: &mut DklsDkgState,
-    received: &[Message],
-) -> Result<Vec<Message>, TssError> {
-    let self_index = identifier_to_session_party_index(state.self_id, state.share_count)?;
+fn fragment_messages(
+    fragments: Vec<Scalar>,
+    self_id: Identifier,
+    self_index: PartyIndex,
+) -> Result<(Scalar, Vec<Message>), TssError> {
     let self_position = usize::from(self_index.as_u8() - 1);
-    let self_fragment = state
-        .self_fragment
-        .take()
-        .ok_or(TssError::SessionComplete)?;
-    let mut fragments: Vec<Scalar> = vec![Scalar::ZERO; usize::from(state.share_count)];
+    let self_fragment: Scalar = fragments[self_position];
+    let mut messages = Vec::with_capacity(fragments.len().saturating_sub(1));
+
+    for (index, fragment) in fragments.into_iter().enumerate() {
+        let receiver = u16::try_from(index + 1)
+            .map_err(|_| TssError::InvalidIdentifier)
+            .and_then(Identifier::new)?;
+        if receiver == self_id {
+            continue;
+        }
+        messages.push(Message {
+            from: self_id,
+            to: Some(receiver),
+            data: fragment.to_bytes().to_vec(),
+        });
+    }
+
+    Ok((self_fragment, messages))
+}
+
+fn collect_fragments(
+    self_id: Identifier,
+    share_count: u8,
+    self_fragment: Scalar,
+    received: &[Message],
+) -> Result<Vec<Scalar>, TssError> {
+    let self_index = identifier_to_session_party_index(self_id, share_count)?;
+    let self_position = usize::from(self_index.as_u8() - 1);
+    let mut fragments: Vec<Scalar> = vec![Scalar::ZERO; usize::from(share_count)];
     fragments[self_position] = self_fragment;
-    let mut seen = vec![false; usize::from(state.share_count)];
+    let mut seen = vec![false; usize::from(share_count)];
     seen[self_position] = true;
 
     for message in received {
-        if message.to != Some(state.self_id) {
+        if message.to != Some(self_id) {
             continue;
         }
 
-        let sender = usize::from(
-            identifier_to_session_party_index(message.from, state.share_count)?.as_u8() - 1,
-        );
+        let sender =
+            usize::from(identifier_to_session_party_index(message.from, share_count)?.as_u8() - 1);
         if seen[sender] {
             return Err(TssError::DeserializeFailed(
                 "duplicate DKG fragment from sender".into(),
@@ -284,6 +345,19 @@ pub fn dkls_dkg_phase2(
             "missing DKG fragment for phase2".into(),
         ));
     }
+
+    Ok(fragments)
+}
+
+pub fn dkls_dkg_phase2(
+    state: &mut DklsDkgState,
+    received: &[Message],
+) -> Result<Vec<Message>, TssError> {
+    let self_fragment = state
+        .self_fragment
+        .take()
+        .ok_or(TssError::SessionComplete)?;
+    let fragments = collect_fragments(state.self_id, state.share_count, self_fragment, received)?;
 
     let (proof_commitment, zero_transmit, bip_broadcast) =
         state.session.phase2(&fragments).map_err(abort_to_error)?;
@@ -410,6 +484,248 @@ pub fn dkls_dkg_phase4(
 
     let unified = convert_public_key_package(&package)?;
     Ok((party, package, unified))
+}
+
+/// Start a DKLs23 complete refresh for `party`, producing the round-1 fragments.
+///
+/// `refresh_sid` becomes the refreshed party's session id, so every party of
+/// the group must refresh under the same fresh id: shares from different
+/// refresh generations salt signing differently and can never co-sign.
+pub fn dkls_refresh_phase1(
+    party: Party,
+    pubkey: DklsPublicKeyPackage,
+    refresh_sid: &[u8],
+) -> Result<(DklsRefreshState, Vec<Message>), TssError> {
+    if refresh_sid.is_empty() {
+        return Err(TssError::InvalidConfig(
+            "refresh session_id must not be empty".into(),
+        ));
+    }
+    if party.parameters.share_count != pubkey.share_count()
+        || party.parameters.threshold != pubkey.threshold()
+    {
+        return Err(TssError::InvalidConfig(
+            "party parameters do not match the public key package".into(),
+        ));
+    }
+
+    let self_id = party_index_to_identifier(party.party_index)?;
+    let share_count = party.parameters.share_count;
+    let (self_fragment, messages) =
+        fragment_messages(party.refresh_complete_phase1(), self_id, party.party_index)?;
+
+    Ok((
+        DklsRefreshState {
+            party,
+            pubkey,
+            refresh_sid: refresh_sid.to_vec(),
+            self_id,
+            share_count,
+            self_fragment: Some(self_fragment),
+            correction_value: None,
+            self_proof_commitment: None,
+            zero_kept_2to3: None,
+            zero_kept_3to4: None,
+            mul_kept_3to4: None,
+            phase2_input: None,
+        },
+        messages,
+    ))
+}
+
+pub fn dkls_refresh_phase2(
+    state: &mut DklsRefreshState,
+    received: &[Message],
+) -> Result<Vec<Message>, TssError> {
+    let self_fragment = state
+        .self_fragment
+        .take()
+        .ok_or(TssError::SessionComplete)?;
+    let fragments = collect_fragments(state.self_id, state.share_count, self_fragment, received)?;
+
+    let (correction_value, proof_commitment, zero_kept, zero_transmit) = state
+        .party
+        .refresh_complete_phase2(&state.refresh_sid, &fragments);
+    let mut output = PhaseOutput::new();
+    output
+        .add_broadcast(&proof_commitment)
+        .map_err(message_error)?;
+    for message in &zero_transmit {
+        output
+            .add_p2p(message.parties.receiver.as_u8(), message)
+            .map_err(message_error)?;
+    }
+
+    state.correction_value = Some(correction_value);
+    state.self_proof_commitment = Some(proof_commitment);
+    state.zero_kept_2to3 = Some(zero_kept);
+
+    phase_output_to_messages(&output, state.self_id)
+}
+
+pub fn dkls_refresh_phase3(
+    state: &mut DklsRefreshState,
+    received: &[Message],
+) -> Result<Vec<Message>, TssError> {
+    let phase2_input = messages_to_phase_input(received, state.self_id)?;
+    let mut zero_kept_2to3 = state
+        .zero_kept_2to3
+        .take()
+        .ok_or(TssError::SessionComplete)?;
+    let (zero_kept_3to4, zero_transmit, mul_kept, mul_transmit) = state
+        .party
+        .refresh_complete_phase3(&state.refresh_sid, &zero_kept_2to3);
+    for kept in zero_kept_2to3.values_mut() {
+        kept.seed.zeroize();
+        kept.salt.zeroize();
+    }
+
+    let mut output = PhaseOutput::new();
+    for message in &zero_transmit {
+        output
+            .add_p2p(message.parties.receiver.as_u8(), message)
+            .map_err(message_error)?;
+    }
+    for message in &mul_transmit {
+        output
+            .add_p2p(message.parties.receiver.as_u8(), message)
+            .map_err(message_error)?;
+    }
+
+    state.phase2_input = Some(phase2_input);
+    state.zero_kept_3to4 = Some(zero_kept_3to4);
+    state.mul_kept_3to4 = Some(mul_kept);
+
+    phase_output_to_messages(&output, state.self_id)
+}
+
+/// Finish a DKLs23 complete refresh: rebuild the OT state, apply the share
+/// correction and derive the refreshed public key package.
+///
+/// dkls23's `refresh_complete_phase4` returns only the refreshed `Party`; the
+/// package is recomputed here from the broadcast proof commitments, because
+/// every verifying share moves by its party's correction point while the group
+/// key stays put. The result is self-checked against the new party before it
+/// is returned, so a package that disagrees with the share fails closed.
+pub fn dkls_refresh_phase4(
+    mut state: DklsRefreshState,
+    received: &[Message],
+) -> Result<(Party, DklsPublicKeyPackage, UnifiedPublicKeyPackage), TssError> {
+    let phase2_input = state.phase2_input.take().ok_or(TssError::SessionComplete)?;
+    let phase3_input = messages_to_phase_input(received, state.self_id)?;
+    let self_index = identifier_to_party_index(state.self_id)?;
+    let correction_value = state
+        .correction_value
+        .take()
+        .ok_or(TssError::SessionComplete)?;
+    let zero_kept = state
+        .zero_kept_3to4
+        .take()
+        .ok_or(TssError::SessionComplete)?;
+    let mul_kept = state
+        .mul_kept_3to4
+        .take()
+        .ok_or(TssError::SessionComplete)?;
+
+    let mut proofs_commitments = vec![state
+        .self_proof_commitment
+        .take()
+        .ok_or(TssError::SessionComplete)?];
+    let mut zero_received_phase2 = Vec::new();
+    let mut zero_received_phase3 = Vec::new();
+    let mut mul_received = Vec::new();
+
+    for sender in 1..=state.share_count {
+        if sender == self_index.as_u8() {
+            continue;
+        }
+        proofs_commitments.push(phase_input_broadcast::<ProofCommitment>(
+            &phase2_input,
+            sender,
+        )?);
+        zero_received_phase2.push(phase_input_p2p::<TransmitInitZeroSharePhase2to4>(
+            &phase2_input,
+            sender,
+        )?);
+        zero_received_phase3.push(phase_input_p2p::<TransmitInitZeroSharePhase3to4>(
+            &phase3_input,
+            sender,
+        )?);
+        mul_received.push(phase_input_p2p::<TransmitInitMulPhase3to4>(
+            &phase3_input,
+            sender,
+        )?);
+    }
+
+    let party = state
+        .party
+        .refresh_complete_phase4(
+            &state.refresh_sid,
+            &correction_value,
+            &proofs_commitments,
+            &zero_kept,
+            &zero_received_phase2,
+            &zero_received_phase3,
+            &mul_kept,
+            &mul_received,
+        )
+        .map_err(abort_to_error)?;
+
+    let package = refresh_public_key_package(&state.pubkey, &proofs_commitments)?;
+    let expected_share = (ProjectivePoint::GENERATOR * party.poly_point).to_affine();
+    if package.verifying_share(party.party_index) != Some(&expected_share)
+        || party.pk != *package.verifying_key()
+    {
+        return Err(TssError::InvalidShare);
+    }
+
+    let unified = convert_public_key_package(&package)?;
+    Ok((party, package, unified))
+}
+
+/// Apply the refresh corrections to a public key package.
+///
+/// Each party's proof commitment carries `G * correction_j`; the refreshed
+/// verifying share is the old one moved by that point. The group key is
+/// unchanged because the corrections are shares of zero, which
+/// `refresh_complete_phase4` has already verified.
+pub(crate) fn refresh_public_key_package(
+    old: &DklsPublicKeyPackage,
+    proofs_commitments: &[ProofCommitment],
+) -> Result<DklsPublicKeyPackage, TssError> {
+    let share_count = old.share_count();
+    if proofs_commitments.len() != usize::from(share_count) {
+        return Err(TssError::InvalidConfig(
+            "refresh needs one proof commitment per party".into(),
+        ));
+    }
+
+    let mut verifying_shares: BTreeMap<PartyIndex, AffinePoint> = BTreeMap::new();
+    for proof_commitment in proofs_commitments {
+        let index = proof_commitment.index;
+        if index.as_u8() > share_count {
+            return Err(TssError::InvalidIdentifier);
+        }
+        let old_share = old
+            .verifying_share(index)
+            .ok_or_else(|| TssError::DeserializeFailed("missing verifying share".into()))?;
+        let refreshed = (ProjectivePoint::from(*old_share)
+            + ProjectivePoint::from(proof_commitment.proof.point))
+        .to_affine();
+        if verifying_shares.insert(index, refreshed).is_some() {
+            return Err(TssError::InvalidConfig(
+                "duplicate proof commitment for party".into(),
+            ));
+        }
+    }
+
+    let parameters = Parameters::new(old.threshold(), share_count)
+        .map_err(|_| TssError::InvalidConfig("invalid DKLs23 parameters".into()))?;
+    Ok(DklsPublicKeyPackage::new(
+        *old.verifying_key(),
+        verifying_shares,
+        parameters,
+    ))
 }
 
 pub fn dkls_sign_new<'a>(
@@ -726,6 +1042,133 @@ mod tests {
             );
             assert_eq!(packages.get(&self_id).unwrap().min_signers(), threshold);
         }
+    }
+
+    fn synthetic_package(shares: &[Scalar]) -> DklsPublicKeyPackage {
+        let mut verifying_shares = BTreeMap::new();
+        let mut secret = Scalar::ZERO;
+        for (position, share) in shares.iter().enumerate() {
+            let index = PartyIndex::new(u8::try_from(position + 1).unwrap()).unwrap();
+            verifying_shares.insert(index, (ProjectivePoint::GENERATOR * share).to_affine());
+            secret += share;
+        }
+        DklsPublicKeyPackage::new(
+            (ProjectivePoint::GENERATOR * secret).to_affine(),
+            verifying_shares,
+            Parameters::new(2, u8::try_from(shares.len()).unwrap()).unwrap(),
+        )
+    }
+
+    fn synthetic_proof(index: u8, correction: Scalar) -> ProofCommitment {
+        ProofCommitment {
+            index: PartyIndex::new(index).unwrap(),
+            proof: dkls23_secp256k1::utilities::proofs::DLogProof {
+                point: (ProjectivePoint::GENERATOR * correction).to_affine(),
+                rand_commitments: Vec::new(),
+                proofs: Vec::new(),
+            },
+            commitment: [0u8; 32],
+        }
+    }
+
+    #[test]
+    fn refresh_public_key_package_adds_correction_points() {
+        let shares = [Scalar::from(5u64), Scalar::from(8u64), Scalar::from(13u64)];
+        let corrections = [Scalar::from(3u64), Scalar::from(21u64), Scalar::from(34u64)];
+        let old = synthetic_package(&shares);
+        let proofs: Vec<ProofCommitment> = corrections
+            .iter()
+            .enumerate()
+            .map(|(position, correction)| {
+                synthetic_proof(u8::try_from(position + 1).unwrap(), *correction)
+            })
+            .collect();
+
+        let refreshed = refresh_public_key_package(&old, &proofs).unwrap();
+
+        assert_eq!(refreshed.verifying_key(), old.verifying_key());
+        assert_eq!(refreshed.threshold(), old.threshold());
+        assert_eq!(refreshed.share_count(), old.share_count());
+        for (position, (share, correction)) in shares.iter().zip(&corrections).enumerate() {
+            let index = PartyIndex::new(u8::try_from(position + 1).unwrap()).unwrap();
+            assert_eq!(
+                refreshed.verifying_share(index).unwrap(),
+                &(ProjectivePoint::GENERATOR * (share + correction)).to_affine()
+            );
+        }
+    }
+
+    #[test]
+    fn refresh_public_key_package_rejects_wrong_proof_sets() {
+        let old = synthetic_package(&[Scalar::from(5u64), Scalar::from(8u64)]);
+
+        assert!(matches!(
+            refresh_public_key_package(&old, &[synthetic_proof(1, Scalar::ONE)]),
+            Err(TssError::InvalidConfig(_))
+        ));
+        assert!(matches!(
+            refresh_public_key_package(
+                &old,
+                &[
+                    synthetic_proof(1, Scalar::ONE),
+                    synthetic_proof(1, Scalar::ONE)
+                ]
+            ),
+            Err(TssError::InvalidConfig(_))
+        ));
+        assert_eq!(
+            refresh_public_key_package(
+                &old,
+                &[
+                    synthetic_proof(1, Scalar::ONE),
+                    synthetic_proof(3, Scalar::ONE)
+                ]
+            )
+            .unwrap_err(),
+            TssError::InvalidIdentifier
+        );
+    }
+
+    #[test]
+    fn test_refresh_phase1_rejects_empty_session_id_and_shape_mismatch() {
+        let threshold = 2;
+        let share_count = 2;
+        let session_id = vec![7u8; 32];
+        let participants = [id(1), id(2)];
+
+        let mut states = BTreeMap::new();
+        let mut outputs = BTreeMap::new();
+        for self_id in participants {
+            let (state, messages) =
+                dkls_dkg_phase1(threshold, share_count, self_id, session_id.clone()).unwrap();
+            states.insert(self_id, state);
+            outputs.insert(self_id, messages);
+        }
+        for phase in [dkls_dkg_phase2, dkls_dkg_phase3] {
+            let inputs = route_messages(&outputs, &participants);
+            outputs = BTreeMap::new();
+            for self_id in participants {
+                let output = phase(
+                    states.get_mut(&self_id).unwrap(),
+                    inputs.get(&self_id).unwrap(),
+                )
+                .unwrap();
+                outputs.insert(self_id, output);
+            }
+        }
+        let inputs = route_messages(&outputs, &participants);
+        let (party, package, _) =
+            dkls_dkg_phase4(states.remove(&id(1)).unwrap(), inputs.get(&id(1)).unwrap()).unwrap();
+
+        assert!(matches!(
+            dkls_refresh_phase1(party.clone(), package.clone(), b""),
+            Err(TssError::InvalidConfig(_))
+        ));
+        let other_shape = synthetic_package(&[Scalar::ONE, Scalar::ONE, Scalar::ONE]);
+        assert!(matches!(
+            dkls_refresh_phase1(party, other_shape, b"sid"),
+            Err(TssError::InvalidConfig(_))
+        ));
     }
 
     #[test]

@@ -244,6 +244,116 @@ func TestFROSTRefreshAndSign(t *testing.T) {
 	}
 }
 
+func runDKLsRefresh(t *testing.T, shares []*KeyShareHandle, sessionID []byte) []*KeyShareHandle {
+	t.Helper()
+	sessions := make([]*RefreshSession, len(shares))
+	round := make([][]Message, len(shares))
+	ids := make([]Identifier, len(shares))
+	for i, share := range shares {
+		id, err := share.Identifier()
+		if err != nil {
+			t.Fatalf("Identifier(%d): %v", i, err)
+		}
+		ids[i] = id
+		session, messages, err := NewRefreshSessionDKLs(share, sessionID)
+		if err != nil {
+			t.Fatalf("NewRefreshSessionDKLs(%d): %v", id, err)
+		}
+		sessions[i] = session
+		round[i] = messages
+		defer session.Free()
+	}
+
+	refreshed := make([]*KeyShareHandle, len(shares))
+	for {
+		nextRound := make([][]Message, len(shares))
+		completed := 0
+		for i := range sessions {
+			step, err := sessions[i].Next(collectPeerMessages(round, i, ids[i]))
+			if err != nil {
+				t.Fatalf("Refresh Next(%d): %v", ids[i], err)
+			}
+			if step.Complete {
+				refreshed[i] = step.KeyShare
+				completed++
+				continue
+			}
+			nextRound[i] = step.Messages
+		}
+		if completed == len(shares) {
+			return refreshed
+		}
+		round = nextRound
+	}
+}
+
+func TestDKLs23RefreshAndSign(t *testing.T) {
+	shares, pubkeys := runDKG(t, CiphersuiteSecp256k1ECDSA, 3, 2, []byte("refresh-dkg"))
+	for _, share := range shares {
+		defer share.Free()
+	}
+
+	refreshed := runDKLsRefresh(t, shares, []byte("refresh-sid"))
+	for i, share := range refreshed {
+		defer share.Free()
+		groupKey, err := share.GroupKey()
+		if err != nil || !bytes.Equal(groupKey, pubkeys.VerifyingKey) {
+			t.Fatalf("refreshed share %d changed the group key (err %v)", i+1, err)
+		}
+		before, err := shares[i].VerifyingShare()
+		if err != nil {
+			t.Fatalf("VerifyingShare(before %d): %v", i+1, err)
+		}
+		after, err := share.VerifyingShare()
+		if err != nil {
+			t.Fatalf("VerifyingShare(after %d): %v", i+1, err)
+		}
+		if bytes.Equal(before, after) {
+			t.Fatalf("refresh did not move share %d", i+1)
+		}
+	}
+
+	msg := []byte("dkls refreshed")
+	digest := sha256.Sum256(msg)
+	sig := runSignRound(t, CiphersuiteSecp256k1ECDSA, refreshed[1:], digest[:])
+	valid, err := Verify(CiphersuiteSecp256k1ECDSA, msg, sig.Data, pubkeys.VerifyingKey)
+	if err != nil || !valid {
+		t.Fatalf("refreshed shares produced an invalid signature (err %v)", err)
+	}
+
+	if _, _, err := NewRefreshSessionDKLs(shares[0], nil); err == nil {
+		t.Fatal("NewRefreshSessionDKLs accepted an empty session id")
+	}
+	frost, _ := runDKG(t, CiphersuiteEd25519, 2, 2, nil)
+	for _, share := range frost {
+		defer share.Free()
+	}
+	_, _, err = NewRefreshSessionDKLs(frost[0], []byte("refresh-sid"))
+	var tssErr *TssError
+	if !errors.As(err, &tssErr) || tssErr.Code != tssErrProtoMismatchCode {
+		t.Fatalf("NewRefreshSessionDKLs(frost) = %v, want protocol mismatch", err)
+	}
+}
+
+func TestPublicKeyPackageBytesRoundTrip(t *testing.T) {
+	shares, pubkeys := runDKG(t, CiphersuiteSecp256k1ECDSA, 2, 2, []byte("package-bytes"))
+	for _, share := range shares {
+		defer share.Free()
+	}
+
+	raw, err := shares[0].PublicKeyPackageBytes()
+	if err != nil {
+		t.Fatalf("PublicKeyPackageBytes: %v", err)
+	}
+	decoded, err := decodePublicKeyPackage(raw)
+	if err != nil {
+		t.Fatalf("decodePublicKeyPackage: %v", err)
+	}
+	if !bytes.Equal(decoded.VerifyingKey, pubkeys.VerifyingKey) || decoded.MinSigners != pubkeys.MinSigners {
+		t.Fatal("serialized package does not match the DKG output")
+	}
+}
+
 func TestNonceReuseAndFreedHandle(t *testing.T) {
 	shares, _ := runDKG(t, CiphersuiteEd25519, 2, 2, nil)
 	for _, share := range shares {

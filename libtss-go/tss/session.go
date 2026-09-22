@@ -6,6 +6,7 @@ package tss
 import "C"
 
 import (
+	"fmt"
 	"runtime"
 	"unsafe"
 )
@@ -245,6 +246,48 @@ func NewRefreshSession(keyShare *KeyShareHandle, participants []Identifier) (*Re
 			handle,
 			pPtr,
 			C.uintptr_t(len(participants)),
+			&native,
+			&out,
+		)
+	}); err != nil {
+		return nil, nil, err
+	}
+	msgs, err := ParseMessages(bufferToBytes(&out))
+	if err != nil {
+		C.tss_session_free(native)
+		return nil, nil, err
+	}
+	return newRefreshSession(native), msgs, nil
+}
+
+// NewRefreshSessionDKLs starts a DKLs23 complete refresh for a secp256k1 key
+// share.
+//
+// Every party of the group must refresh together under the same fresh
+// sessionID: the refreshed shares are salted with it and cannot co-sign with
+// shares from any other generation. Next is called three times; the input
+// handle stays valid and the completed step carries a new one. The refresh
+// rebuilds the OT and zero-share state from scratch, which is what turns a
+// hollow share from RepairAssemble into a signing one.
+func NewRefreshSessionDKLs(keyShare *KeyShareHandle, sessionID []byte) (*RefreshSession, []Message, error) {
+	if keyShare == nil {
+		return nil, nil, fmt.Errorf("keyShare is nil")
+	}
+	if len(sessionID) == 0 {
+		return nil, nil, fmt.Errorf("sessionID must not be empty")
+	}
+	handle, err := keyShare.native.value()
+	if err != nil {
+		return nil, nil, err
+	}
+	var native C.TssHandle
+	var out C.struct_TssBuffer
+	sidPtr := (*C.uint8_t)(unsafe.Pointer(&sessionID[0]))
+	if err := callStatus(func() C.TssStatus {
+		return C.tss_refresh_new_dkls(
+			handle,
+			sidPtr,
+			C.uintptr_t(len(sessionID)),
 			&native,
 			&out,
 		)

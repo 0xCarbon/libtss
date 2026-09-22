@@ -141,17 +141,28 @@ func (h *KeyShareHandle) ChainCode() ([]byte, error) {
 }
 
 func (h *KeyShareHandle) PublicKeyPackage() (PublicKeyPackage, error) {
-	handle, err := h.native.value()
+	raw, err := h.PublicKeyPackageBytes()
 	if err != nil {
 		return PublicKeyPackage{}, err
+	}
+	return decodePublicKeyPackage(raw)
+}
+
+// PublicKeyPackageBytes returns the group's public key package in libtss's
+// serialized form, the encoding RepairAssemble and FrostRepairPart3 accept.
+// Use PublicKeyPackage for the decoded view.
+func (h *KeyShareHandle) PublicKeyPackageBytes() ([]byte, error) {
+	handle, err := h.native.value()
+	if err != nil {
+		return nil, err
 	}
 	var out C.struct_TssBuffer
 	if err := callStatus(func() C.TssStatus {
 		return C.tss_handle_pubkey_package(handle, &out)
 	}); err != nil {
-		return PublicKeyPackage{}, err
+		return nil, err
 	}
-	return decodePublicKeyPackage(bufferToBytes(&out))
+	return bufferToBytes(&out), nil
 }
 
 func (h *KeyShareHandle) Ciphersuite() (Ciphersuite, error) {

@@ -9,6 +9,7 @@ pub mod init;
 pub mod memory;
 pub mod messages;
 pub mod registry;
+pub mod repair;
 pub mod session;
 pub mod types;
 
