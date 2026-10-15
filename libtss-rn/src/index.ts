@@ -110,3 +110,65 @@ export async function verify(
 		throw TssError.fromNative(error);
 	}
 }
+
+const SCALAR_LENGTH = 32;
+
+function assertScalarLength(value: Uint8Array, name: string): void {
+	if (value.length !== SCALAR_LENGTH) {
+		throw new Error(
+			`${name} must be exactly ${SCALAR_LENGTH} bytes, got ${value.length}`,
+		);
+	}
+}
+
+/**
+ * Derives a new key share whose secret is `k + tweak (mod n)`.
+ *
+ * The group public key, every verifying share and the derivation data move by
+ * the same map, so signatures produced with the returned share verify under the
+ * tweaked group key (the LND per-commitment "single" tweak). `tweak` is a
+ * 32-byte big-endian scalar reduced mod n; a wrong length rejects with a plain
+ * `Error` before any native call. Only the DKLs23 ECDSA suites support tweaking
+ * (other suites reject with `TssStatusCode.PROTO_MISMATCH`), and a tweak that
+ * lands on the identity rejects with `TssStatusCode.TWEAK`. The parent share
+ * stays valid; the returned handle must be freed separately.
+ */
+export async function tweakAdd(
+	keyShare: KeyShareHandle,
+	tweak: Uint8Array,
+): Promise<KeyShareHandle> {
+	assertScalarLength(tweak, "tweak");
+
+	try {
+		return new KeyShareHandle(
+			await NativeLibtss.tweakAdd(keyShare.handle, encodeBase64(tweak)),
+		);
+	} catch (error) {
+		throw TssError.fromNative(error);
+	}
+}
+
+/**
+ * Derives a new key share whose secret is `k * factor (mod n)`.
+ *
+ * The multiplicative counterpart of {@link tweakAdd} and the building block of
+ * the LND revocation ("double") tweak. `factor` is a 32-byte big-endian scalar
+ * reduced mod n; a wrong length rejects with a plain `Error` before any native
+ * call, and a factor that reduces to zero rejects with `TssStatusCode.TWEAK`.
+ * Only the DKLs23 ECDSA suites support tweaking. The parent share stays valid;
+ * the returned handle must be freed separately.
+ */
+export async function tweakMul(
+	keyShare: KeyShareHandle,
+	factor: Uint8Array,
+): Promise<KeyShareHandle> {
+	assertScalarLength(factor, "factor");
+
+	try {
+		return new KeyShareHandle(
+			await NativeLibtss.tweakMul(keyShare.handle, encodeBase64(factor)),
+		);
+	} catch (error) {
+		throw TssError.fromNative(error);
+	}
+}

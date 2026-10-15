@@ -8,7 +8,9 @@ pub mod frost;
 pub mod handle;
 pub mod keyshare;
 pub mod message;
+pub mod repair;
 pub mod session;
+pub mod tweak;
 pub mod types;
 pub mod verify;
 
@@ -24,9 +26,11 @@ pub use handle::{
 };
 pub use keyshare::{import_key_share, KeyShareHandle};
 pub use message::{deserialize_messages, filter_for_participant, serialize_messages, Message};
+pub use repair::{repair_assemble, repair_helper_term};
 pub use session::dkg::{DkgOutput, DkgSession};
 pub use session::refresh::{RefreshOutput, RefreshSession};
 pub use session::sign::{SignOutput, SignSession};
+pub use tweak::{tweak_add, tweak_mul};
 pub use verify::verify;
 
 pub use types::{Ciphersuite, Identifier, Protocol, PublicKeyPackage, Signature, ThresholdConfig};

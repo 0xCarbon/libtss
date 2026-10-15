@@ -107,6 +107,9 @@ export const lib: Record<string, (...args: any[]) => any> = {
 	tss_handle_group_key: native.func(
 		"int32_t tss_handle_group_key(uint64_t handle, _Out_ TssBuffer *out)",
 	),
+	tss_handle_chain_code: native.func(
+		"int32_t tss_handle_chain_code(uint64_t handle, _Out_ TssBuffer *out)",
+	),
 	tss_handle_pubkey_package: native.func(
 		"int32_t tss_handle_pubkey_package(uint64_t handle, _Out_ TssBuffer *out)",
 	),
@@ -164,6 +167,14 @@ export const lib: Record<string, (...args: any[]) => any> = {
 	),
 	tss_derive_path: native.func(
 		"int32_t tss_derive_path(uint64_t key_share, const char *path, _Out_ uint64_t *out_handle)",
+	),
+
+	// Scalar tweaks
+	tss_tweak_add: native.func(
+		"int32_t tss_tweak_add(uint64_t key_share, const uint8_t *tweak, size_t tweak_len, _Out_ uint64_t *out_handle)",
+	),
+	tss_tweak_mul: native.func(
+		"int32_t tss_tweak_mul(uint64_t key_share, const uint8_t *factor, size_t factor_len, _Out_ uint64_t *out_handle)",
 	),
 };
 /* eslint-enable @typescript-eslint/no-explicit-any */

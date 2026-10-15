@@ -25,6 +25,7 @@ pub mod handle;
 pub mod message;
 pub mod secure;
 pub mod session;
+pub mod tweak;
 
 // Re-export all public wasm-bindgen items so wasm-pack finds them.
 pub use address::{
@@ -39,6 +40,7 @@ pub use session::{
     WasmDkgResult, WasmDkgSession, WasmRefreshResult, WasmRefreshSession, WasmSignResult,
     WasmSignSession,
 };
+pub use tweak::{tweak_add, tweak_mul};
 
 use js_sys::Uint8Array;
 use libtss::Ciphersuite;

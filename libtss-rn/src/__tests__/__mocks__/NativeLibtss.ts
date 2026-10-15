@@ -1,5 +1,8 @@
 const MOCK_BYTE_11 = 11;
 const MOCK_BYTE_12 = 12;
+const MOCK_BYTE_13 = 13;
+const MOCK_BYTE_14 = 14;
+const MOCK_BYTE_15 = 15;
 
 import { fromByteArray } from "base64-js";
 
@@ -25,6 +28,7 @@ type HandleState = {
 	suite: Ciphersuite;
 	verifyingShare: Uint8Array;
 	groupKey: Uint8Array;
+	chainCode: Uint8Array;
 	pubkeyPackage: Uint8Array;
 	exported: Uint8Array;
 };
@@ -47,6 +51,8 @@ const refreshNewQueue: Array<{
 }> = [];
 const refreshReceiverQueue: string[] = [];
 const refreshNextQueue: SessionResult[] = [];
+const tweakAddQueue: string[] = [];
+const tweakMulQueue: string[] = [];
 let versionValue = "0.0.0-test";
 
 function bytes(data: Uint8Array | number[]): Uint8Array {
@@ -85,6 +91,14 @@ function nextQueued<T>(queue: T[], name: string): T {
 		throw new Error(`missing mock result for ${name}`);
 	}
 	return value;
+}
+
+function registerTweakedHandle(parentHandle: string, handle: string): void {
+	const parent = handles.get(parentHandle);
+	if (!parent) {
+		throw new Error(`unknown handle ${parentHandle}`);
+	}
+	handles.set(handle, { ...parent });
 }
 
 const NativeLibtss = {
@@ -136,6 +150,13 @@ const NativeLibtss = {
 		}
 		return base64(state.groupKey);
 	}),
+	handleChainCode: jest.fn(async (handle: string) => {
+		const state = handles.get(handle);
+		if (!state) {
+			throw new Error(`unknown handle ${handle}`);
+		}
+		return base64(state.chainCode);
+	}),
 	handlePubkeyPackage: jest.fn(async (handle: string) => {
 		const state = handles.get(handle);
 		if (!state) {
@@ -165,6 +186,7 @@ const NativeLibtss = {
 				suite: suite as Ciphersuite,
 				verifyingShare: Uint8Array.of(1),
 				groupKey: Uint8Array.of(2),
+				chainCode: Uint8Array.of(5),
 				pubkeyPackage: Uint8Array.of(3),
 				exported: Uint8Array.of(4),
 			});
@@ -193,6 +215,7 @@ const NativeLibtss = {
 					suite: suite as Ciphersuite,
 					verifyingShare: Uint8Array.of(1),
 					groupKey: Uint8Array.of(2),
+					chainCode: Uint8Array.of(5),
 					pubkeyPackage: Uint8Array.of(3),
 					exported: Uint8Array.of(4),
 				});
@@ -200,6 +223,16 @@ const NativeLibtss = {
 			return handle;
 		},
 	),
+	tweakAdd: jest.fn(async (keyShareHandle: string, _tweak: string) => {
+		const handle = nextQueued(tweakAddQueue, "tweakAdd");
+		registerTweakedHandle(keyShareHandle, handle);
+		return handle;
+	}),
+	tweakMul: jest.fn(async (keyShareHandle: string, _factor: string) => {
+		const handle = nextQueued(tweakMulQueue, "tweakMul");
+		registerTweakedHandle(keyShareHandle, handle);
+		return handle;
+	}),
 };
 
 export const __mock = {
@@ -238,6 +271,9 @@ export const __mock = {
 			suite: state.suite,
 			verifyingShare: state.verifyingShare ?? Uint8Array.of(1, 2, 3),
 			groupKey: state.groupKey ?? Uint8Array.of(4, 5, 6),
+			chainCode:
+				state.chainCode ??
+				Uint8Array.of(MOCK_BYTE_13, MOCK_BYTE_14, MOCK_BYTE_15),
 			pubkeyPackage: state.pubkeyPackage ?? Uint8Array.of(7, 8, 9),
 			exported: state.exported ?? Uint8Array.of(10, MOCK_BYTE_11, MOCK_BYTE_12),
 		});
@@ -252,6 +288,8 @@ export const __mock = {
 		refreshNewQueue.length = 0;
 		refreshReceiverQueue.length = 0;
 		refreshNextQueue.length = 0;
+		tweakAddQueue.length = 0;
+		tweakMulQueue.length = 0;
 		versionValue = "0.0.0-test";
 
 		for (const fn of Object.values(NativeLibtss)) {
@@ -260,6 +298,12 @@ export const __mock = {
 	},
 	setVersion(value: string): void {
 		versionValue = value;
+	},
+	pushTweakAdd(handle: string): void {
+		tweakAddQueue.push(handle);
+	},
+	pushTweakMul(handle: string): void {
+		tweakMulQueue.push(handle);
 	},
 };
 

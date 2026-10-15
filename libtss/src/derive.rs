@@ -139,18 +139,8 @@ fn derive_frost_taproot_child(
     // from_frost_taproot_derived calls REGISTRY.insert which would deadlock).
     let (key_package, public_key_package) = keyshare::clone_frost_taproot(key_share)?;
 
-    // For FROST Taproot BIP-32, we need a chain code. Use the group verifying key
-    // as a deterministic chain code source (hash of the group key).
     let parent_pubkey = key_package.verifying_key().serialize().map_err(frost_err)?;
-
-    // Derive chain code from the verifying key (deterministic)
-    let chain_code = {
-        use sha2::Digest;
-        let hash = sha2::Sha256::digest(&parent_pubkey);
-        let mut cc = [0u8; 32];
-        cc.copy_from_slice(&hash);
-        cc
-    };
+    let chain_code = taproot_chain_code(&parent_pubkey);
 
     let mut mac = HmacSha512::new_from_slice(&chain_code)
         .map_err(|e| TssError::InvalidConfig(e.to_string()))?;
@@ -246,6 +236,17 @@ fn derive_frost_taproot_child(
 
 fn frost_err<E: std::fmt::Display>(err: E) -> TssError {
     TssError::DeserializeFailed(err.to_string())
+}
+
+/// Chain code used for FROST Taproot BIP-32 derivation: `SHA-256(group key)`.
+///
+/// FROST DKG establishes no chain code, so one is derived deterministically
+/// from the parent's compressed group verifying key. Shared between
+/// `derive_child` and `KeyShareHandle::chain_code` so the value a caller reads
+/// is always the value derivation actually mixes into the HMAC.
+pub(crate) fn taproot_chain_code(group_key: &[u8]) -> [u8; 32] {
+    use sha2::Digest;
+    sha2::Sha256::digest(group_key).into()
 }
 
 #[cfg(test)]
@@ -379,5 +380,95 @@ mod tests {
             derive_child(&handle, 0),
             Err(TssError::ProtocolMismatch)
         ));
+    }
+
+    fn dkls_r1_handle() -> KeyShareHandle {
+        let parameters = dkls23_secp256r1::protocols::Parameters::new(2, 3).unwrap();
+        let (parties, pubkeys) = dkls23_secp256r1::protocols::re_key::re_key(
+            &parameters,
+            b"session-r1",
+            &p256::Scalar::from(7u64),
+            Some([2u8; 32]),
+            dkls23_secp256r1::compute_neo3_address,
+        );
+
+        keyshare::from_dkls_r1_dkg(parties[0].clone(), pubkeys).unwrap()
+    }
+
+    fn ed25519_handle() -> KeyShareHandle {
+        let config = crate::types::ThresholdConfig {
+            min_signers: 2,
+            max_signers: 3,
+            suite: Ciphersuite::Ed25519,
+        };
+        let (shares, pubkey) = crate::frost::frost_generate_with_dealer(&config).unwrap();
+        keyshare::from_frost_dkg(shares.into_iter().next().unwrap(), &pubkey).unwrap()
+    }
+
+    #[test]
+    fn chain_code_dkls_exposes_dkg_value() {
+        let handle = dkls_handle();
+        assert_eq!(handle.chain_code().unwrap(), vec![1u8; 32]);
+    }
+
+    #[test]
+    fn chain_code_dkls_r1_exposes_dkg_value() {
+        let handle = dkls_r1_handle();
+        assert_eq!(handle.chain_code().unwrap(), vec![2u8; 32]);
+    }
+
+    #[test]
+    fn chain_code_taproot_is_sha256_of_group_key() {
+        let handle = frost_handle();
+        let expected = taproot_chain_code(&handle.group_verifying_key()).to_vec();
+        assert_eq!(handle.chain_code().unwrap(), expected);
+    }
+
+    #[test]
+    fn chain_code_unsupported_suite_rejected() {
+        let handle = ed25519_handle();
+        assert!(matches!(
+            handle.chain_code(),
+            Err(TssError::ProtocolMismatch)
+        ));
+    }
+
+    #[test]
+    fn chain_code_dkls_child_matches_bip32_ckd_pub() {
+        use k256::elliptic_curve::ops::Reduce;
+
+        let parent = dkls_handle();
+        let child = derive_child(&parent, 7).unwrap();
+
+        let mut mac = HmacSha512::new_from_slice(&parent.chain_code().unwrap()).unwrap();
+        mac.update(&parent.group_verifying_key());
+        mac.update(&7u32.to_be_bytes());
+        let output = mac.finalize().into_bytes();
+        let (il, ir) = output.split_at(32);
+
+        let il_bytes: &k256::FieldBytes = il.try_into().unwrap();
+        let tweak = <Scalar as Reduce<k256::FieldBytes>>::reduce(il_bytes);
+        let parent_point = k256::PublicKey::from_sec1_bytes(&parent.group_verifying_key())
+            .unwrap()
+            .to_projective();
+        let expected_child = (parent_point + k256::ProjectivePoint::GENERATOR * tweak).to_affine();
+
+        assert_eq!(
+            child.group_verifying_key(),
+            expected_child.to_sec1_point(true).as_bytes()
+        );
+        assert_eq!(child.chain_code().unwrap(), ir);
+    }
+
+    #[test]
+    fn chain_code_taproot_child_is_rederived_from_child_key() {
+        let parent = frost_handle();
+        let child = derive_child(&parent, 1).unwrap();
+
+        assert_ne!(child.chain_code().unwrap(), parent.chain_code().unwrap());
+        assert_eq!(
+            child.chain_code().unwrap(),
+            taproot_chain_code(&child.group_verifying_key()).to_vec()
+        );
     }
 }

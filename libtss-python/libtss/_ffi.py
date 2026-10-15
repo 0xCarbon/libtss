@@ -218,6 +218,9 @@ def _declare_signatures(lib: ctypes.CDLL) -> None:
     lib.tss_handle_group_key.restype = TssStatus
     lib.tss_handle_group_key.argtypes = [c_uint64, POINTER(TssBuffer)]
 
+    lib.tss_handle_chain_code.restype = TssStatus
+    lib.tss_handle_chain_code.argtypes = [c_uint64, POINTER(TssBuffer)]
+
     lib.tss_handle_pubkey_package.restype = TssStatus
     lib.tss_handle_pubkey_package.argtypes = [c_uint64, POINTER(TssBuffer)]
 
@@ -340,6 +343,13 @@ def _declare_signatures(lib: ctypes.CDLL) -> None:
 
     lib.tss_derive_path.restype = TssStatus
     lib.tss_derive_path.argtypes = [c_uint64, c_char_p, POINTER(c_uint64)]
+
+    # Scalar tweaks
+    lib.tss_tweak_add.restype = TssStatus
+    lib.tss_tweak_add.argtypes = [c_uint64, POINTER(c_uint8), c_size_t, POINTER(c_uint64)]
+
+    lib.tss_tweak_mul.restype = TssStatus
+    lib.tss_tweak_mul.argtypes = [c_uint64, POINTER(c_uint8), c_size_t, POINTER(c_uint64)]
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────

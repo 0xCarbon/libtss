@@ -151,6 +151,9 @@ internal static unsafe class Native
     public static extern int tss_handle_group_key(ulong handle, TssBuffer* @out);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_handle_chain_code(ulong handle, TssBuffer* @out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int tss_handle_pubkey_package(ulong handle, TssBuffer* @out);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
@@ -283,6 +286,20 @@ internal static unsafe class Native
     public static extern int tss_derive_path(
         ulong key_share,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string path,
+        ulong* out_handle);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_tweak_add(
+        ulong key_share,
+        byte* tweak,
+        nuint tweak_len,
+        ulong* out_handle);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_tweak_mul(
+        ulong key_share,
+        byte* factor,
+        nuint factor_len,
         ulong* out_handle);
 
     // --- Init ---

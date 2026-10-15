@@ -10,6 +10,7 @@ use libtss::session::dkg::{DkgOutput, DkgSession};
 use libtss::session::sign::{SignOutput, SignSession};
 use libtss::types::{Ciphersuite, Identifier, Protocol, ThresholdConfig};
 use libtss::{Message, TssError};
+use sha2::Digest;
 
 // ---------------------------------------------------------------------------
 // Test harness: message routing
@@ -253,6 +254,60 @@ fn run_dkls_sign(
         SignOutput::Complete(sig) => Ok(sig),
         _ => panic!("expected Complete"),
     }
+}
+
+fn scalar_bytes(value: u64) -> [u8; 32] {
+    let mut bytes = [0u8; 32];
+    bytes[24..].copy_from_slice(&value.to_be_bytes());
+    bytes
+}
+
+fn tweak_all(
+    shares: &BTreeMap<Identifier, libtss::KeyShareHandle>,
+    scalar: &[u8],
+    add: bool,
+) -> BTreeMap<Identifier, libtss::KeyShareHandle> {
+    shares
+        .iter()
+        .map(|(pid, ks)| {
+            let tweaked = if add {
+                libtss::tweak_add(ks, scalar)
+            } else {
+                libtss::tweak_mul(ks, scalar)
+            };
+            (*pid, tweaked.unwrap())
+        })
+        .collect()
+}
+
+/// Sign a fixed message with the given DKLs23 shares and verify the signature
+/// under `group_key` with the standard (hash-then-verify) ECDSA verifier.
+fn dkls_signs_under(
+    shares: &BTreeMap<Identifier, libtss::KeyShareHandle>,
+    signer_ids: &[Identifier],
+    group_key: &[u8],
+) -> bool {
+    let message = b"threshold ecdsa under a scalar tweak";
+    let msg_hash: [u8; 32] = sha2::Sha256::digest(message).into();
+    let sig = run_dkls_sign(shares, signer_ids, msg_hash).unwrap();
+    libtss::verify(
+        Ciphersuite::Secp256k1ECDSA,
+        message,
+        sig.as_bytes(),
+        group_key,
+    )
+    .unwrap()
+}
+
+fn k1_point(compressed: &[u8]) -> k256::ProjectivePoint {
+    k256::PublicKey::from_sec1_bytes(compressed)
+        .unwrap()
+        .to_projective()
+}
+
+fn compressed(point: k256::ProjectivePoint) -> Vec<u8> {
+    use k256::elliptic_curve::sec1::ToSec1Point;
+    point.to_affine().to_sec1_point(true).as_bytes().to_vec()
 }
 
 // ===========================================================================
@@ -848,7 +903,7 @@ fn concurrent_frost_sign_sessions() {
                     for (&pid, (data, suite)) in exported {
                         local_shares.insert(pid, libtss::import_key_share(data, *suite).unwrap());
                     }
-                    let msg = format!("concurrent-sign-{}", thread_idx);
+                    let msg = format!("concurrent-sign-{thread_idx}");
                     run_frost_sign(&local_shares, &[id(1), id(2)], msg.as_bytes())
                 })
             })
@@ -1080,4 +1135,98 @@ fn test_unified_verify_dkls_secp256k1ecdsa() {
     )
     .unwrap();
     assert!(!verifies_wrong);
+}
+
+// ---------- DKLs23 scalar tweaks ----------
+
+#[test]
+fn dkls_tweak_add_shares_sign_under_tweaked_key() {
+    let shares = run_dkls_dkg_session(2, 2).unwrap();
+    let tweaked = tweak_all(&shares, &scalar_bytes(7), true);
+
+    let group_key = tweaked[&id(1)].group_verifying_key();
+    assert_eq!(group_key, tweaked[&id(2)].group_verifying_key());
+    assert_eq!(
+        group_key,
+        compressed(
+            k1_point(&shares[&id(1)].group_verifying_key())
+                + k256::ProjectivePoint::GENERATOR * k256::Scalar::from(7u64)
+        )
+    );
+
+    assert!(dkls_signs_under(&tweaked, &[id(1), id(2)], &group_key));
+    assert!(
+        dkls_signs_under(
+            &shares,
+            &[id(1), id(2)],
+            &shares[&id(1)].group_verifying_key()
+        ),
+        "parent shares must stay valid after tweaking"
+    );
+}
+
+#[test]
+fn dkls_tweak_mul_shares_sign_under_scaled_key() {
+    let shares = run_dkls_dkg_session(2, 3).unwrap();
+    let tweaked = tweak_all(&shares, &scalar_bytes(3), false);
+
+    let group_key = tweaked[&id(1)].group_verifying_key();
+    assert!(tweaked
+        .values()
+        .all(|ks| ks.group_verifying_key() == group_key));
+    assert_eq!(
+        group_key,
+        compressed(k1_point(&shares[&id(1)].group_verifying_key()) * k256::Scalar::from(3u64))
+    );
+
+    assert!(dkls_signs_under(&tweaked, &[id(2), id(3)], &group_key));
+}
+
+#[test]
+fn dkls_double_tweak_shares_sign_under_composed_key() {
+    let shares = run_dkls_dkg_session(2, 2).unwrap();
+    let scaled = tweak_all(&shares, &scalar_bytes(3), false);
+    let tweaked = tweak_all(&scaled, &scalar_bytes(7), true);
+
+    let group_key = tweaked[&id(1)].group_verifying_key();
+    assert_eq!(
+        group_key,
+        compressed(
+            k1_point(&shares[&id(1)].group_verifying_key()) * k256::Scalar::from(3u64)
+                + k256::ProjectivePoint::GENERATOR * k256::Scalar::from(7u64)
+        )
+    );
+
+    assert!(dkls_signs_under(&tweaked, &[id(1), id(2)], &group_key));
+}
+
+#[test]
+fn dkls_tweak_then_derive_child_agrees_across_parties_and_signs() {
+    let shares = run_dkls_dkg_session(2, 3).unwrap();
+    let tweaked = tweak_all(&shares, &scalar_bytes(7), true);
+    let children: BTreeMap<_, _> = tweaked
+        .iter()
+        .map(|(pid, ks)| (*pid, libtss::derive_child(ks, 4).unwrap()))
+        .collect();
+
+    let child_key = children[&id(1)].group_verifying_key();
+    assert!(children
+        .values()
+        .all(|ks| ks.group_verifying_key() == child_key));
+    assert_ne!(child_key, tweaked[&id(1)].group_verifying_key());
+
+    assert!(dkls_signs_under(&children, &[id(1), id(3)], &child_key));
+}
+
+#[test]
+fn dkls_mixed_tweaked_and_untweaked_shares_cannot_sign() {
+    let mut shares = run_dkls_dkg_session(2, 2).unwrap();
+    let mut tweaked = tweak_all(&shares, &scalar_bytes(7), true);
+
+    let mut mixed = BTreeMap::new();
+    mixed.insert(id(1), tweaked.remove(&id(1)).unwrap());
+    mixed.insert(id(2), shares.remove(&id(2)).unwrap());
+    let msg_hash = [0xABu8; 32];
+
+    assert!(run_dkls_sign(&mixed, &[id(1), id(2)], msg_hash).is_err());
 }

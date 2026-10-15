@@ -274,6 +274,10 @@ impl PublicKeyPackage {
         self.verifying_shares.get(&id).map(Vec::as_slice)
     }
 
+    pub fn verifying_shares(&self) -> &BTreeMap<Identifier, Vec<u8>> {
+        &self.verifying_shares
+    }
+
     pub fn min_signers(&self) -> u16 {
         self.min_signers
     }

@@ -88,6 +88,37 @@ public sealed class KeyShareHandle : IDisposable
     }
 
     /// <summary>
+    /// The 32-byte BIP-32 chain code paired with <see cref="GroupVerifyingKey"/>.
+    /// </summary>
+    /// <remarks>
+    /// <para>
+    /// Only the BIP-32-capable ciphersuites carry a chain code:
+    /// <see cref="Ciphersuite.Secp256k1ECDSA"/>, <see cref="Ciphersuite.Secp256r1ECDSA"/>
+    /// and <see cref="Ciphersuite.Secp256k1Taproot"/>. Every other suite throws a
+    /// <see cref="TssException"/> with <see cref="TssStatus.ProtoMismatch"/>.
+    /// </para>
+    /// <para>
+    /// Pair with <see cref="GroupVerifyingKey"/> to build a BIP-32 extended public key (xpub)
+    /// whose off-MPC child derivation matches <see cref="DeriveOperations.DeriveChild"/>.
+    /// </para>
+    /// </remarks>
+    public unsafe byte[] ChainCode
+    {
+        get
+        {
+            ThrowIfDisposed();
+            var buf = new NativeTssBuffer();
+            int status;
+            fixed (TssBuffer* p = &buf.Raw)
+            {
+                status = Native.tss_handle_chain_code(_handle, p);
+            }
+            TssException.ThrowIfError(status);
+            return buf.ToArray();
+        }
+    }
+
+    /// <summary>
     /// The public verification key for this specific share as raw bytes.
     /// </summary>
     public unsafe byte[] VerifyingShare

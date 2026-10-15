@@ -39,6 +39,7 @@ void tss_handle_free(TssHandle handle);
 TssStatus tss_handle_identifier(TssHandle handle, uint16_t *out_id);
 TssStatus tss_handle_verifying_share(TssHandle handle, TssBuffer *out);
 TssStatus tss_handle_group_key(TssHandle handle, TssBuffer *out);
+TssStatus tss_handle_chain_code(TssHandle handle, TssBuffer *out);
 TssStatus tss_handle_pubkey_package(TssHandle handle, TssBuffer *out);
 uint8_t tss_handle_ciphersuite(TssHandle handle);
 TssStatus tss_handle_export(TssHandle handle, TssBuffer *out);
@@ -94,6 +95,8 @@ bool tss_verify(uint8_t suite,
                 struct TssSlice message,
                 struct TssSlice signature,
                 struct TssSlice public_key);
+TssStatus tss_tweak_add(TssHandle key_share, const uint8_t *tweak, size_t tweak_len, TssHandle *out_handle);
+TssStatus tss_tweak_mul(TssHandle key_share, const uint8_t *factor, size_t factor_len, TssHandle *out_handle);
 }
 
 NSString *LastErrorMessage() {
@@ -581,6 +584,25 @@ RCT_EXPORT_METHOD(handleGroupKey:(NSString *)handle
   resolve(TakeBase64(out));
 }
 
+RCT_EXPORT_METHOD(handleChainCode:(NSString *)handle
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
+{
+  TssHandle parsed = 0;
+  if (!ParseHandle(handle, &parsed, reject)) {
+    return;
+  }
+
+  TssBuffer out{nullptr, 0};
+  TssStatus status = tss_handle_chain_code(parsed, &out);
+  if (status != TSS_OK) {
+    RejectStatus(reject, status);
+    return;
+  }
+
+  resolve(TakeBase64(out));
+}
+
 RCT_EXPORT_METHOD(handlePubkeyPackage:(NSString *)handle
                   resolve:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject)
@@ -792,6 +814,64 @@ RCT_EXPORT_METHOD(importKeyShareSecure:(nonnull NSNumber *)suite
 
   memset_s(mutableCopy.mutableBytes, mutableCopy.length, 0, mutableCopy.length);
 
+  if (status != TSS_OK) {
+    RejectStatus(reject, status);
+    return;
+  }
+
+  resolve(HandleString(out));
+}
+
+RCT_EXPORT_METHOD(tweakAdd:(NSString *)keyShareHandle
+                  tweak:(NSString *)tweak
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
+{
+  TssHandle keyShare = 0;
+  if (!ParseHandle(keyShareHandle, &keyShare, reject)) {
+    return;
+  }
+
+  NSData *tweakData = DecodeBase64(tweak, reject);
+  if (tweakData == nil) {
+    return;
+  }
+
+  TssHandle out = 0;
+  TssStatus status = tss_tweak_add(
+      keyShare,
+      static_cast<const uint8_t *>(tweakData.bytes),
+      static_cast<size_t>(tweakData.length),
+      &out);
+  if (status != TSS_OK) {
+    RejectStatus(reject, status);
+    return;
+  }
+
+  resolve(HandleString(out));
+}
+
+RCT_EXPORT_METHOD(tweakMul:(NSString *)keyShareHandle
+                  factor:(NSString *)factor
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
+{
+  TssHandle keyShare = 0;
+  if (!ParseHandle(keyShareHandle, &keyShare, reject)) {
+    return;
+  }
+
+  NSData *factorData = DecodeBase64(factor, reject);
+  if (factorData == nil) {
+    return;
+  }
+
+  TssHandle out = 0;
+  TssStatus status = tss_tweak_mul(
+      keyShare,
+      static_cast<const uint8_t *>(factorData.bytes),
+      static_cast<size_t>(factorData.length),
+      &out);
   if (status != TSS_OK) {
     RejectStatus(reject, status);
     return;

@@ -282,6 +282,8 @@ TssStatus tss_frost_split_key(
 
 The `frost-secp256k1-tr` crate provides a `Tweak` trait that applies BIP-341 tweaks
 to key shares and public key packages. This enables both keypath and scriptpath spends.
+(Caller-supplied scalar tweaks on DKLs23 ECDSA shares — Lightning per-commitment
+keys — are a separate operation; see [07-key-management.md](07-key-management.md#scalar-tweaks-lightning).)
 
 ### Tweak Computation
 

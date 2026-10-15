@@ -6,6 +6,8 @@ Requires the native library to be built:
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import os
 import sys
 
@@ -28,6 +30,8 @@ from libtss import (
     version,
 )
 from libtss import frost
+from libtss import tweak
+from libtss.derive import derive_child
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -287,6 +291,39 @@ class TestKeyShareHandle:
         for s in shares[1:]:
             s.close()
 
+    def test_chain_code_dkls_matches_bip32(self):
+        shares, _ = run_dkg(
+            Ciphersuite.SECP256K1_ECDSA, 2, 2,
+            session_id=b"chain-code-test-session",
+        )
+        parent_chain_code = shares[0].chain_code
+        assert len(parent_chain_code) == 32
+        assert shares[1].chain_code == parent_chain_code
+
+        child_number = 7
+        parent_group_key = shares[0].group_verifying_key
+        expected_child_chain_code = hmac.new(
+            parent_chain_code,
+            parent_group_key + child_number.to_bytes(4, "big"),
+            hashlib.sha512,
+        ).digest()[32:]
+
+        children = [derive_child(ks, child_number) for ks in shares]
+        for child in children:
+            assert child.chain_code == expected_child_chain_code
+
+        for ks in children + shares:
+            ks.close()
+
+    def test_chain_code_unsupported_suite_raises(self):
+        handles, _ = frost.generate_dealer(Ciphersuite.ED25519, 3, 2)
+        with pytest.raises(TssError) as excinfo:
+            _ = handles[0].chain_code
+        assert excinfo.value.code == 8  # TSS_ERR_PROTO_MISMATCH
+
+        for h in handles:
+            h.close()
+
 
 class TestDealerKeygen:
     def test_generate_dealer(self):
@@ -394,3 +431,106 @@ class TestMessage:
         assert decoded[1].sender == 2
         assert decoded[1].to == 1
         assert decoded[1].data == b"p2p data"
+
+
+class TestTweak:
+    SCALAR_ONE = (1).to_bytes(32, "big")
+    SCALAR_SEVEN = (7).to_bytes(32, "big")
+
+    def test_tweak_add_signs_under_tweaked_key(self):
+        shares, _ = run_dkg(
+            Ciphersuite.SECP256K1_ECDSA, 2, 2,
+            session_id=b"tweak-add-session",
+        )
+        parent_group_key = shares[0].group_verifying_key
+
+        tweaked = [tweak.tweak_add(ks, self.SCALAR_SEVEN) for ks in shares]
+
+        tweaked_group_key = tweaked[0].group_verifying_key
+        assert tweaked[1].group_verifying_key == tweaked_group_key
+        assert tweaked_group_key != parent_group_key
+        for parent, child in zip(shares, tweaked):
+            assert child.identifier == parent.identifier
+            assert child.ciphersuite == Ciphersuite.SECP256K1_ECDSA
+            assert child.verifying_share != parent.verifying_share
+        # The parent handle stays usable after tweaking.
+        assert shares[0].group_verifying_key == parent_group_key
+
+        raw_msg = b"tweaked dkls ecdsa test"
+        msg_hash = hashlib.sha256(raw_msg).digest()
+        sig = run_sign(tweaked, msg_hash, sign_id=b"tweak-sign-session-1")
+        assert len(sig) > 0
+        # verify() expects the raw message (hashes internally)
+        assert verify(Ciphersuite.SECP256K1_ECDSA, raw_msg, sig, tweaked_group_key)
+        assert not verify(Ciphersuite.SECP256K1_ECDSA, raw_msg, sig, parent_group_key)
+
+        for ks in shares + tweaked:
+            ks.close()
+
+    def test_tweak_mul_by_one_is_identity(self):
+        shares, _ = run_dkg(
+            Ciphersuite.SECP256K1_ECDSA, 2, 2,
+            session_id=b"tweak-mul-session",
+        )
+
+        tweaked = [tweak.tweak_mul(ks, self.SCALAR_ONE) for ks in shares]
+
+        for parent, child in zip(shares, tweaked):
+            assert child.raw != parent.raw
+            assert child.identifier == parent.identifier
+            assert child.group_verifying_key == parent.group_verifying_key
+            assert child.verifying_share == parent.verifying_share
+
+        raw_msg = b"identity tweak dkls ecdsa test"
+        msg_hash = hashlib.sha256(raw_msg).digest()
+        sig = run_sign(tweaked, msg_hash, sign_id=b"tweak-sign-session-2")
+        assert verify(Ciphersuite.SECP256K1_ECDSA, raw_msg, sig, shares[0].group_verifying_key)
+
+        for ks in shares + tweaked:
+            ks.close()
+
+    def test_tweak_rejects_bad_length(self):
+        shares, _ = run_dkg(
+            Ciphersuite.SECP256K1_ECDSA, 2, 2,
+            session_id=b"tweak-len-session",
+        )
+
+        for bad_scalar in (b"", bytes(31), bytes(33)):
+            with pytest.raises(ValueError):
+                tweak.tweak_add(shares[0], bad_scalar)
+            with pytest.raises(ValueError):
+                tweak.tweak_mul(shares[0], bad_scalar)
+
+        for ks in shares:
+            ks.close()
+
+    def test_tweak_mul_zero_rejected(self):
+        shares, _ = run_dkg(
+            Ciphersuite.SECP256K1_ECDSA, 2, 2,
+            session_id=b"tweak-zero-session",
+        )
+
+        secp256k1_order = bytes.fromhex(
+            "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141"
+        )
+        for zero_factor in (bytes(32), secp256k1_order):
+            with pytest.raises(TssError) as excinfo:
+                tweak.tweak_mul(shares[0], zero_factor)
+            assert excinfo.value.code == 13
+
+        for ks in shares:
+            ks.close()
+
+    def test_tweak_unsupported_suite(self):
+        handles, _ = frost.generate_dealer(Ciphersuite.ED25519, 3, 2)
+
+        with pytest.raises(TssError) as excinfo:
+            tweak.tweak_add(handles[0], self.SCALAR_SEVEN)
+        assert excinfo.value.code == 8
+
+        with pytest.raises(TssError) as excinfo:
+            tweak.tweak_mul(handles[0], self.SCALAR_SEVEN)
+        assert excinfo.value.code == 8
+
+        for h in handles:
+            h.close()

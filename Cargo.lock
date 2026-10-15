@@ -620,8 +620,8 @@ dependencies = [
 
 [[package]]
 name = "dkls23-core"
-version = "0.4.1"
-source = "git+https://github.com/0xCarbon/DKLs23?branch=main#d4af63103085f6c1341890b75500825f535ecd6c"
+version = "0.5.1"
+source = "git+https://github.com/Lunar-Rails/DKLs23?branch=upstream%2Fscalar-tweaks#4a4c171137e8874984b7cac769c1eb205533a63b"
 dependencies = [
  "bincode",
  "elliptic-curve 0.14.0-rc.29",
@@ -642,8 +642,8 @@ dependencies = [
 
 [[package]]
 name = "dkls23-secp256k1"
-version = "0.4.2"
-source = "git+https://github.com/0xCarbon/DKLs23?branch=main#d4af63103085f6c1341890b75500825f535ecd6c"
+version = "0.5.1"
+source = "git+https://github.com/Lunar-Rails/DKLs23?branch=upstream%2Fscalar-tweaks#4a4c171137e8874984b7cac769c1eb205533a63b"
 dependencies = [
  "bech32",
  "bs58",
@@ -651,17 +651,17 @@ dependencies = [
  "elliptic-curve 0.14.0-rc.29",
  "hex",
  "k256 0.14.0-rc.8",
- "keccak 0.2.0-rc.2",
+ "keccak 0.2.2",
  "ripemd",
  "rustcrypto-group",
  "sha2 0.11.0-rc.5",
- "sha3 0.11.0-rc.8",
+ "sha3 0.11.0-rc.9",
 ]
 
 [[package]]
 name = "dkls23-secp256r1"
-version = "0.4.1"
-source = "git+https://github.com/0xCarbon/DKLs23?branch=main#d4af63103085f6c1341890b75500825f535ecd6c"
+version = "0.5.1"
+source = "git+https://github.com/Lunar-Rails/DKLs23?branch=upstream%2Fscalar-tweaks#4a4c171137e8874984b7cac769c1eb205533a63b"
 dependencies = [
  "blake2",
  "bs58",
@@ -1206,10 +1206,11 @@ dependencies = [
 
 [[package]]
 name = "keccak"
-version = "0.2.0-rc.2"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "882b69cb15b1f78b51342322a97ccd16f5123d1dc8a3da981a95244f488e8692"
+checksum = "d8f198d1db720e4940b5a493201d199d9f24f568f8f746bd13706243a2f71598"
 dependencies = [
+ "cfg-if",
  "cpufeatures 0.3.0",
 ]
 
@@ -1258,8 +1259,11 @@ version = "0.1.0"
 dependencies = [
  "cbindgen",
  "criterion",
+ "hmac 0.12.1",
+ "k256 0.14.0-rc.8",
  "libc",
  "libtss",
+ "sha2 0.10.9",
  "zeroize",
 ]
 
@@ -1887,12 +1891,12 @@ dependencies = [
 
 [[package]]
 name = "sha3"
-version = "0.11.0-rc.8"
+version = "0.11.0-rc.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "95f78cd62cc39ece5aefbeb6caaa2ea44f70b4815d4b85f7e150ac685ada2bb5"
+checksum = "0b233a7d59d7bfc027208506a33ffc9532b2acb24ddc61fe7e758dc2250db431"
 dependencies = [
  "digest 0.11.1",
- "keccak 0.2.0-rc.2",
+ "keccak 0.2.2",
 ]
 
 [[package]]
