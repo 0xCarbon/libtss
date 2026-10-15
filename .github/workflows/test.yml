@@ -104,6 +104,9 @@ jobs:
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz
 
+      - name: Seed fuzz workspace with tested dependencies
+        run: cp Cargo.lock libtss-ffi/fuzz/Cargo.lock
+
       - name: Fuzz ffi_deserialize (60s)
         working-directory: libtss-ffi
         run: cargo +nightly fuzz run fuzz_ffi_deserialize -- -max_total_time=60
