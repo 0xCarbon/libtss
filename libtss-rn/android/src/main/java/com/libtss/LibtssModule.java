@@ -179,6 +179,11 @@ public final class LibtssModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
+    public void handleChainCode(String handle, Promise promise) {
+        resolve(promise, () -> nativeHandleChainCode(handle));
+    }
+
+    @ReactMethod
     public void handlePubkeyPackage(String handle, Promise promise) {
         resolve(promise, () -> nativeHandlePubkeyPackage(handle));
     }
@@ -310,6 +315,7 @@ public final class LibtssModule extends ReactContextBaseJavaModule {
     private static native double nativeHandleIdentifier(String handle);
     private static native String nativeHandleVerifyingShare(String handle);
     private static native String nativeHandleGroupKey(String handle);
+    private static native String nativeHandleChainCode(String handle);
     private static native String nativeHandlePubkeyPackage(String handle);
     private static native double nativeHandleCiphersuite(String handle);
     private static native String nativeExportKeyShare(String handle);

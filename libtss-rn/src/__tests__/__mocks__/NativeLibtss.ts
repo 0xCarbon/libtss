@@ -1,5 +1,8 @@
 const MOCK_BYTE_11 = 11;
 const MOCK_BYTE_12 = 12;
+const MOCK_BYTE_13 = 13;
+const MOCK_BYTE_14 = 14;
+const MOCK_BYTE_15 = 15;
 
 import { fromByteArray } from "base64-js";
 
@@ -25,6 +28,7 @@ type HandleState = {
 	suite: Ciphersuite;
 	verifyingShare: Uint8Array;
 	groupKey: Uint8Array;
+	chainCode: Uint8Array;
 	pubkeyPackage: Uint8Array;
 	exported: Uint8Array;
 };
@@ -136,6 +140,13 @@ const NativeLibtss = {
 		}
 		return base64(state.groupKey);
 	}),
+	handleChainCode: jest.fn(async (handle: string) => {
+		const state = handles.get(handle);
+		if (!state) {
+			throw new Error(`unknown handle ${handle}`);
+		}
+		return base64(state.chainCode);
+	}),
 	handlePubkeyPackage: jest.fn(async (handle: string) => {
 		const state = handles.get(handle);
 		if (!state) {
@@ -165,6 +176,7 @@ const NativeLibtss = {
 				suite: suite as Ciphersuite,
 				verifyingShare: Uint8Array.of(1),
 				groupKey: Uint8Array.of(2),
+				chainCode: Uint8Array.of(5),
 				pubkeyPackage: Uint8Array.of(3),
 				exported: Uint8Array.of(4),
 			});
@@ -193,6 +205,7 @@ const NativeLibtss = {
 					suite: suite as Ciphersuite,
 					verifyingShare: Uint8Array.of(1),
 					groupKey: Uint8Array.of(2),
+					chainCode: Uint8Array.of(5),
 					pubkeyPackage: Uint8Array.of(3),
 					exported: Uint8Array.of(4),
 				});
@@ -238,6 +251,9 @@ export const __mock = {
 			suite: state.suite,
 			verifyingShare: state.verifyingShare ?? Uint8Array.of(1, 2, 3),
 			groupKey: state.groupKey ?? Uint8Array.of(4, 5, 6),
+			chainCode:
+				state.chainCode ??
+				Uint8Array.of(MOCK_BYTE_13, MOCK_BYTE_14, MOCK_BYTE_15),
 			pubkeyPackage: state.pubkeyPackage ?? Uint8Array.of(7, 8, 9),
 			exported: state.exported ?? Uint8Array.of(10, MOCK_BYTE_11, MOCK_BYTE_12),
 		});

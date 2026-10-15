@@ -52,6 +52,23 @@ export class KeyShareHandle {
 		return readBuffer(buf);
 	}
 
+	/**
+	 * Returns the 32-byte BIP-32 chain code paired with the group verifying key.
+	 *
+	 * Only the BIP-32-capable ciphersuites carry one: Secp256k1ECDSA,
+	 * Secp256r1ECDSA and Secp256k1Taproot. Every other suite throws a
+	 * {@link TssError} whose `code` is `TssStatusCode.PROTO_MISMATCH`.
+	 *
+	 * Pair it with {@link groupVerifyingKey} to build a BIP-32 extended public
+	 * key (xpub) whose off-MPC child derivation matches the shares each party
+	 * derives with `deriveChild` / `derivePath`.
+	 */
+	chainCode(): Uint8Array {
+		const buf = allocBuffer();
+		checkStatus(lib.tss_handle_chain_code(this._handle, buf));
+		return readBuffer(buf);
+	}
+
 	publicKeyPackage(): Uint8Array {
 		const buf = allocBuffer();
 		checkStatus(lib.tss_handle_pubkey_package(this._handle, buf));

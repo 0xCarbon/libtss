@@ -848,7 +848,7 @@ fn concurrent_frost_sign_sessions() {
                     for (&pid, (data, suite)) in exported {
                         local_shares.insert(pid, libtss::import_key_share(data, *suite).unwrap());
                     }
-                    let msg = format!("concurrent-sign-{}", thread_idx);
+                    let msg = format!("concurrent-sign-{thread_idx}");
                     run_frost_sign(&local_shares, &[id(1), id(2)], msg.as_bytes())
                 })
             })

@@ -154,6 +154,9 @@ impl SignSession {
         }
 
         let party = keyshare::clone_dkls_party(key_share)?;
+        if party.mul_senders.is_empty() {
+            return Err(TssError::InvalidShare);
+        }
         let (wrapper, messages) =
             DklsSignWrapper::new(party, sign_id, counterparties, message_hash)?;
 
