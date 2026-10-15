@@ -17,8 +17,8 @@ frost-ed25519 = { git = "https://github.com/ZcashFoundation/frost", branch = "ma
 frost-p256 = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
 frost-ristretto255 = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
 frost-ed448 = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
-dkls23-secp256k1 = { git = "https://github.com/0xCarbon/DKLs23", branch = "main", features = ["serde"] }
-dkls23-secp256r1 = { git = "https://github.com/0xCarbon/DKLs23", branch = "main", features = ["serde"] }
+dkls23-secp256k1 = { git = "https://github.com/Lunar-Rails/DKLs23", branch = "upstream/scalar-tweaks", features = ["serde"] }
+dkls23-secp256r1 = { git = "https://github.com/Lunar-Rails/DKLs23", branch = "upstream/scalar-tweaks", features = ["serde"] }
 zeroize = { version = "1", features = ["derive"] }
 slotmap = "1"
 k256 = "=0.14.0-rc.8"
