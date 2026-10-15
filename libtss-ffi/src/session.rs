@@ -174,7 +174,15 @@ pub extern "C" fn tss_sign_new(
                         .collect::<Result<Vec<_>, _>>()?
                 };
 
-                libtss::SignSession::new_dkls(&handle, sid, &cps, hash)?
+                match handle.ciphersuite() {
+                    libtss::Ciphersuite::Secp256k1ECDSA =>
+                        libtss::SignSession::new_dkls(&handle, sid, &cps, hash)?,
+
+                    libtss::Ciphersuite::Secp256r1ECDSA =>
+                        libtss::SignSession::new_dkls_r1(&handle, sid, &cps, hash)?,
+
+                    _ => return Err(libtss::TssError::ProtocolMismatch),
+                }
             }
         };
 
