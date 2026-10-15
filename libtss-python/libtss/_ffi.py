@@ -218,6 +218,9 @@ def _declare_signatures(lib: ctypes.CDLL) -> None:
     lib.tss_handle_group_key.restype = TssStatus
     lib.tss_handle_group_key.argtypes = [c_uint64, POINTER(TssBuffer)]
 
+    lib.tss_handle_chain_code.restype = TssStatus
+    lib.tss_handle_chain_code.argtypes = [c_uint64, POINTER(TssBuffer)]
+
     lib.tss_handle_pubkey_package.restype = TssStatus
     lib.tss_handle_pubkey_package.argtypes = [c_uint64, POINTER(TssBuffer)]
 

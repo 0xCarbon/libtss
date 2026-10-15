@@ -255,6 +255,9 @@ void tss_session_free(TssHandle session);
 TssStatus tss_handle_identifier(TssHandle handle, uint16_t *out_id);
 TssStatus tss_handle_verifying_share(TssHandle handle, TssBuffer *out);
 TssStatus tss_handle_group_key(TssHandle handle, TssBuffer *out);
+/// 32-byte BIP-32 chain code paired with the group key. BIP-32-capable suites only
+/// (Secp256k1ECDSA, Secp256r1ECDSA, Secp256k1Taproot); others -> TSS_ERR_PROTO_MISMATCH.
+TssStatus tss_handle_chain_code(TssHandle handle, TssBuffer *out);
 TssStatus tss_handle_pubkey_package(TssHandle handle, TssBuffer *out);
 uint8_t   tss_handle_ciphersuite(TssHandle handle);
 
@@ -458,9 +461,9 @@ const char* tss_version(void);
 | Message helpers | 3 | count, at, build |
 | FROST-specific | 9 | aggregate, tweak (2), dealer (2), refresh (2), repair (3) |
 | Verification + key mgmt | 5 | verify, derive (2), export, import |
-| Handle + memory | 8 | handle queries (4) + handle_free + buffer_free + session_free + version |
+| Handle + memory | 9 | handle queries (5) + handle_free + buffer_free + session_free + version |
 | Error | 6 | last_error, last_error_len, last_error_copy, culprit_count, culprit, banned_party |
-| **Total** | **~40** | **Core unified path: 11 functions (sessions + messages)** |
+| **Total** | **~41** | **Core unified path: 11 functions (sessions + messages)** |
 
 The core DKG + signing workflow uses only 7 functions: `tss_dkg_new`, `tss_dkg_next`,
 `tss_sign_new`, `tss_sign_next`, `tss_message_count`, `tss_message_at`, `tss_message_build`.

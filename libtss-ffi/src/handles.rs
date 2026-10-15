@@ -45,6 +45,23 @@ pub extern "C" fn tss_handle_group_key(handle: TssHandle, out: *mut TssBuffer) -
     })
 }
 
+/// Return the 32-byte BIP-32 chain code paired with the group key.
+///
+/// Supported for the BIP-32-capable ciphersuites only (Secp256k1ECDSA,
+/// Secp256r1ECDSA, Secp256k1Taproot); every other suite returns
+/// `TSS_ERR_PROTO_MISMATCH`. Pair with `tss_handle_group_key` to build an
+/// extended public key whose off-MPC child derivation matches `tss_derive_child`.
+#[no_mangle]
+pub extern "C" fn tss_handle_chain_code(handle: TssHandle, out: *mut TssBuffer) -> TssStatus {
+    ffi_entry!({
+        let out = unsafe { out.as_mut() }
+            .ok_or_else(|| libtss::TssError::InvalidConfig("out is null".into()))?;
+        let ks = borrow_key_share(handle)?;
+        *out = TssBuffer::from_vec(ks.chain_code()?);
+        Ok(())
+    })
+}
+
 #[no_mangle]
 pub extern "C" fn tss_handle_pubkey_package(handle: TssHandle, out: *mut TssBuffer) -> TssStatus {
     ffi_entry!({

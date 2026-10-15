@@ -151,6 +151,9 @@ internal static unsafe class Native
     public static extern int tss_handle_group_key(ulong handle, TssBuffer* @out);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_handle_chain_code(ulong handle, TssBuffer* @out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int tss_handle_pubkey_package(ulong handle, TssBuffer* @out);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]

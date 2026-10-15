@@ -153,8 +153,7 @@ impl EncryptedRouter {
             if let Some(target) = message.to {
                 let (send_channel, _) = self.peer_channels.get_mut(&target).ok_or_else(|| {
                     TssError::Protocol(format!(
-                        "party {} has no encrypted channel for peer {}",
-                        self_id, target
+                        "party {self_id} has no encrypted channel for peer {target}"
                     ))
                 })?;
 
@@ -211,8 +210,7 @@ pub fn create_encrypted_routers(
 
             if left_shared != right_shared {
                 return Err(TssError::Encryption(format!(
-                    "mismatched shared secret for parties {} and {}",
-                    left, right
+                    "mismatched shared secret for parties {left} and {right}"
                 )));
             }
 

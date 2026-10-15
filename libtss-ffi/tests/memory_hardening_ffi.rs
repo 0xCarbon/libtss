@@ -114,8 +114,7 @@ fn init_with_mlock_succeeds_or_fails_gracefully() {
         let err_len = libtss_ffi::error::tss_last_error_len();
         assert!(
             err_len > 0,
-            "tss_init failed with status {} but set no error message",
-            status
+            "tss_init failed with status {status} but set no error message"
         );
         let ptr = libtss_ffi::error::tss_last_error();
         let msg = unsafe { std::ffi::CStr::from_ptr(ptr) }
