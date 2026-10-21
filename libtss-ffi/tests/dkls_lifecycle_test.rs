@@ -82,6 +82,9 @@ fn refresh(keys: &[TssHandle], session_id: &[u8]) -> Vec<TssHandle> {
 }
 
 #[test]
+// Multi-round protocol runs exceed tarpaulin's per-test timeout under
+// instrumentation; `cargo test` runs them.
+#[cfg_attr(tarpaulin, ignore)]
 fn dkls_refresh_keeps_key_and_signs() {
     for suite in [SUITE_SECP256K1_ECDSA, SUITE_SECP256R1_ECDSA] {
         let keys = run_dkg(suite, 3, 2);
@@ -99,6 +102,9 @@ fn dkls_refresh_keeps_key_and_signs() {
 }
 
 #[test]
+// Multi-round protocol runs exceed tarpaulin's per-test timeout under
+// instrumentation; `cargo test` runs them.
+#[cfg_attr(tarpaulin, ignore)]
 fn dkls_refresh_requires_session_id() {
     let keys = run_dkg(SUITE_SECP256K1_ECDSA, 2, 2);
     let mut session = 0;
@@ -134,6 +140,9 @@ fn split(suite: u8, secret: &[u8], chain_code: &[u8]) -> Result<Vec<TssHandle>, 
 }
 
 #[test]
+// Multi-round protocol runs exceed tarpaulin's per-test timeout under
+// instrumentation; `cargo test` runs them.
+#[cfg_attr(tarpaulin, ignore)]
 fn dkls_split_key_imports_refreshes_and_signs() {
     for suite in [SUITE_SECP256K1_ECDSA, SUITE_SECP256R1_ECDSA] {
         let keys = split(suite, &[0x42; 32], &[0x17; 32]).unwrap();

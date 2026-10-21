@@ -161,6 +161,9 @@ fn same_id(parties: &[Identifier], sid: &'static [u8]) -> BTreeMap<Identifier, &
 }
 
 #[test]
+// Multi-round protocol runs exceed tarpaulin's per-test timeout under
+// instrumentation; `cargo test` runs them.
+#[cfg_attr(tarpaulin, ignore)]
 fn refresh_keeps_the_key_and_moves_every_share() {
     for suite in SUITES {
         let shares = dkg(suite);
@@ -189,6 +192,9 @@ fn refresh_keeps_the_key_and_moves_every_share() {
 }
 
 #[test]
+// Multi-round protocol runs exceed tarpaulin's per-test timeout under
+// instrumentation; `cargo test` runs them.
+#[cfg_attr(tarpaulin, ignore)]
 fn refreshed_and_stale_shares_do_not_sign_together() {
     for suite in SUITES {
         let shares = dkg(suite);
@@ -201,6 +207,9 @@ fn refreshed_and_stale_shares_do_not_sign_together() {
 }
 
 #[test]
+// Multi-round protocol runs exceed tarpaulin's per-test timeout under
+// instrumentation; `cargo test` runs them.
+#[cfg_attr(tarpaulin, ignore)]
 fn refresh_aborts_when_session_ids_differ() {
     for suite in SUITES {
         let shares = dkg(suite);
@@ -214,6 +223,9 @@ fn refresh_aborts_when_session_ids_differ() {
 }
 
 #[test]
+// Multi-round protocol runs exceed tarpaulin's per-test timeout under
+// instrumentation; `cargo test` runs them.
+#[cfg_attr(tarpaulin, ignore)]
 fn refresh_rejects_empty_session_id_and_other_suites() {
     let shares = dkg(Ciphersuite::Secp256k1ECDSA);
     assert!(matches!(
@@ -281,6 +293,9 @@ fn compressed(suite: Ciphersuite, sec1: &[u8]) -> Vec<u8> {
 }
 
 #[test]
+// Multi-round protocol runs exceed tarpaulin's per-test timeout under
+// instrumentation; `cargo test` runs them.
+#[cfg_attr(tarpaulin, ignore)]
 fn imported_key_keeps_its_public_key_and_chain_code_and_signs() {
     let secret = [0x42u8; 32];
     let chain_code = [0x17u8; 32];
@@ -310,6 +325,9 @@ fn imported_key_keeps_its_public_key_and_chain_code_and_signs() {
 }
 
 #[test]
+// Multi-round protocol runs exceed tarpaulin's per-test timeout under
+// instrumentation; `cargo test` runs them.
+#[cfg_attr(tarpaulin, ignore)]
 fn two_imports_of_one_key_do_not_sign_together() {
     for suite in SUITES {
         let first = import(suite, &[0x42u8; 32], None);
@@ -446,6 +464,9 @@ fn bolt3_rejects_invalid_input() {
 /// Shares exported by libtss before the DKLs23 0.6 upgrade still import,
 /// sign and refresh.
 #[test]
+// Multi-round protocol runs exceed tarpaulin's per-test timeout under
+// instrumentation; `cargo test` runs them.
+#[cfg_attr(tarpaulin, ignore)]
 fn shares_exported_before_the_upgrade_import_sign_and_refresh() {
     for (suite, prefix) in [
         (Ciphersuite::Secp256k1ECDSA, "k1"),
@@ -486,6 +507,9 @@ fn shares_exported_before_the_upgrade_import_sign_and_refresh() {
 /// A tampered proof commitment aborts the refresh, names the sender, bans
 /// no one, and ends the session.
 #[test]
+// Multi-round protocol runs exceed tarpaulin's per-test timeout under
+// instrumentation; `cargo test` runs them.
+#[cfg_attr(tarpaulin, ignore)]
 fn refresh_with_a_tampered_proof_names_the_sender_and_ends() {
     let shares = dkg(Ciphersuite::Secp256k1ECDSA);
     let parties: Vec<_> = shares.keys().copied().collect();

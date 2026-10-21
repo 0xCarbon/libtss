@@ -31,3 +31,6 @@ rand_core.workspace = true
 
 [dev-dependencies]
 trybuild = "1"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tarpaulin)"] }
