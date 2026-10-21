@@ -37,12 +37,18 @@ def split_key(
 
     Returns (handles, public_key_package).
     """
-    handles_arr = (ctypes.c_uint64 * max_signers)()
-    handle_count = ctypes.c_size_t()
-    out_pkg = TssBuffer()
-
-    sl = make_slice(secret_key)
+    sl = None
     try:
+        if (
+            not isinstance(min_signers, int)
+            or not isinstance(max_signers, int)
+            or not 2 <= min_signers <= max_signers <= 255
+        ):
+            raise ValueError("DKLs23 requires 2 <= min_signers <= max_signers <= 255")
+        handles_arr = (ctypes.c_uint64 * max_signers)()
+        handle_count = ctypes.c_size_t()
+        out_pkg = TssBuffer()
+        sl = make_slice(secret_key)
         status = get_lib().tss_dkls_split_key(
             int(suite), sl, make_slice(chain_code), max_signers, min_signers,
             handles_arr, ctypes.byref(handle_count), ctypes.byref(out_pkg),

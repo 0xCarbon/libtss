@@ -7,7 +7,7 @@ use dkls23_secp256k1::protocols::dkg::{
 use dkls23_secp256k1::protocols::messages::{MessageTag, PhaseInput, PhaseOutput};
 use dkls23_secp256k1::protocols::signature::EcdsaSignature;
 use dkls23_secp256k1::protocols::signing::SignData;
-use dkls23_secp256k1::protocols::{Abort, AbortKind, Parameters, PartyIndex};
+use dkls23_secp256k1::protocols::{Abort, AbortKind, AbortReason, Parameters, PartyIndex};
 use dkls23_secp256k1::{Party, PublicKeyPackage as DklsPublicKeyPackage};
 use k256::elliptic_curve::sec1::ToSec1Point;
 use k256::elliptic_curve::PrimeField;
@@ -66,10 +66,33 @@ pub(crate) fn party_index_to_identifier(index: PartyIndex) -> Result<Identifier,
     Identifier::new(u16::from(index.as_u8()))
 }
 
+/// The counterparty a recoverable abort accuses, if any. `Abort.index` is
+/// the party reporting the abort, never the culprit. Local-state errors and
+/// session mismatches accuse no one.
+pub(crate) fn accused(reason: &AbortReason) -> Option<PartyIndex> {
+    match reason {
+        AbortReason::ProofVerificationFailed { counterparty, .. }
+        | AbortReason::CommitmentMismatch { counterparty, .. }
+        | AbortReason::TrivialInstancePoint { counterparty, .. }
+        | AbortReason::OtConsistencyCheckFailed { counterparty, .. }
+        | AbortReason::MultiplicationVerificationFailed { counterparty, .. }
+        | AbortReason::GammaUInconsistency { counterparty, .. }
+        | AbortReason::ZeroShareDecommitFailed { counterparty, .. } => Some(*counterparty),
+        AbortReason::ChainCodeCommitmentFailed { party, .. }
+        | AbortReason::MissingMessageFromParty { party, .. } => Some(*party),
+        AbortReason::UnexpectedSender { sender, .. }
+        | AbortReason::DuplicateSender { sender, .. } => Some(*sender),
+        _ => None,
+    }
+}
+
 pub(crate) fn abort_to_error(abort: Abort) -> TssError {
     match abort.kind {
         AbortKind::Recoverable => TssError::Abort {
-            culprits: party_index_to_identifier(abort.index).into_iter().collect(),
+            culprits: accused(&abort.reason)
+                .and_then(|index| party_index_to_identifier(index).ok())
+                .into_iter()
+                .collect(),
             message: abort.description(),
             ban: None,
         },
@@ -587,13 +610,23 @@ mod tests {
         let recoverable = abort_to_error(recoverable);
         let banned = abort_to_error(banned);
 
+        // The reporting party (index 1) is not a culprit.
         assert_eq!(
             recoverable,
             TssError::Abort {
-                culprits: vec![id(1)],
+                culprits: vec![],
                 message: "phase2 called before phase1".into(),
                 ban: None,
             }
+        );
+        let accusing = abort_to_error(Abort::recoverable(
+            PartyIndex::new(1).unwrap(),
+            AbortReason::ProofVerificationFailed {
+                counterparty: PartyIndex::new(2).unwrap(),
+            },
+        ));
+        assert!(
+            matches!(accusing, TssError::Abort { culprits, ban: None, .. } if culprits == vec![id(2)])
         );
         assert_eq!(
             banned,

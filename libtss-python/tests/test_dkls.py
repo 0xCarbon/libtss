@@ -98,3 +98,11 @@ def test_bolt3_matches_the_bolt3_vectors():
     )
     with pytest.raises(TssError):
         dkls.bolt3_derive_revocation(shares[0], BOLT3_POINT, b"\x01" * 32)
+
+
+@pytest.mark.parametrize("min_signers", [65538, -65534, 1, 4])
+def test_import_rejects_out_of_range_thresholds_and_wipes_the_secret(min_signers):
+    secret = bytearray(b"\x01" * 32)
+    with pytest.raises(ValueError):
+        dkls.split_key(Ciphersuite.SECP256K1_ECDSA, secret, 3, min_signers)
+    assert secret == bytearray(32)

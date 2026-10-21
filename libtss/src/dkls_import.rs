@@ -94,7 +94,7 @@ fn split<C: DklsCurve<Scalar: Zeroize>>(
     }
     AsMut::<[u8]>::as_mut(&mut repr).copy_from_slice(secret_key);
     let parsed = Option::<C::Scalar>::from(C::Scalar::from_repr(repr));
-    AsMut::<[u8]>::as_mut(&mut repr).fill(0);
+    AsMut::<[u8]>::as_mut(&mut repr).zeroize();
     let mut secret = parsed.ok_or_else(invalid)?;
     if bool::from(k256::elliptic_curve::ff::Field::is_zero(&secret)) {
         return Err(invalid());

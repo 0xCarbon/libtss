@@ -90,6 +90,15 @@ impl<C: RefreshCurve> Drop for DklsRefreshState<C> {
     }
 }
 
+/// Secret scalars wiped on every exit path.
+struct SecretScalars<S: Zeroize>(Vec<S>);
+
+impl<S: Zeroize> Drop for SecretScalars<S> {
+    fn drop(&mut self) {
+        self.0.iter_mut().for_each(Zeroize::zeroize);
+    }
+}
+
 fn zeroize_zero_kept_2to3(kept: &mut BTreeMap<PartyIndex, KeepInitZeroSharePhase2to3>) {
     for value in kept.values_mut() {
         value.seed.zeroize();
@@ -112,8 +121,9 @@ fn scalar_from_message<C: DklsCurve>(data: &[u8]) -> Result<C::Scalar, TssError>
         ));
     }
     AsMut::<[u8]>::as_mut(&mut repr).copy_from_slice(data);
-    Option::<C::Scalar>::from(C::Scalar::from_repr(repr))
-        .ok_or_else(|| TssError::DeserializeFailed("invalid scalar fragment encoding".into()))
+    let scalar = Option::<C::Scalar>::from(C::Scalar::from_repr(repr));
+    AsMut::<[u8]>::as_mut(&mut repr).zeroize();
+    scalar.ok_or_else(|| TssError::DeserializeFailed("invalid scalar fragment encoding".into()))
 }
 
 /// Start a complete refresh of `party`, producing the round-1 fragments.
@@ -144,10 +154,10 @@ pub fn phase1<C: RefreshCurve>(
     let self_id = party_index_to_identifier(party.party_index)?;
     let share_count = party.parameters.share_count;
     let self_position = usize::from(party.party_index.as_u8() - 1);
-    let fragments = party.refresh_complete_phase1();
-    let self_fragment = fragments[self_position];
-    let mut messages = Vec::with_capacity(fragments.len().saturating_sub(1));
-    for (position, fragment) in fragments.iter().enumerate() {
+    let fragments = SecretScalars(party.refresh_complete_phase1());
+    let self_fragment = fragments.0[self_position];
+    let mut messages = Vec::with_capacity(fragments.0.len().saturating_sub(1));
+    for (position, fragment) in fragments.0.iter().enumerate() {
         if position == self_position {
             continue;
         }
@@ -184,14 +194,13 @@ pub fn phase2<C: RefreshCurve>(
     state: &mut DklsRefreshState<C>,
     received: &[Message],
 ) -> Result<Vec<Message>, TssError> {
-    let self_fragment = state
+    let mut fragments = SecretScalars(vec![C::Scalar::ZERO; usize::from(state.share_count)]);
+    let self_index = identifier_to_session_party_index(state.self_id, state.share_count)?;
+    let self_position = usize::from(self_index.as_u8() - 1);
+    fragments.0[self_position] = state
         .self_fragment
         .take()
         .ok_or(TssError::SessionComplete)?;
-    let self_index = identifier_to_session_party_index(state.self_id, state.share_count)?;
-    let self_position = usize::from(self_index.as_u8() - 1);
-    let mut fragments = vec![C::Scalar::ZERO; usize::from(state.share_count)];
-    fragments[self_position] = self_fragment;
     let mut seen = vec![false; usize::from(state.share_count)];
     seen[self_position] = true;
     for message in received {
@@ -206,11 +215,10 @@ pub fn phase2<C: RefreshCurve>(
                 "duplicate refresh fragment from sender".into(),
             ));
         }
-        fragments[sender] = scalar_from_message::<C>(&message.data)?;
+        fragments.0[sender] = scalar_from_message::<C>(&message.data)?;
         seen[sender] = true;
     }
     if seen.iter().any(|present| !present) {
-        fragments.iter_mut().for_each(Zeroize::zeroize);
         return Err(TssError::DeserializeFailed(
             "missing refresh fragment for phase2".into(),
         ));
@@ -218,8 +226,8 @@ pub fn phase2<C: RefreshCurve>(
 
     let (correction_value, proof_commitment, zero_kept, zero_transmit) = state
         .party
-        .refresh_complete_phase2(&state.refresh_sid, &fragments);
-    fragments.iter_mut().for_each(Zeroize::zeroize);
+        .refresh_complete_phase2(&state.refresh_sid, &fragments.0);
+    drop(fragments);
 
     let mut output = PhaseOutput::new();
     output
@@ -345,8 +353,11 @@ pub fn phase4<C: RefreshCurve>(
         .pubkey
         .refresh(&state.refresh_sid, &proofs_commitments)
         .map_err(|reason| TssError::Abort {
-            culprits: Vec::new(),
-            message: format!("{reason:?}"),
+            culprits: crate::dkls::accused(&reason)
+                .and_then(|index| party_index_to_identifier(index).ok())
+                .into_iter()
+                .collect(),
+            message: reason.to_string(),
             ban: None,
         })?;
     let expected_share = (C::ProjectivePoint::generator() * party.poly_point).to_affine();

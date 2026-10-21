@@ -74,6 +74,8 @@ export class KeyShareHandle {
 	 *
 	 * Pair with {@link groupVerifyingKey} to build a BIP-32 extended public key
 	 * (xpub) whose off-MPC child derivation matches libtss's own derivation.
+	 * For `Secp256k1Taproot` the chain code is SHA-256 of the group key and is
+	 * re-derived for each child, so an external CKDpub matches only at depth 1.
 	 */
 	async chainCode(): Promise<Uint8Array> {
 		return decodeBase64(

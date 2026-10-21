@@ -94,6 +94,17 @@ describe("DKLs23 key import and refresh", () => {
 		},
 	);
 
+	it.each([65538, -65534, 2.9, 1, 4])(
+		"rejects minSigners %p and wipes the secret",
+		(minSigners) => {
+			const secret = new Uint8Array(32).fill(1);
+			expect(() =>
+				dklsSplitKey(Ciphersuite.Secp256k1ECDSA, secret, 3, minSigners),
+			).toThrow(RangeError);
+			expect(secret.every((b) => b === 0)).toBe(true);
+		},
+	);
+
 	it("rejects a zero secret key and an empty refresh session id", () => {
 		expect(() =>
 			dklsSplitKey(Ciphersuite.Secp256k1ECDSA, new Uint8Array(32), 3, 2),

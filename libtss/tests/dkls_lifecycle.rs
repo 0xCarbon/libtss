@@ -442,3 +442,100 @@ fn bolt3_rejects_invalid_input() {
         Err(TssError::ProtocolMismatch)
     ));
 }
+
+/// Shares exported by libtss before the DKLs23 0.6 upgrade still import,
+/// sign and refresh.
+#[test]
+fn shares_exported_before_the_upgrade_import_sign_and_refresh() {
+    for (suite, prefix) in [
+        (Ciphersuite::Secp256k1ECDSA, "k1"),
+        (Ciphersuite::Secp256r1ECDSA, "r1"),
+    ] {
+        let shares: BTreeMap<_, _> = (1..=3)
+            .map(|p| {
+                let path = format!(
+                    "{}/tests/fixtures/dkls23-0.4/{prefix}-{p}.bin",
+                    env!("CARGO_MANIFEST_DIR")
+                );
+                let data = std::fs::read(path).unwrap();
+                (id(p), libtss::import_key_share(&data, suite).unwrap())
+            })
+            .collect();
+        let group_key = shares[&id(1)].group_verifying_key();
+        let hash = [3u8; 32];
+        let signers = BTreeMap::from([(id(1), &shares[&id(1)]), (id(3), &shares[&id(3)])]);
+        assert!(verifies(
+            suite,
+            &group_key,
+            &hash,
+            &sign(suite, &signers, hash).unwrap()
+        ));
+
+        let parties: Vec<_> = shares.keys().copied().collect();
+        let refreshed = refresh(&shares, &same_id(&parties, b"after-upgrade")).unwrap();
+        let signers = BTreeMap::from([(id(2), &refreshed[&id(2)]), (id(3), &refreshed[&id(3)])]);
+        assert!(verifies(
+            suite,
+            &group_key,
+            &hash,
+            &sign(suite, &signers, hash).unwrap()
+        ));
+    }
+}
+
+/// A tampered proof commitment aborts the refresh, names the sender, bans
+/// no one, and ends the session.
+#[test]
+fn refresh_with_a_tampered_proof_names_the_sender_and_ends() {
+    let shares = dkg(Ciphersuite::Secp256k1ECDSA);
+    let parties: Vec<_> = shares.keys().copied().collect();
+    let mut sessions = BTreeMap::new();
+    let mut out = BTreeMap::new();
+    for &p in &parties {
+        let (session, msgs) = RefreshSession::new_dkls(&shares[&p], b"tampered").unwrap();
+        sessions.insert(p, session);
+        out.insert(p, msgs);
+    }
+    // Round 1 -> round-2 messages.
+    let routed = route(&out, &parties);
+    for &p in &parties {
+        match sessions.get_mut(&p).unwrap().next(&routed[&p]).unwrap() {
+            RefreshOutput::Continue(msgs) => {
+                out.insert(p, msgs);
+            }
+            _ => panic!("expected Continue"),
+        }
+    }
+    // Party 2's broadcast proof commitment ends with the commitment bytes.
+    let broadcast = out
+        .get_mut(&id(2))
+        .unwrap()
+        .iter_mut()
+        .find(|m| m.to.is_none())
+        .unwrap();
+    *broadcast.data.last_mut().unwrap() ^= 1;
+    // Round 2 -> round-3 messages, then round 3 verifies the proofs.
+    let routed = route(&out, &parties);
+    for &p in &parties {
+        if let RefreshOutput::Continue(msgs) =
+            sessions.get_mut(&p).unwrap().next(&routed[&p]).unwrap()
+        {
+            out.insert(p, msgs);
+        }
+    }
+    let routed = route(&out, &parties);
+    let session = sessions.get_mut(&id(1)).unwrap();
+    match session.next(&routed[&id(1)]) {
+        Err(TssError::Abort { culprits, ban, .. }) => {
+            assert_eq!(culprits, vec![id(2)]);
+            assert_eq!(ban, None);
+        }
+        Err(other) => panic!("unexpected error: {other:?}"),
+        Ok(_) => panic!("a tampered proof must abort"),
+    }
+    assert!(session.is_complete());
+    assert!(matches!(
+        session.next(&routed[&id(1)]),
+        Err(TssError::SessionComplete)
+    ));
+}

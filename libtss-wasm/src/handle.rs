@@ -70,7 +70,8 @@ impl WasmKeyShareHandle {
     ///
     /// Supported for suites 6 (Secp256k1ECDSA) and 7 (Secp256r1ECDSA), whose
     /// DKLs23 DKG establishes the chain code, and suite 0 (Secp256k1Taproot),
-    /// where it is `SHA-256(group key)`. Every other suite rejects with an
+    /// where it is `SHA-256(group key)` and is re-derived for each child, so an
+    /// external CKDpub matches only at depth 1. Every other suite rejects with an
     /// error whose `code` is `"ProtocolMismatch"`.
     #[wasm_bindgen(js_name = "chainCode")]
     pub fn chain_code(&self) -> Result<Uint8Array, JsValue> {

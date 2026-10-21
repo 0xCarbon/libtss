@@ -28,6 +28,7 @@ pub extern "C" fn tss_handle_verifying_share(handle: TssHandle, out: *mut TssBuf
     ffi_entry!({
         let out = unsafe { out.as_mut() }
             .ok_or_else(|| libtss::TssError::InvalidConfig("out is null".into()))?;
+        *out = TssBuffer::empty();
         let ks = borrow_key_share(handle)?;
         *out = TssBuffer::from_vec(ks.verifying_share());
         Ok(())
@@ -39,6 +40,7 @@ pub extern "C" fn tss_handle_group_key(handle: TssHandle, out: *mut TssBuffer) -
     ffi_entry!({
         let out = unsafe { out.as_mut() }
             .ok_or_else(|| libtss::TssError::InvalidConfig("out is null".into()))?;
+        *out = TssBuffer::empty();
         let ks = borrow_key_share(handle)?;
         *out = TssBuffer::from_vec(ks.group_verifying_key());
         Ok(())
@@ -51,11 +53,14 @@ pub extern "C" fn tss_handle_group_key(handle: TssHandle, out: *mut TssBuffer) -
 /// Secp256r1ECDSA, Secp256k1Taproot); every other suite returns
 /// `TSS_ERR_PROTO_MISMATCH`. Pair with `tss_handle_group_key` to build an
 /// extended public key whose off-MPC child derivation matches `tss_derive_child`.
+/// For Secp256k1Taproot the chain code is SHA-256 of the group key and is
+/// re-derived for each child, so an external CKDpub matches only at depth 1.
 #[no_mangle]
 pub extern "C" fn tss_handle_chain_code(handle: TssHandle, out: *mut TssBuffer) -> TssStatus {
     ffi_entry!({
         let out = unsafe { out.as_mut() }
             .ok_or_else(|| libtss::TssError::InvalidConfig("out is null".into()))?;
+        *out = TssBuffer::empty();
         let ks = borrow_key_share(handle)?;
         *out = TssBuffer::from_vec(ks.chain_code()?);
         Ok(())
@@ -67,6 +72,7 @@ pub extern "C" fn tss_handle_pubkey_package(handle: TssHandle, out: *mut TssBuff
     ffi_entry!({
         let out = unsafe { out.as_mut() }
             .ok_or_else(|| libtss::TssError::InvalidConfig("out is null".into()))?;
+        *out = TssBuffer::empty();
         let ks = borrow_key_share(handle)?;
         *out = TssBuffer::from_vec(ks.public_key_package().serialize()?);
         Ok(())
@@ -103,6 +109,7 @@ pub extern "C" fn tss_handle_export(handle: TssHandle, out: *mut TssBuffer) -> T
     ffi_entry!({
         let out = unsafe { out.as_mut() }
             .ok_or_else(|| libtss::TssError::InvalidConfig("out is null".into()))?;
+        *out = TssBuffer::empty();
         let ks = borrow_key_share(handle)?;
         *out = TssBuffer::from_vec(ks.export()?);
         Ok(())

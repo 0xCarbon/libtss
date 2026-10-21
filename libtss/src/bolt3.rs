@@ -22,7 +22,9 @@ use crate::types::{Ciphersuite, PublicKeyPackage};
 use crate::TssError;
 
 /// Derive the key share for a commitment: `basepoint + SHA256(per_commitment_point || basepoint)·G`
-/// (`localpubkey`, `remotepubkey`, `local_htlcpubkey`, `local_delayedpubkey`, ...).
+/// (`localpubkey`, `local_htlcpubkey`, `remote_htlcpubkey`, `local_delayedpubkey`,
+/// `remote_delayedpubkey`). With `option_static_remotekey`, `remotepubkey` is
+/// the remote payment basepoint itself and is not derived.
 ///
 /// `per_commitment_point` is a 33-byte compressed SEC1 point. Every party
 /// derives with the same point. The input handle stays valid.

@@ -239,6 +239,8 @@ TssStatus tss_handle_group_key(TssHandle handle, struct TssBuffer *out);
 // Secp256r1ECDSA, Secp256k1Taproot); every other suite returns
 // `TSS_ERR_PROTO_MISMATCH`. Pair with `tss_handle_group_key` to build an
 // extended public key whose off-MPC child derivation matches `tss_derive_child`.
+// For Secp256k1Taproot the chain code is SHA-256 of the group key and is
+// re-derived for each child, so an external CKDpub matches only at depth 1.
 TssStatus tss_handle_chain_code(TssHandle handle, struct TssBuffer *out);
 
 TssStatus tss_handle_pubkey_package(TssHandle handle, struct TssBuffer *out);
@@ -338,7 +340,9 @@ TssStatus tss_refresh_new(TssHandle key_share,
 // `session_id`; advance with `tss_refresh_next` three times. The group key
 // stays the same and every share and its OT state are regenerated.
 // `key_share` stays valid; the completed session yields a new handle.
-// Refreshed shares sign only with shares from the same refresh. Non-DKLs23
+// Refreshed shares sign only with shares from the same refresh. A round that
+// fails ends the session; only a message blob that fails to decode
+// (`TSS_ERR_DESERIALIZE`, before the round runs) leaves it unchanged. Non-DKLs23
 // shares return `TSS_ERR_PROTO_MISMATCH`; a missing or empty `session_id`
 // returns `TSS_ERR_INVALID_CONFIG`.
 TssStatus tss_refresh_new_dkls(TssHandle key_share,

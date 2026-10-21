@@ -243,3 +243,23 @@ fn bolt3_derivations_through_the_c_api() {
         tss_handle_free(key);
     }
 }
+
+#[test]
+fn handle_getters_reset_the_out_buffer_on_error() {
+    use libtss_ffi::handles::{tss_handle_chain_code, tss_handle_pubkey_package};
+
+    for getter in [
+        tss_handle_chain_code,
+        tss_handle_group_key,
+        tss_handle_verifying_share,
+        tss_handle_pubkey_package,
+    ] {
+        let mut out = TssBuffer {
+            data: std::ptr::NonNull::dangling().as_ptr(),
+            len: 7,
+        };
+        assert_ne!(getter(0xdead_beef, &mut out), TSS_OK);
+        assert!(out.data.is_null());
+        assert_eq!(out.len, 0);
+    }
+}

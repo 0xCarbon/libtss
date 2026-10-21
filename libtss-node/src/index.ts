@@ -106,6 +106,17 @@ export function dklsSplitKey(
 	chainCode?: Uint8Array,
 ): { keyShares: KeyShareHandle[]; publicKeys: Uint8Array } {
 	try {
+		if (
+			!Number.isInteger(minSigners) ||
+			!Number.isInteger(maxSigners) ||
+			minSigners < 2 ||
+			maxSigners < minSigners ||
+			maxSigners > 255
+		) {
+			throw new RangeError(
+				"DKLs23 requires integers with 2 <= minSigners <= maxSigners <= 255",
+			);
+		}
 		const outHandles = new BigUint64Array(maxSigners);
 		const outCount: [number | bigint] = [0n];
 		const outPkg = allocBuffer();

@@ -88,7 +88,9 @@ class KeyShareHandle:
 
         Together with :attr:`group_verifying_key` this is enough to build a
         BIP-32 extended public key (xpub) whose off-MPC non-hardened child
-        derivation matches :func:`libtss.derive.derive_child`.
+        derivation matches :func:`libtss.derive.derive_child`. For
+        ``SECP256K1_TAPROOT`` the chain code is SHA-256 of the group key and is
+        re-derived for each child, so an external CKDpub matches only at depth 1.
         """
         self._check()
         buf = TssBuffer()

@@ -61,7 +61,9 @@ export class KeyShareHandle {
 	 *
 	 * Pair it with {@link groupVerifyingKey} to build a BIP-32 extended public
 	 * key (xpub) whose off-MPC child derivation matches the shares each party
-	 * derives with `deriveChild` / `derivePath`.
+	 * derives with `deriveChild` / `derivePath`. For `Secp256k1Taproot` the
+	 * chain code is SHA-256 of the group key and is re-derived for each child,
+	 * so an external CKDpub matches only at depth 1.
 	 */
 	chainCode(): Uint8Array {
 		const buf = allocBuffer();

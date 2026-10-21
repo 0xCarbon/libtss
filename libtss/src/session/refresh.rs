@@ -102,7 +102,8 @@ impl RefreshSession {
     /// the same, and the pairwise OT and zero-share state is generated from
     /// scratch. `next()` is called three times; the input handle stays valid
     /// and the completed session returns a new one. Refreshed shares sign only
-    /// with shares from the same refresh.
+    /// with shares from the same refresh. A failed round ends the session
+    /// (`is_complete()` then returns true); start a new refresh.
     pub fn new_dkls(
         key_share: &KeyShareHandle,
         session_id: &[u8],
@@ -137,7 +138,7 @@ impl RefreshSession {
                 let output = next_dkls(state, round, received, |party, package| {
                     let public_keys = crate::dkls::convert_public_key_package(&package)?;
                     Ok((keyshare::from_dkls_dkg(party, package)?, public_keys))
-                })?;
+                });
                 self.advance(output)
             }
             RefreshInner::DklsR1(state) => {
@@ -145,18 +146,23 @@ impl RefreshSession {
                 let output = next_dkls(state, round, received, |party, package| {
                     let public_keys = crate::dkls_r1::convert_public_key_package(&package)?;
                     Ok((keyshare::from_dkls_r1_dkg(party, package)?, public_keys))
-                })?;
+                });
                 self.advance(output)
             }
             _ => self.next_frost(received),
         }
     }
 
-    fn advance(&mut self, output: RefreshOutput) -> Result<RefreshOutput, TssError> {
-        self.round += 1;
-        if matches!(output, RefreshOutput::Complete { .. }) {
+    /// A failed or final round ends the session.
+    fn advance(
+        &mut self,
+        output: Result<RefreshOutput, TssError>,
+    ) -> Result<RefreshOutput, TssError> {
+        if !matches!(output, Ok(RefreshOutput::Continue(_))) {
             self.inner = RefreshInner::Complete;
         }
+        let output = output?;
+        self.round += 1;
         Ok(output)
     }
 

@@ -100,6 +100,8 @@ public sealed class KeyShareHandle : IDisposable
     /// <para>
     /// Pair with <see cref="GroupVerifyingKey"/> to build a BIP-32 extended public key (xpub)
     /// whose off-MPC child derivation matches <see cref="DeriveOperations.DeriveChild"/>.
+    /// For <see cref="Ciphersuite.Secp256k1Taproot"/> the chain code is SHA-256 of the group
+    /// key and is re-derived for each child, so an external CKDpub matches only at depth 1.
     /// </para>
     /// </remarks>
     public unsafe byte[] ChainCode

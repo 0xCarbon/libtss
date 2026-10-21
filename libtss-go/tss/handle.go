@@ -121,7 +121,9 @@ func (h *KeyShareHandle) GroupKey() ([]byte, error) {
 // ChainCode returns the 32-byte BIP-32 chain code this share derives children
 // with. Pair it with GroupKey to build a BIP-32 xpub whose off-MPC pubkey
 // derivation matches the child shares each party derives via DeriveChild /
-// DerivePath.
+// DerivePath. For Secp256k1Taproot the chain code is SHA-256 of the group key
+// and is re-derived for each child, so an external CKDpub matches only at
+// depth 1.
 //
 // Supported for the BIP-32-capable ciphersuites only (Secp256k1ECDSA,
 // Secp256r1ECDSA, Secp256k1Taproot); every other suite returns a *TssError

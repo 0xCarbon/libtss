@@ -181,8 +181,10 @@ shares (C ABI: `tss_bolt3_derive`, `tss_bolt3_derive_revocation` and the
 `*_pubkey_package` variants):
 
 - `bolt3_derive(share, per_commitment_point)`: `basepoint +
-  SHA256(per_commitment_point || basepoint)·G` (`localpubkey`, `remotepubkey`,
-  `local_htlcpubkey`, `local_delayedpubkey`).
+  SHA256(per_commitment_point || basepoint)·G` (`localpubkey`,
+  `local_htlcpubkey`, `remote_htlcpubkey`, `local_delayedpubkey`,
+  `remote_delayedpubkey`; with `option_static_remotekey`, `remotepubkey` is
+  the payment basepoint itself and is not derived).
 - `bolt3_derive_revocation(share, per_commitment_point, per_commitment_secret)`:
   `revocationpubkey` and its private key, once the counterparty reveals the
   per-commitment secret; the secret must match the point.
