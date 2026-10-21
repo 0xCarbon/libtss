@@ -70,8 +70,10 @@ func Bolt3Derive(keyShare *KeyShareHandle, perCommitmentPoint []byte) (*KeyShare
 
 // Bolt3DeriveRevocation derives the BOLT 3 revocation key share for a
 // commitment whose 32-byte perCommitmentSecret was revealed. The secret must
-// match perCommitmentPoint.
+// match perCommitmentPoint. The perCommitmentSecret slice is wiped after the
+// call completes (success or error).
 func Bolt3DeriveRevocation(keyShare *KeyShareHandle, perCommitmentPoint, perCommitmentSecret []byte) (*KeyShareHandle, error) {
+	defer WipeBytes(perCommitmentSecret)
 	if err := checkNonNil("keyShare", keyShare); err != nil {
 		return nil, err
 	}

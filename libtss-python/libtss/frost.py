@@ -131,13 +131,12 @@ def split_key(
 
     Returns (handles, public_key_package).
     """
-    handles_arr = (ctypes.c_uint64 * max_signers)()
-    handle_count = ctypes.c_size_t()
-    out_pkg = TssBuffer()
-
-    sl = make_slice(secret_key)
-
+    sl = None
     try:
+        handles_arr = (ctypes.c_uint64 * max_signers)()
+        handle_count = ctypes.c_size_t()
+        out_pkg = TssBuffer()
+        sl = make_slice(secret_key)
         status = get_lib().tss_frost_split_key(
             int(suite), sl, max_signers, min_signers,
             handles_arr, ctypes.byref(handle_count), ctypes.byref(out_pkg),

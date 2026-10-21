@@ -212,10 +212,9 @@ pattern as DKG and signing):
 pub struct RefreshSession { /* ... */ }
 
 impl RefreshSession {
-    /// Interactive refresh (recommended mode).
-    /// FROST: DKG-based refresh with zero-constant polynomial (3 rounds).
-    /// DKLs23: Complete refresh with OT re-initialization (4 phases).
-    pub fn new(key_share: &KeyShareHandle) -> Result<(Self, Vec<Message>), TssError>;
+    /// FROST dealer refresh (the dealer produces every participant's data).
+    pub fn new_frost(key_share: &KeyShareHandle, participants: &[Identifier])
+        -> Result<(Self, Vec<Message>), TssError>;
 
     /// DKLs23 complete refresh (secp256k1 / secp256r1). All n parties run it
     /// under the same fresh `session_id`; `next()` is called three times.

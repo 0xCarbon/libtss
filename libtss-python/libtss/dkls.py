@@ -86,16 +86,22 @@ def bolt3_derive_revocation(
     per_commitment_secret: bytes | bytearray,
 ) -> KeyShareHandle:
     """BOLT 3 revocation derivation for a commitment whose 32-byte
-    ``per_commitment_secret`` was revealed; the secret must match the point."""
+    ``per_commitment_secret`` was revealed; the secret must match the point.
+    If ``per_commitment_secret`` is a ``bytearray``, it is zeroed after the
+    call."""
     out = ctypes.c_uint64()
-    secret = make_slice(per_commitment_secret)
+    secret = None
     try:
+        secret = make_slice(per_commitment_secret)
         check_status(get_lib().tss_bolt3_derive_revocation(
             key_share.raw, make_slice(per_commitment_point), secret,
             ctypes.byref(out),
         ))
     finally:
         wipe_ctypes_array(getattr(secret, "_backing", None))
+        if isinstance(per_commitment_secret, bytearray):
+            from libtss.secure import wipe_bytearray
+            wipe_bytearray(per_commitment_secret)
     return KeyShareHandle(out.value)
 
 

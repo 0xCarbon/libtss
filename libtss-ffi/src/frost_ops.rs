@@ -139,6 +139,8 @@ pub extern "C" fn tss_frost_generate_dealer(
             .map(|fh| libtss::keyshare::from_frost_dkg(fh, &pubkey))
             .collect::<Result<Vec<_>, _>>()?;
 
+        let pkg_bytes = pubkey.serialize()?;
+
         let handle_slice =
             unsafe { core::slice::from_raw_parts_mut(out_handles, unified_handles.len()) };
         for (i, h) in unified_handles.into_iter().enumerate() {
@@ -146,7 +148,7 @@ pub extern "C" fn tss_frost_generate_dealer(
             std::mem::forget(h);
         }
         *out_count = handle_slice.len();
-        *out_pkg = TssBuffer::from_vec(pubkey.serialize()?);
+        *out_pkg = TssBuffer::from_vec(pkg_bytes);
         Ok(())
     })
 }
@@ -191,6 +193,8 @@ pub extern "C" fn tss_frost_split_key(
             .map(|fh| libtss::keyshare::from_frost_dkg(fh, &pubkey))
             .collect::<Result<Vec<_>, _>>()?;
 
+        let pkg_bytes = pubkey.serialize()?;
+
         let handle_slice =
             unsafe { core::slice::from_raw_parts_mut(out_handles, unified_handles.len()) };
         for (i, h) in unified_handles.into_iter().enumerate() {
@@ -198,7 +202,7 @@ pub extern "C" fn tss_frost_split_key(
             std::mem::forget(h);
         }
         *out_count = handle_slice.len();
-        *out_pkg = TssBuffer::from_vec(pubkey.serialize()?);
+        *out_pkg = TssBuffer::from_vec(pkg_bytes);
         Ok(())
     })
 }

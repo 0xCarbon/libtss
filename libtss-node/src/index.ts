@@ -168,22 +168,27 @@ export function bolt3Derive(
 /**
  * BOLT 3 revocation derivation for a commitment whose 32-byte
  * `perCommitmentSecret` was revealed; the secret must match the point.
+ * `perCommitmentSecret` is wiped after the call.
  */
 export function bolt3DeriveRevocation(
 	keyShare: KeyShareHandle,
 	perCommitmentPoint: Uint8Array,
 	perCommitmentSecret: Uint8Array,
 ): KeyShareHandle {
-	const outHandle: [bigint] = [0n];
-	checkStatus(
-		lib.tss_bolt3_derive_revocation(
-			keyShare.handle,
-			makeSlice(perCommitmentPoint),
-			makeSlice(perCommitmentSecret),
-			outHandle,
-		),
-	);
-	return new KeyShareHandle(outHandle[0]);
+	try {
+		const outHandle: [bigint] = [0n];
+		checkStatus(
+			lib.tss_bolt3_derive_revocation(
+				keyShare.handle,
+				makeSlice(perCommitmentPoint),
+				makeSlice(perCommitmentSecret),
+				outHandle,
+			),
+		);
+		return new KeyShareHandle(outHandle[0]);
+	} finally {
+		wipeBytes(perCommitmentSecret);
+	}
 }
 
 /** `bolt3Derive` on a serialized secp256k1 ECDSA public key package. */

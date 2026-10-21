@@ -169,7 +169,7 @@ public class DklsTests
         var (shares, package) = DklsOperations.SplitKey(
             Ciphersuite.Secp256k1ECDSA, (byte[])Bolt3BaseSecret.Clone(), 3, 2);
         using var local = DklsOperations.Bolt3Derive(shares[0], Bolt3Point);
-        using var revocation = DklsOperations.Bolt3DeriveRevocation(shares[0], Bolt3Point, Bolt3Secret);
+        using var revocation = DklsOperations.Bolt3DeriveRevocation(shares[0], Bolt3Point, (byte[])Bolt3Secret.Clone());
         Assert.Equal(Bolt3Local, local.GroupVerifyingKey);
         Assert.Equal(Bolt3Revocation, revocation.GroupVerifyingKey);
         Assert.Equal(Bolt3Local, PackageKey(DklsOperations.Bolt3DerivePublicKeys(package, Bolt3Point)));

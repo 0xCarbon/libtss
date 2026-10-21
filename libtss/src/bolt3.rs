@@ -144,6 +144,17 @@ fn to_dkls_package(package: &PublicKeyPackage) -> Result<DklsPublicKeyPackage, T
             Ok((index, point(share)?))
         })
         .collect::<Result<_, TssError>>()?;
+    let expected: Vec<u16> = (1..=package.verifying_shares().len())
+        .map(|i| u16::try_from(i).unwrap_or(u16::MAX))
+        .collect();
+    let actual: Vec<u16> = package
+        .verifying_shares()
+        .keys()
+        .map(|id| id.as_u16())
+        .collect();
+    if actual != expected {
+        return Err(TssError::InvalidIdentifier);
+    }
     let threshold = u8::try_from(package.min_signers())
         .map_err(|_| TssError::InvalidConfig("threshold exceeds DKLs23 limits".into()))?;
     let share_count = u8::try_from(package.verifying_shares().len())

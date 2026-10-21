@@ -142,6 +142,10 @@ func (s *DKGSession) Next(messages []Message) (DKGStep, error) {
 		step.KeyShare = newKeyShareHandle(outKey)
 		pkgBytes := bufferToBytes(&outPkg)
 		step.PublicKeyPackage, err = decodePublicKeyPackage(pkgBytes)
+		if err != nil {
+			step.KeyShare.Free()
+			step.KeyShare = nil
+		}
 		return step, err
 	}
 	step.Messages, err = ParseMessages(bufferToBytes(&outMsgs))
@@ -346,6 +350,10 @@ func (s *RefreshSession) Next(messages []Message) (RefreshStep, error) {
 	if step.Complete {
 		step.KeyShare = newKeyShareHandle(outKey)
 		step.PublicKeyPackage, err = decodePublicKeyPackage(bufferToBytes(&outPkg))
+		if err != nil {
+			step.KeyShare.Free()
+			step.KeyShare = nil
+		}
 		return step, err
 	}
 	step.Messages, err = ParseMessages(bufferToBytes(&outMsgs))

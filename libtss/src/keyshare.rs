@@ -612,6 +612,13 @@ fn describe_dkls_key_share_k1(
             "group verifying key does not match public package",
         ));
     }
+    if party.parameters.threshold != public_keys.threshold()
+        || party.parameters.share_count != public_keys.share_count()
+    {
+        return Err(inconsistent_key_share(
+            "threshold parameters do not match public package",
+        ));
+    }
     Ok((
         identifier,
         actual.to_sec1_point(true).as_bytes().to_vec(),
@@ -638,6 +645,13 @@ fn describe_dkls_key_share_r1(
     if party.pk != *public_keys.verifying_key() {
         return Err(inconsistent_key_share(
             "group verifying key does not match public package",
+        ));
+    }
+    if party.parameters.threshold != public_keys.threshold()
+        || party.parameters.share_count != public_keys.share_count()
+    {
+        return Err(inconsistent_key_share(
+            "threshold parameters do not match public package",
         ));
     }
     Ok((
@@ -1132,5 +1146,34 @@ mod tests {
             import_key_share(&exported, Ciphersuite::Secp256k1ECDSA).unwrap_err(),
             TssError::DeserializeFailed("group verifying key does not match public package".into())
         );
+    }
+
+    #[test]
+    fn dkls_share_with_mismatched_threshold_is_rejected() {
+        use dkls23_secp256k1::protocols::{Parameters, PublicKeyPackage as Package};
+
+        let parameters = Parameters::new(2, 3).unwrap();
+        let (parties, package) = dkls23_secp256k1::protocols::re_key::re_key(
+            &parameters,
+            b"mismatch",
+            &Scalar::from(7u64),
+            None,
+            dkls23_secp256k1::compute_eth_address,
+        );
+        let shares = (1..=3)
+            .map(|i| {
+                let index = dkls23_secp256k1::protocols::PartyIndex::new(i).unwrap();
+                (index, *package.verifying_share(index).unwrap())
+            })
+            .collect();
+        let relabelled = Package::new(
+            *package.verifying_key(),
+            shares,
+            Parameters::new(3, 3).unwrap(),
+        );
+        assert!(
+            KeyShareHandle::new(KeyShareInner::DKLs23(parties[0].clone(), relabelled)).is_err()
+        );
+        assert!(KeyShareHandle::new(KeyShareInner::DKLs23(parties[0].clone(), package)).is_ok());
     }
 }

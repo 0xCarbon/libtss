@@ -486,13 +486,14 @@ const char* tss_version(void);
 | Category | Functions | Notes |
 |----------|-----------|-------|
 | Initialization | 1 | `tss_init` |
-| Unified sessions | 8 | dkg (2) + sign (2) + refresh (2) + refresh_receiver (1) + session_free (1) |
+| Unified sessions | 9 | dkg (2) + sign (2) + refresh (2) + refresh_new_dkls (1) + refresh_receiver (1) + session_free (1) |
 | Message helpers | 3 | count, at, build |
 | FROST-specific | 9 | aggregate, tweak (2), dealer (2), refresh (2), repair (3) |
+| DKLs23-specific | 5 | dkls_split_key, bolt3 (4) |
 | Verification + key mgmt | 5 | verify, derive (2), export, import |
-| Handle + memory | 9 | handle queries (5) + handle_free + buffer_free + session_free + version |
+| Handle + memory | 10 | handle queries (6, incl. chain_code) + handle_free + buffer_free + session_free + version |
 | Error | 6 | last_error, last_error_len, last_error_copy, culprit_count, culprit, banned_party |
-| **Total** | **~41** | **Core unified path: 11 functions (sessions + messages)** |
+| **Total** | **~48** | **Core unified path: 11 functions (sessions + messages)** |
 
 The core DKG + signing workflow uses only 7 functions: `tss_dkg_new`, `tss_dkg_next`,
 `tss_sign_new`, `tss_sign_next`, `tss_message_count`, `tss_message_at`, `tss_message_build`.

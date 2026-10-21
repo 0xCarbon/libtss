@@ -97,7 +97,8 @@ public static class DklsOperations
 
     /// <summary>
     /// BOLT 3 revocation derivation for a commitment whose 32-byte per-commitment secret was
-    /// revealed; the secret must match the point.
+    /// revealed; the secret must match the point. <paramref name="perCommitmentSecret"/> is
+    /// securely zeroed after the method returns.
     /// </summary>
     public static unsafe KeyShareHandle Bolt3DeriveRevocation(
         KeyShareHandle keyShare,
@@ -107,17 +108,24 @@ public static class DklsOperations
         ArgumentNullException.ThrowIfNull(keyShare);
         ArgumentNullException.ThrowIfNull(perCommitmentPoint);
         ArgumentNullException.ThrowIfNull(perCommitmentSecret);
-        ulong handle;
-        int status;
-        fixed (byte* pPoint = perCommitmentPoint)
-        fixed (byte* pSecret = perCommitmentSecret)
+        try
         {
-            var point = new TssSlice { Data = pPoint, Len = (nuint)perCommitmentPoint.Length };
-            var secret = new TssSlice { Data = pSecret, Len = (nuint)perCommitmentSecret.Length };
-            status = Native.tss_bolt3_derive_revocation(keyShare.Handle, point, secret, &handle);
+            ulong handle;
+            int status;
+            fixed (byte* pPoint = perCommitmentPoint)
+            fixed (byte* pSecret = perCommitmentSecret)
+            {
+                var point = new TssSlice { Data = pPoint, Len = (nuint)perCommitmentPoint.Length };
+                var secret = new TssSlice { Data = pSecret, Len = (nuint)perCommitmentSecret.Length };
+                status = Native.tss_bolt3_derive_revocation(keyShare.Handle, point, secret, &handle);
+            }
+            TssException.ThrowIfError(status);
+            return new KeyShareHandle(handle);
         }
-        TssException.ThrowIfError(status);
-        return new KeyShareHandle(handle);
+        finally
+        {
+            CryptographicOperations.ZeroMemory(perCommitmentSecret);
+        }
     }
 
     /// <summary><see cref="Bolt3Derive"/> on a serialized secp256k1 ECDSA public key package.</summary>

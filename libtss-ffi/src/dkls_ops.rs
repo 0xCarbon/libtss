@@ -50,13 +50,15 @@ pub extern "C" fn tss_dkls_split_key(
         };
         let (handles, pubkey) = libtss::dkls_import::dkls_split_key(&config, sk_bytes, chain_code)?;
 
+        // Serialize first: if it fails, the handles drop and leave the registry.
+        let pkg_bytes = pubkey.serialize()?;
         let handle_slice = unsafe { core::slice::from_raw_parts_mut(out_handles, handles.len()) };
         for (i, h) in handles.into_iter().enumerate() {
             handle_slice[i] = h.handle_id();
             std::mem::forget(h);
         }
         *out_count = handle_slice.len();
-        *out_pkg = TssBuffer::from_vec(pubkey.serialize()?);
+        *out_pkg = TssBuffer::from_vec(pkg_bytes);
         Ok(())
     })
 }

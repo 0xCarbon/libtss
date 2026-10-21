@@ -539,3 +539,23 @@ fn refresh_with_a_tampered_proof_names_the_sender_and_ends() {
         Err(TssError::SessionComplete)
     ));
 }
+
+#[test]
+fn bolt3_package_derivation_requires_indices_one_to_n() {
+    let base = import(Ciphersuite::Secp256k1ECDSA, &hex(BOLT3_BASE_SECRET), None);
+    let package = base[&id(1)].public_key_package();
+    let gapped: BTreeMap<_, _> = [1, 3]
+        .into_iter()
+        .map(|i| (id(i), package.verifying_share(id(i)).unwrap().to_vec()))
+        .collect();
+    let gapped = libtss::PublicKeyPackage::new(
+        Ciphersuite::Secp256k1ECDSA,
+        package.verifying_key().to_vec(),
+        gapped,
+        2,
+    );
+    assert!(matches!(
+        libtss::bolt3::bolt3_derive_public_keys(&gapped, &hex(BOLT3_PER_COMMITMENT_POINT)),
+        Err(TssError::InvalidIdentifier)
+    ));
+}
