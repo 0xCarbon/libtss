@@ -24,7 +24,7 @@ multi-language support. The current landscape has critical gaps:
 
 Two production-quality Rust protocol implementations exist but are separate crates
 with incompatible APIs, no unified interface, and no multi-language FFI story:
-- **ZCash Foundation FROST** (v3.0.0-rc.0): NCC-audited, 7 ciphersuites including secp256k1 Taproot
+- **ZCash Foundation FROST** (v3.0.0): NCC-audited, 7 ciphersuites including secp256k1 Taproot
 - **0xCarbon DKLs23** (v0.6.1): Multi-crate workspace (`dkls23-core` + curve-specific crates),
   curve-generic types (`Party<C: DklsCurve>`, `PublicKeyPackage<C>`, `DkgSession<C>`,
   `SignSession<'a, C>`), supports secp256k1 and secp256r1 (NIST P-256). Full protocol with

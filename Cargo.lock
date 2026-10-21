@@ -800,8 +800,9 @@ checksum = "d9c4f5dac5e15c24eb999c26181a6ca40b39fe946cbe4c263c7209467bc83af2"
 
 [[package]]
 name = "frost-core"
-version = "3.0.0-rc.0"
-source = "git+https://github.com/ZcashFoundation/frost?branch=main#f7954c388169f380aac602c5093405908e43ae2d"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "81ef2787af391c7e8bedc037a3b9ea03dde803fbd93e778e6bb369547800e5cd"
 dependencies = [
  "byteorder",
  "const-crc32-nostd",
@@ -821,8 +822,9 @@ dependencies = [
 
 [[package]]
 name = "frost-ed25519"
-version = "3.0.0-rc.0"
-source = "git+https://github.com/ZcashFoundation/frost?branch=main#f7954c388169f380aac602c5093405908e43ae2d"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df345f704e41812a3ab238331a393126f76996c176d204296e289efe946c57f0"
 dependencies = [
  "curve25519-dalek",
  "document-features",
@@ -834,8 +836,9 @@ dependencies = [
 
 [[package]]
 name = "frost-ed448"
-version = "3.0.0-rc.0"
-source = "git+https://github.com/ZcashFoundation/frost?branch=main#f7954c388169f380aac602c5093405908e43ae2d"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0c2ffd8cace22c7980504c254d8947e7cc2b9d41238ce4c57b59cf9784e8e327"
 dependencies = [
  "document-features",
  "ed448-goldilocks",
@@ -847,8 +850,9 @@ dependencies = [
 
 [[package]]
 name = "frost-p256"
-version = "3.0.0-rc.0"
-source = "git+https://github.com/ZcashFoundation/frost?branch=main#f7954c388169f380aac602c5093405908e43ae2d"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d57e54e37f0f804c567369f21459e6721c29f446fd3e741d862991cb6935eaa7"
 dependencies = [
  "document-features",
  "frost-core",
@@ -860,8 +864,9 @@ dependencies = [
 
 [[package]]
 name = "frost-rerandomized"
-version = "3.0.0-rc.0"
-source = "git+https://github.com/ZcashFoundation/frost?branch=main#f7954c388169f380aac602c5093405908e43ae2d"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f4c5cedd2426728adef2c0b1720f57676354c473836d1ccc50d0f0d1c91942b"
 dependencies = [
  "derive-getters",
  "document-features",
@@ -872,8 +877,9 @@ dependencies = [
 
 [[package]]
 name = "frost-ristretto255"
-version = "3.0.0-rc.0"
-source = "git+https://github.com/ZcashFoundation/frost?branch=main#f7954c388169f380aac602c5093405908e43ae2d"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0159efb722280263c3a92f3f8d8f2f9a03174304d46e85595f0243ba0eb16cf8"
 dependencies = [
  "curve25519-dalek",
  "document-features",
@@ -885,8 +891,9 @@ dependencies = [
 
 [[package]]
 name = "frost-secp256k1"
-version = "3.0.0-rc.0"
-source = "git+https://github.com/ZcashFoundation/frost?branch=main#f7954c388169f380aac602c5093405908e43ae2d"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d69a97ae720bc1f01efd7a87c6c8451582bd00a45383052b01e83ba9c6faa5c5"
 dependencies = [
  "document-features",
  "frost-core",
@@ -898,8 +905,9 @@ dependencies = [
 
 [[package]]
 name = "frost-secp256k1-tr"
-version = "3.0.0-rc.0"
-source = "git+https://github.com/ZcashFoundation/frost?branch=main#f7954c388169f380aac602c5093405908e43ae2d"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c6fca4ca9f057cf22066f3eb5bbda59d2af51f429f2aac5982a11a8a841c0993"
 dependencies = [
  "document-features",
  "frost-core",

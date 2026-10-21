@@ -10,13 +10,13 @@ repository = "https://github.com/0xCarbon/libtss"
 publish = false
 
 [workspace.dependencies]
-frost-core = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
-frost-secp256k1-tr = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
-frost-secp256k1 = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
-frost-ed25519 = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
-frost-p256 = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
-frost-ristretto255 = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
-frost-ed448 = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
+frost-core = "3.0.0"
+frost-secp256k1-tr = "3.0.0"
+frost-secp256k1 = "3.0.0"
+frost-ed25519 = "3.0.0"
+frost-p256 = "3.0.0"
+frost-ristretto255 = "3.0.0"
+frost-ed448 = "3.0.0"
 dkls23-secp256k1 = { version = "0.6.1", features = ["serde"] }
 dkls23-secp256r1 = { version = "0.6.1", features = ["serde"] }
 zeroize = { version = "1", features = ["derive"] }

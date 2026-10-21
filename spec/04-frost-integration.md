@@ -3,7 +3,7 @@
 ## Protocol Reference
 
 FROST (RFC 9591) implements two-round threshold Schnorr signatures. The ZCash Foundation
-implementation (`frost-core` v3.0.0-rc.0) is the reference Rust crate.
+implementation (`frost-core` v3.0.0) is the reference Rust crate.
 
 ## Ciphersuite Mapping
 
