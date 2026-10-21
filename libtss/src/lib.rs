@@ -3,6 +3,7 @@ pub mod address;
 pub mod derive;
 pub mod dkls;
 pub mod dkls_r1;
+pub mod dkls_refresh;
 pub mod error;
 pub mod frost;
 pub mod handle;

@@ -1,7 +1,8 @@
+use crate::dkls_refresh::{self, DklsRefreshState};
 use crate::frost::{frost_apply_refresh, frost_refresh_with_dealer};
 use crate::keyshare::{self, KeyShareHandle};
 use crate::message::Message;
-use crate::types::{Identifier, Protocol, PublicKeyPackage};
+use crate::types::{Ciphersuite, Identifier, Protocol, PublicKeyPackage};
 use crate::TssError;
 
 pub enum RefreshOutput {
@@ -16,6 +17,8 @@ enum RefreshInner {
     FrostApply {
         key_share: crate::frost::KeyShareHandle,
     },
+    Dkls(Box<Option<DklsRefreshState<k256::Secp256k1>>>),
+    DklsR1(Box<Option<DklsRefreshState<p256::NistP256>>>),
     Complete,
 }
 
@@ -92,12 +95,78 @@ impl RefreshSession {
         })
     }
 
+    /// Create a DKLs23 complete refresh session (secp256k1 or secp256r1).
+    ///
+    /// All `n` parties of the group run it together under the same fresh
+    /// `session_id`. Every share moves by a share of zero, the group key stays
+    /// the same, and the pairwise OT and zero-share state is generated from
+    /// scratch. `next()` is called three times; the input handle stays valid
+    /// and the completed session returns a new one. Refreshed shares sign only
+    /// with shares from the same refresh.
+    pub fn new_dkls(
+        key_share: &KeyShareHandle,
+        session_id: &[u8],
+    ) -> Result<(Self, Vec<Message>), TssError> {
+        let (inner, messages) = match key_share.ciphersuite() {
+            Ciphersuite::Secp256k1ECDSA => {
+                let (state, messages) = dkls_refresh::phase1(
+                    keyshare::clone_dkls_party(key_share)?,
+                    keyshare::clone_dkls_pubkey(key_share)?,
+                    session_id,
+                )?;
+                (RefreshInner::Dkls(Box::new(Some(state))), messages)
+            }
+            Ciphersuite::Secp256r1ECDSA => {
+                let (state, messages) = dkls_refresh::phase1(
+                    keyshare::clone_dkls_r1_party(key_share)?,
+                    keyshare::clone_dkls_r1_pubkey(key_share)?,
+                    session_id,
+                )?;
+                (RefreshInner::DklsR1(Box::new(Some(state))), messages)
+            }
+            _ => return Err(TssError::ProtocolMismatch),
+        };
+        Ok((Self { inner, round: 1 }, messages))
+    }
+
+    /// Advance the refresh with the messages received for this round.
+    pub fn next(&mut self, received: &[Message]) -> Result<RefreshOutput, TssError> {
+        match &mut self.inner {
+            RefreshInner::Dkls(state) => {
+                let round = self.round;
+                let output = next_dkls(state, round, received, |party, package| {
+                    let public_keys = crate::dkls::convert_public_key_package(&package)?;
+                    Ok((keyshare::from_dkls_dkg(party, package)?, public_keys))
+                })?;
+                self.advance(output)
+            }
+            RefreshInner::DklsR1(state) => {
+                let round = self.round;
+                let output = next_dkls(state, round, received, |party, package| {
+                    let public_keys = crate::dkls_r1::convert_public_key_package(&package)?;
+                    Ok((keyshare::from_dkls_r1_dkg(party, package)?, public_keys))
+                })?;
+                self.advance(output)
+            }
+            _ => self.next_frost(received),
+        }
+    }
+
+    fn advance(&mut self, output: RefreshOutput) -> Result<RefreshOutput, TssError> {
+        self.round += 1;
+        if matches!(output, RefreshOutput::Complete { .. }) {
+            self.inner = RefreshInner::Complete;
+        }
+        Ok(output)
+    }
+
     /// Apply received refresh data. Called by each participant after receiving
     /// the refresh share from the dealer.
-    pub fn next(&mut self, received: &[Message]) -> Result<RefreshOutput, TssError> {
+    fn next_frost(&mut self, received: &[Message]) -> Result<RefreshOutput, TssError> {
         let state = std::mem::replace(&mut self.inner, RefreshInner::Complete);
         match state {
             RefreshInner::Complete => Err(TssError::SessionComplete),
+            RefreshInner::Dkls(_) | RefreshInner::DklsR1(_) => Err(TssError::ProtocolMismatch),
             RefreshInner::FrostApply { key_share } => {
                 let msg = received.first().ok_or_else(|| {
                     TssError::DeserializeFailed("no refresh data received".into())
@@ -140,6 +209,40 @@ impl RefreshSession {
 
     pub fn is_complete(&self) -> bool {
         matches!(self.inner, RefreshInner::Complete)
+    }
+}
+
+/// One round of a DKLs23 refresh. A failed round consumes the state, so a
+/// refresh is never resumed after an error.
+fn next_dkls<C: dkls_refresh::RefreshCurve>(
+    state: &mut Option<DklsRefreshState<C>>,
+    round: u8,
+    received: &[Message],
+    finish: impl FnOnce(
+        dkls23_secp256k1::protocols::Party<C>,
+        dkls23_secp256k1::protocols::PublicKeyPackage<C>,
+    ) -> Result<(KeyShareHandle, PublicKeyPackage), TssError>,
+) -> Result<RefreshOutput, TssError> {
+    let mut current = state.take().ok_or(TssError::SessionComplete)?;
+    match round {
+        1 | 2 => {
+            let messages = if round == 1 {
+                dkls_refresh::phase2(&mut current, received)?
+            } else {
+                dkls_refresh::phase3(&mut current, received)?
+            };
+            *state = Some(current);
+            Ok(RefreshOutput::Continue(messages))
+        }
+        3 => {
+            let (party, package) = dkls_refresh::phase4(current, received)?;
+            let (key_share, public_keys) = finish(party, package)?;
+            Ok(RefreshOutput::Complete {
+                key_share,
+                public_keys,
+            })
+        }
+        _ => Err(TssError::SessionComplete),
     }
 }
 

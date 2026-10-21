@@ -280,6 +280,21 @@ TssStatus tss_refresh_new(TssHandle key_share,
                           TssHandle *out_session,
                           struct TssBuffer *out_messages);
 
+// Create a DKLs23 complete refresh session (secp256k1 or secp256r1).
+//
+// All `n` parties of the group run it together under the same fresh
+// `session_id`; advance with `tss_refresh_next` three times. The group key
+// stays the same and every share and its OT state are regenerated.
+// `key_share` stays valid; the completed session yields a new handle.
+// Refreshed shares sign only with shares from the same refresh. Non-DKLs23
+// shares return `TSS_ERR_PROTO_MISMATCH`; a missing or empty `session_id`
+// returns `TSS_ERR_INVALID_CONFIG`.
+TssStatus tss_refresh_new_dkls(TssHandle key_share,
+                               const uint8_t *session_id,
+                               size_t session_id_len,
+                               TssHandle *out_session,
+                               struct TssBuffer *out_messages);
+
 TssStatus tss_refresh_receiver(TssHandle key_share, TssHandle *out_session);
 
 TssStatus tss_refresh_next(TssHandle session,

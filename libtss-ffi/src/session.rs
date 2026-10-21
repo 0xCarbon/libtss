@@ -280,6 +280,43 @@ pub extern "C" fn tss_refresh_new(
     })
 }
 
+/// Create a DKLs23 complete refresh session (secp256k1 or secp256r1).
+///
+/// All `n` parties of the group run it together under the same fresh
+/// `session_id`; advance with `tss_refresh_next` three times. The group key
+/// stays the same and every share and its OT state are regenerated.
+/// `key_share` stays valid; the completed session yields a new handle.
+/// Refreshed shares sign only with shares from the same refresh. Non-DKLs23
+/// shares return `TSS_ERR_PROTO_MISMATCH`; a missing or empty `session_id`
+/// returns `TSS_ERR_INVALID_CONFIG`.
+#[no_mangle]
+pub extern "C" fn tss_refresh_new_dkls(
+    key_share: TssHandle,
+    session_id: *const u8,
+    session_id_len: usize,
+    out_session: *mut TssHandle,
+    out_messages: *mut TssBuffer,
+) -> TssStatus {
+    ffi_entry!({
+        let out_session = unsafe { out_session.as_mut() }
+            .ok_or_else(|| libtss::TssError::InvalidConfig("out_session is null".into()))?;
+        let out_messages = unsafe { out_messages.as_mut() }
+            .ok_or_else(|| libtss::TssError::InvalidConfig("out_messages is null".into()))?;
+        *out_session = 0;
+        *out_messages = TssBuffer::empty();
+
+        let handle = borrow_key_share(key_share)?;
+        let sid = checked_optional_slice(session_id, session_id_len)?.ok_or_else(|| {
+            libtss::TssError::InvalidConfig("DKLs23 refresh requires a session_id".into())
+        })?;
+        let (session, messages) = libtss::RefreshSession::new_dkls(&handle, sid)?;
+
+        *out_session = insert_session(SessionEntry::Refresh(session));
+        *out_messages = TssBuffer::from_vec(serialize_messages(&messages));
+        Ok(())
+    })
+}
+
 #[no_mangle]
 pub extern "C" fn tss_refresh_receiver(
     key_share: TssHandle,

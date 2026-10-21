@@ -24,10 +24,11 @@ const (
 	CiphersuiteRistretto255     Ciphersuite = 4
 	CiphersuiteEd448            Ciphersuite = 5
 	CiphersuiteSecp256k1ECDSA   Ciphersuite = 6
+	CiphersuiteSecp256r1ECDSA   Ciphersuite = 7
 )
 
 func (c Ciphersuite) Protocol() Protocol {
-	if c == CiphersuiteSecp256k1ECDSA {
+	if c == CiphersuiteSecp256k1ECDSA || c == CiphersuiteSecp256r1ECDSA {
 		return ProtocolDKLs23
 	}
 	return ProtocolFROST
@@ -50,6 +51,8 @@ func (c Ciphersuite) MarshalJSON() ([]byte, error) {
 		name = "Ed448"
 	case CiphersuiteSecp256k1ECDSA:
 		name = "Secp256k1ECDSA"
+	case CiphersuiteSecp256r1ECDSA:
+		name = "Secp256r1ECDSA"
 	default:
 		return nil, fmt.Errorf("unknown ciphersuite %d", c)
 	}
@@ -82,6 +85,8 @@ func (c *Ciphersuite) UnmarshalJSON(data []byte) error {
 		*c = CiphersuiteEd448
 	case "secp256k1ecdsa":
 		*c = CiphersuiteSecp256k1ECDSA
+	case "secp256r1ecdsa":
+		*c = CiphersuiteSecp256r1ECDSA
 	default:
 		return fmt.Errorf("unknown ciphersuite %q", name)
 	}

@@ -6,6 +6,7 @@ package tss
 import "C"
 
 import (
+	"fmt"
 	"runtime"
 	"unsafe"
 )
@@ -245,6 +246,46 @@ func NewRefreshSession(keyShare *KeyShareHandle, participants []Identifier) (*Re
 			handle,
 			pPtr,
 			C.uintptr_t(len(participants)),
+			&native,
+			&out,
+		)
+	}); err != nil {
+		return nil, nil, err
+	}
+	msgs, err := ParseMessages(bufferToBytes(&out))
+	if err != nil {
+		C.tss_session_free(native)
+		return nil, nil, err
+	}
+	return newRefreshSession(native), msgs, nil
+}
+
+// NewRefreshSessionDKLs starts a DKLs23 complete refresh (secp256k1 or
+// secp256r1).
+//
+// All parties of the group run it together under the same fresh sessionID;
+// Next is called three times. The group key stays the same and every share
+// and its OT state are regenerated. The input handle stays valid and the
+// completed step carries a new one. Refreshed shares sign only with shares
+// from the same refresh.
+func NewRefreshSessionDKLs(keyShare *KeyShareHandle, sessionID []byte) (*RefreshSession, []Message, error) {
+	if err := checkNonNil("keyShare", keyShare); err != nil {
+		return nil, nil, err
+	}
+	if len(sessionID) == 0 {
+		return nil, nil, fmt.Errorf("sessionID must not be empty")
+	}
+	handle, err := keyShare.native.value()
+	if err != nil {
+		return nil, nil, err
+	}
+	var native C.TssHandle
+	var out C.struct_TssBuffer
+	if err := callStatus(func() C.TssStatus {
+		return C.tss_refresh_new_dkls(
+			handle,
+			(*C.uint8_t)(unsafe.Pointer(&sessionID[0])),
+			C.uintptr_t(len(sessionID)),
 			&native,
 			&out,
 		)

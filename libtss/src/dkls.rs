@@ -46,12 +46,12 @@ pub struct DklsSignState<'a> {
     pub(crate) self_broadcast: Option<Broadcast3to4>,
 }
 
-fn identifier_to_party_index(id: Identifier) -> Result<PartyIndex, TssError> {
+pub(crate) fn identifier_to_party_index(id: Identifier) -> Result<PartyIndex, TssError> {
     let value = u8::try_from(id.as_u16()).map_err(|_| TssError::InvalidIdentifier)?;
     PartyIndex::new(value).map_err(|_| TssError::InvalidIdentifier)
 }
 
-fn identifier_to_session_party_index(
+pub(crate) fn identifier_to_session_party_index(
     id: Identifier,
     share_count: u8,
 ) -> Result<PartyIndex, TssError> {
@@ -62,11 +62,11 @@ fn identifier_to_session_party_index(
     Ok(index)
 }
 
-fn party_index_to_identifier(index: PartyIndex) -> Result<Identifier, TssError> {
+pub(crate) fn party_index_to_identifier(index: PartyIndex) -> Result<Identifier, TssError> {
     Identifier::new(u16::from(index.as_u8()))
 }
 
-fn abort_to_error(abort: Abort) -> TssError {
+pub(crate) fn abort_to_error(abort: Abort) -> TssError {
     match abort.kind {
         AbortKind::Recoverable => TssError::Abort {
             culprits: party_index_to_identifier(abort.index).into_iter().collect(),
@@ -84,7 +84,7 @@ fn abort_to_error(abort: Abort) -> TssError {
     }
 }
 
-fn phase_output_to_messages(
+pub(crate) fn phase_output_to_messages(
     output: &PhaseOutput,
     from: Identifier,
 ) -> Result<Vec<Message>, TssError> {
@@ -109,7 +109,7 @@ fn phase_output_to_messages(
     Ok(messages)
 }
 
-fn messages_to_phase_input(
+pub(crate) fn messages_to_phase_input(
     messages: &[Message],
     self_id: Identifier,
 ) -> Result<PhaseInput, TssError> {
@@ -139,15 +139,21 @@ fn messages_to_phase_input(
     Ok(input)
 }
 
-fn message_error(error: impl std::fmt::Display) -> TssError {
+pub(crate) fn message_error(error: impl std::fmt::Display) -> TssError {
     TssError::DeserializeFailed(error.to_string())
 }
 
-fn phase_input_broadcast<T: MessageTag>(input: &PhaseInput, sender: u8) -> Result<T, TssError> {
+pub(crate) fn phase_input_broadcast<T: MessageTag>(
+    input: &PhaseInput,
+    sender: u8,
+) -> Result<T, TssError> {
     input.get_broadcast(sender).map_err(message_error)
 }
 
-fn phase_input_p2p<T: MessageTag>(input: &PhaseInput, sender: u8) -> Result<T, TssError> {
+pub(crate) fn phase_input_p2p<T: MessageTag>(
+    input: &PhaseInput,
+    sender: u8,
+) -> Result<T, TssError> {
     input.get_p2p(sender).map_err(message_error)
 }
 

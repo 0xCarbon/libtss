@@ -194,6 +194,12 @@ impl RefreshSession {
     /// DKLs23: Complete refresh with OT re-initialization (4 phases).
     pub fn new(key_share: &KeyShareHandle) -> Result<(Self, Vec<Message>), TssError>;
 
+    /// DKLs23 complete refresh (secp256k1 / secp256r1). All n parties run it
+    /// under the same fresh `session_id`; `next()` is called three times.
+    /// C ABI: `tss_refresh_new_dkls`.
+    pub fn new_dkls(key_share: &KeyShareHandle, session_id: &[u8])
+        -> Result<(Self, Vec<Message>), TssError>;
+
     /// FROST refresh receiver (non-dealer participant).
     /// Waits for messages from the dealer refresh. Does not produce
     /// initial messages. Use with `frost_refresh_with_dealer`.
@@ -226,9 +232,24 @@ pub fn frost_apply_refresh(
 
 ### DKLs23 Complete Refresh
 
-DKLs23 refresh uses `RefreshSession::new`, which re-runs the full DKG
-(including OT re-initialization). This is the recommended mode when OT
-state may have been partially compromised.
+DKLs23 refresh uses `RefreshSession::new_dkls` (C ABI: `tss_refresh_new_dkls`),
+which re-runs DKG with a zero-constant polynomial and re-initializes the
+pairwise OT and zero-share state. All `n` parties take part, under the same
+fresh `session_id`.
+
+- The group key, address and chain code are unchanged; every verifying share
+  moves, and the refreshed public key package is returned with the new handle.
+- Each party verifies every party's proof commitment and checks the refreshed
+  package against its own refreshed share.
+- Refreshed shares sign only with shares from the same refresh: DKLs23 derives
+  the refreshed session id from the previous one, the refresh `session_id` and
+  the round-2 commitments.
+- A failed round ends the session; start a new refresh with a new
+  `session_id`. The input handle stays valid until the application replaces it.
+
+Run it after importing a key (see Key Import) and after upgrading from
+DKLs23 0.5.1 or earlier, so the OT state is regenerated, and periodically as
+proactive security.
 
 ### FROST Dealer/Receiver Refresh
 
