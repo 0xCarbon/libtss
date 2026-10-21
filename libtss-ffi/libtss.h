@@ -81,6 +81,58 @@ TssStatus tss_derive_child(TssHandle key_share, uint32_t child_number, TssHandle
 // NUL-terminated C string.
 TssStatus tss_derive_path(TssHandle key_share, const char *path, TssHandle *out_handle);
 
+// Import an existing ECDSA key as DKLs23 shares (trusted dealer).
+//
+// `suite` is `Secp256k1ECDSA` (6) or `Secp256r1ECDSA` (7); `secret_key` is a
+// 32-byte big-endian scalar. `chain_code` is either empty (sample a new one)
+// or the key's existing 32-byte BIP-32 chain code. `out_handles` must have
+// room for `max_signers` handles. The group key is the key's own public key.
+// The caller holds every share: hand each one to its party, erase the key
+// and the shares, and have the parties run a complete refresh
+// (`tss_refresh_new_dkls`) before use.
+TssStatus tss_dkls_split_key(uint8_t suite,
+                             struct TssSlice secret_key,
+                             struct TssSlice chain_code,
+                             uint16_t max_signers,
+                             uint16_t min_signers,
+                             TssHandle *out_handles,
+                             size_t *out_handle_count,
+                             struct TssBuffer *out_pubkey_package);
+
+// BOLT 3 derivation of a DKLs23 secp256k1 key share for a commitment
+// (`basepoint + SHA256(per_commitment_point || basepoint)·G`).
+//
+// `per_commitment_point` is a 33-byte compressed point; every party derives
+// with the same point. `key_share` stays valid; `out_handle` receives the
+// derived share. A derived share keeps the base share's OT state, so a
+// counterparty banned under a derived key is banned for the base key too.
+// Non-secp256k1-ECDSA shares return `TSS_ERR_PROTO_MISMATCH`.
+TssStatus tss_bolt3_derive(TssHandle key_share,
+                           struct TssSlice per_commitment_point,
+                           TssHandle *out_handle);
+
+// BOLT 3 revocation derivation of a DKLs23 secp256k1 key share, for a
+// commitment whose 32-byte big-endian `per_commitment_secret` was revealed.
+// The secret must match `per_commitment_point`, or `TSS_ERR_TWEAK` is
+// returned. `key_share` stays valid; `out_handle` receives the derived share.
+TssStatus tss_bolt3_derive_revocation(TssHandle key_share,
+                                      struct TssSlice per_commitment_point,
+                                      struct TssSlice per_commitment_secret,
+                                      TssHandle *out_handle);
+
+// `tss_bolt3_derive` on a serialized secp256k1 ECDSA public key package:
+// writes the derived package to `out_pubkey_package`.
+TssStatus tss_bolt3_derive_pubkey_package(struct TssSlice pubkey_package,
+                                          struct TssSlice per_commitment_point,
+                                          struct TssBuffer *out_pubkey_package);
+
+// `tss_bolt3_derive_revocation` on a serialized secp256k1 ECDSA public key
+// package (no secret needed): writes the derived package to
+// `out_pubkey_package`.
+TssStatus tss_bolt3_derive_revocation_pubkey_package(struct TssSlice pubkey_package,
+                                                     struct TssSlice per_commitment_point,
+                                                     struct TssBuffer *out_pubkey_package);
+
 // Return a pointer to the last error message (NUL-terminated).
 //
 // **Lifetime:** The returned pointer is only valid until the next libtss FFI
@@ -181,6 +233,16 @@ TssStatus tss_handle_verifying_share(TssHandle handle, struct TssBuffer *out);
 
 TssStatus tss_handle_group_key(TssHandle handle, struct TssBuffer *out);
 
+// Return the 32-byte BIP-32 chain code paired with the group key.
+//
+// Supported for the BIP-32-capable ciphersuites only (Secp256k1ECDSA,
+// Secp256r1ECDSA, Secp256k1Taproot); every other suite returns
+// `TSS_ERR_PROTO_MISMATCH`. Pair with `tss_handle_group_key` to build an
+// extended public key whose off-MPC child derivation matches `tss_derive_child`.
+// For Secp256k1Taproot the chain code is SHA-256 of the group key and is
+// re-derived for each child, so an external CKDpub matches only at depth 1.
+TssStatus tss_handle_chain_code(TssHandle handle, struct TssBuffer *out);
+
 TssStatus tss_handle_pubkey_package(TssHandle handle, struct TssBuffer *out);
 
 uint8_t tss_handle_ciphersuite(TssHandle handle);
@@ -271,6 +333,23 @@ TssStatus tss_refresh_new(TssHandle key_share,
                           size_t participants_len,
                           TssHandle *out_session,
                           struct TssBuffer *out_messages);
+
+// Create a DKLs23 complete refresh session (secp256k1 or secp256r1).
+//
+// All `n` parties of the group run it together under the same fresh
+// `session_id`; advance with `tss_refresh_next` three times. The group key
+// stays the same and every share and its OT state are regenerated.
+// `key_share` stays valid; the completed session yields a new handle.
+// Refreshed shares sign only with shares from the same refresh. A round that
+// fails ends the session; only a message blob that fails to decode
+// (`TSS_ERR_DESERIALIZE`, before the round runs) leaves it unchanged. Non-DKLs23
+// shares return `TSS_ERR_PROTO_MISMATCH`; a missing or empty `session_id`
+// returns `TSS_ERR_INVALID_CONFIG`.
+TssStatus tss_refresh_new_dkls(TssHandle key_share,
+                               const uint8_t *session_id,
+                               size_t session_id_len,
+                               TssHandle *out_session,
+                               struct TssBuffer *out_messages);
 
 TssStatus tss_refresh_receiver(TssHandle key_share, TssHandle *out_session);
 

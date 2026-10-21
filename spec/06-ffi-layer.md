@@ -255,6 +255,9 @@ void tss_session_free(TssHandle session);
 TssStatus tss_handle_identifier(TssHandle handle, uint16_t *out_id);
 TssStatus tss_handle_verifying_share(TssHandle handle, TssBuffer *out);
 TssStatus tss_handle_group_key(TssHandle handle, TssBuffer *out);
+/// 32-byte BIP-32 chain code paired with the group key. BIP-32-capable suites only
+/// (Secp256k1ECDSA, Secp256r1ECDSA, Secp256k1Taproot); others -> TSS_ERR_PROTO_MISMATCH.
+TssStatus tss_handle_chain_code(TssHandle handle, TssBuffer *out);
 TssStatus tss_handle_pubkey_package(TssHandle handle, TssBuffer *out);
 uint8_t   tss_handle_ciphersuite(TssHandle handle);
 
@@ -330,6 +333,14 @@ TssStatus tss_refresh_new(
     TssHandle *out_session, TssBuffer *out_messages
 );
 
+// DKLs23 complete refresh (all n parties, same fresh session_id); advance with
+// tss_refresh_next three times.
+TssStatus tss_refresh_new_dkls(
+    TssHandle key_share,
+    const uint8_t *session_id, size_t session_id_len,
+    TssHandle *out_session, TssBuffer *out_messages
+);
+
 /// Create a FROST refresh receiver session (non-dealer participant).
 /// The receiver waits for messages from the dealer refresh and does
 /// not produce initial messages. Use with tss_frost_refresh_dealer.
@@ -392,6 +403,17 @@ TssStatus tss_frost_split_key(
     TssBuffer *out_pubkey_package
 );
 
+// --- DKLs23 Key Import (trusted dealer) ---
+
+// suite: Secp256k1ECDSA (6) or Secp256r1ECDSA (7). chain_code: empty, or the
+// key's existing 32-byte BIP-32 chain code. Run tss_refresh_new_dkls after.
+TssStatus tss_dkls_split_key(
+    uint8_t suite, TssSlice secret_key, TssSlice chain_code,
+    uint16_t max_signers, uint16_t min_signers,
+    TssHandle *out_handles, size_t *out_handle_count,
+    TssBuffer *out_pubkey_package
+);
+
 // --- Trusted Dealer Refresh ---
 
 TssStatus tss_frost_refresh_dealer(
@@ -439,6 +461,16 @@ bool tss_verify(uint8_t suite, TssSlice message, TssSlice signature, TssSlice pu
 TssStatus tss_derive_child(TssHandle key_share, uint32_t child_number, TssHandle *out);
 TssStatus tss_derive_path(TssHandle key_share, const char *path, TssHandle *out);
 
+// BOLT 3 key derivation (DKLs23 secp256k1 only)
+TssStatus tss_bolt3_derive(TssHandle key_share, TssSlice per_commitment_point, TssHandle *out_handle);
+TssStatus tss_bolt3_derive_revocation(TssHandle key_share, TssSlice per_commitment_point,
+                                      TssSlice per_commitment_secret, TssHandle *out_handle);
+TssStatus tss_bolt3_derive_pubkey_package(TssSlice pubkey_package, TssSlice per_commitment_point,
+                                          TssBuffer *out_pubkey_package);
+TssStatus tss_bolt3_derive_revocation_pubkey_package(TssSlice pubkey_package,
+                                                     TssSlice per_commitment_point,
+                                                     TssBuffer *out_pubkey_package);
+
 // --- Export / Import ---
 TssStatus tss_handle_export(TssHandle handle, TssBuffer *out);
 TssStatus tss_handle_import(const uint8_t *data, size_t data_len, uint8_t suite, TssHandle *out_handle);
@@ -454,13 +486,14 @@ const char* tss_version(void);
 | Category | Functions | Notes |
 |----------|-----------|-------|
 | Initialization | 1 | `tss_init` |
-| Unified sessions | 8 | dkg (2) + sign (2) + refresh (2) + refresh_receiver (1) + session_free (1) |
+| Unified sessions | 9 | dkg (2) + sign (2) + refresh (2) + refresh_new_dkls (1) + refresh_receiver (1) + session_free (1) |
 | Message helpers | 3 | count, at, build |
 | FROST-specific | 9 | aggregate, tweak (2), dealer (2), refresh (2), repair (3) |
+| DKLs23-specific | 5 | dkls_split_key, bolt3 (4) |
 | Verification + key mgmt | 5 | verify, derive (2), export, import |
-| Handle + memory | 8 | handle queries (4) + handle_free + buffer_free + session_free + version |
+| Handle + memory | 10 | handle queries (6, incl. chain_code) + handle_free + buffer_free + session_free + version |
 | Error | 6 | last_error, last_error_len, last_error_copy, culprit_count, culprit, banned_party |
-| **Total** | **~40** | **Core unified path: 11 functions (sessions + messages)** |
+| **Total** | **~48** | **Core unified path: 11 functions (sessions + messages)** |
 
 The core DKG + signing workflow uses only 7 functions: `tss_dkg_new`, `tss_dkg_next`,
 `tss_sign_new`, `tss_sign_next`, `tss_message_count`, `tss_message_at`, `tss_message_build`.
@@ -757,14 +790,15 @@ type confusion regardless of which language the caller uses.
 members = ["libtss", "libtss-ffi"]
 
 [workspace.dependencies]
-frost-core = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
-frost-secp256k1-tr = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
-frost-secp256k1 = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
-frost-ed25519 = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
-frost-p256 = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
-frost-ristretto255 = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
-frost-ed448 = { git = "https://github.com/ZcashFoundation/frost", branch = "main" }
-dkls23 = { git = "https://github.com/0xCarbon/DKLs23", branch = "main", features = ["serde"] }
+frost-core = "3.0.0"
+frost-secp256k1-tr = "3.0.0"
+frost-secp256k1 = "3.0.0"
+frost-ed25519 = "3.0.0"
+frost-p256 = "3.0.0"
+frost-ristretto255 = "3.0.0"
+frost-ed448 = "3.0.0"
+dkls23-secp256k1 = { version = "0.6.1", features = ["serde"] }
+dkls23-secp256r1 = { version = "0.6.1", features = ["serde"] }
 zeroize = { version = "1", features = ["derive"] }
 ```
 

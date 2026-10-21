@@ -65,6 +65,24 @@ export class KeyShareHandle {
 		);
 	}
 
+	/**
+	 * Returns the 32-byte BIP-32 chain code paired with the group verifying key.
+	 *
+	 * Supported only for the BIP-32-capable ciphersuites: `Secp256k1ECDSA`,
+	 * `Secp256r1ECDSA` and `Secp256k1Taproot`. Every other suite rejects with a
+	 * {@link TssError} whose code is `TssStatusCode.PROTO_MISMATCH`.
+	 *
+	 * Pair with {@link groupVerifyingKey} to build a BIP-32 extended public key
+	 * (xpub) whose off-MPC child derivation matches libtss's own derivation.
+	 * For `Secp256k1Taproot` the chain code is SHA-256 of the group key and is
+	 * re-derived for each child, so an external CKDpub matches only at depth 1.
+	 */
+	async chainCode(): Promise<Uint8Array> {
+		return decodeBase64(
+			await callNative(() => NativeLibtss.handleChainCode(this._handle)),
+		);
+	}
+
 	async publicKeyPackage(): Promise<Uint8Array> {
 		return decodeBase64(
 			await callNative(() => NativeLibtss.handlePubkeyPackage(this._handle)),

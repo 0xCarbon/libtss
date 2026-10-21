@@ -73,6 +73,8 @@ cd libtss-ffi && cargo test --test integration
 | `TestDeriveChild` | BIP-32 child derivation produces correct public key |
 | `TestDerivePath` | Multi-level path derivation matches reference |
 | `TestDeriveChild_AllParties` | All parties derive same child public key independently |
+| `TestChainCode_DKLs_MatchesBIP32` | Chain code is equal across parties; child chain code / key match an independent CKDpub |
+| `TestChainCode_UnsupportedSuite` | `chain_code()` on a non-BIP-32 suite returns `ProtocolMismatch` |
 | `TestRefresh_FROST` | Share refresh preserves signing ability |
 | `TestRefresh_DKLs` | Complete and quick refresh preserve signing |
 | `TestRefresh_OldSharesInvalid` | Old shares cannot produce valid signatures after refresh |

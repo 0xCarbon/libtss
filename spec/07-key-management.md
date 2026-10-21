@@ -95,7 +95,7 @@ fn frost_derive_child(key_handle: u64, child_number: u32) -> HandleResult {
 
     // Compute BIP-32 tweak
     let parent_pubkey = key_package.verifying_key().serialize();
-    let chain_code = get_chain_code(key_handle)?;
+    let chain_code = key_handle.chain_code()?;
     let (il, ir) = hmac_sha512(&chain_code, &[&parent_pubkey, &child_number.to_be_bytes()]);
     let delta = Scalar::deserialize(&il)?;
 
@@ -151,6 +151,21 @@ The `Party::derive_child` method:
 | Hardened derivation | Not supported | Requires MPC hash (future work) |
 | Path format | `m/N/N/N/...` | Standard BIP-32 path notation |
 
+### Exposing the Chain Code (xpub Construction)
+
+`KeyShareHandle::chain_code()` (C ABI `tss_handle_chain_code`) returns the 32-byte
+chain code paired with `group_verifying_key()`. Wrapping the two into a BIP-32
+extended public key lets a host derive child public keys off-MPC that match the
+child shares every party derives with `derive_child` / `derive_path`.
+
+| Ciphersuite | Chain code | Agreement with an external CKDpub |
+|-------------|------------|-----------------------------------|
+| Secp256k1ECDSA / Secp256r1ECDSA (DKLs23) | Established at DKG; children carry the BIP-32 `IR` | Any depth |
+| Secp256k1Taproot (FROST) | `SHA-256(group verifying key)`, re-derived from each child's key | Depth 1 only — FROST derivation never carries `IR` (follow-up) |
+| All others | Not available | `ProtocolMismatch` — these suites have no BIP-32 derivation |
+
+The chain code is public material; exposing it reveals nothing about the shares.
+
 ### Security Note: Derivation + Refresh
 
 Deriving a child key and then refreshing its shares is safe but has a subtlety:
@@ -158,6 +173,29 @@ after refresh, the parent key's shares and the child key's shares are no longer
 related by the same additive tweak. This is expected and does not affect security.
 
 Recommendation: derive keys as needed, refresh the master (root) shares periodically.
+
+## BOLT 3 Key Derivation (Lightning)
+
+`libtss::bolt3` exposes the BOLT 3 "Key Derivation" of DKLs23 secp256k1
+shares (C ABI: `tss_bolt3_derive`, `tss_bolt3_derive_revocation` and the
+`*_pubkey_package` variants):
+
+- `bolt3_derive(share, per_commitment_point)`: `basepoint +
+  SHA256(per_commitment_point || basepoint)·G` (`localpubkey`,
+  `local_htlcpubkey`, `remote_htlcpubkey`, `local_delayedpubkey`,
+  `remote_delayedpubkey`; with `option_static_remotekey`, `remotepubkey` is
+  the payment basepoint itself and is not derived).
+- `bolt3_derive_revocation(share, per_commitment_point, per_commitment_secret)`:
+  `revocationpubkey` and its private key, once the counterparty reveals the
+  per-commitment secret; the secret must match the point.
+- `bolt3_derive_public_keys` / `bolt3_derive_revocation_public_keys` derive
+  the public key package without a share.
+
+Each party computes the tweak from public points, so no caller-chosen scalar
+reaches the shares; raw additive or multiplicative tweaks are not exposed.
+Points are 33-byte compressed SEC1; the secret is a 32-byte big-endian
+scalar. A derived share keeps the base share's OT state: a counterparty banned
+under a derived key is banned for the base key and every key derived from it.
 
 ## Share Refresh
 
@@ -174,10 +212,15 @@ pattern as DKG and signing):
 pub struct RefreshSession { /* ... */ }
 
 impl RefreshSession {
-    /// Interactive refresh (recommended mode).
-    /// FROST: DKG-based refresh with zero-constant polynomial (3 rounds).
-    /// DKLs23: Complete refresh with OT re-initialization (4 phases).
-    pub fn new(key_share: &KeyShareHandle) -> Result<(Self, Vec<Message>), TssError>;
+    /// FROST dealer refresh (the dealer produces every participant's data).
+    pub fn new_frost(key_share: &KeyShareHandle, participants: &[Identifier])
+        -> Result<(Self, Vec<Message>), TssError>;
+
+    /// DKLs23 complete refresh (secp256k1 / secp256r1). All n parties run it
+    /// under the same fresh `session_id`; `next()` is called three times.
+    /// C ABI: `tss_refresh_new_dkls`.
+    pub fn new_dkls(key_share: &KeyShareHandle, session_id: &[u8])
+        -> Result<(Self, Vec<Message>), TssError>;
 
     /// FROST refresh receiver (non-dealer participant).
     /// Waits for messages from the dealer refresh. Does not produce
@@ -211,9 +254,24 @@ pub fn frost_apply_refresh(
 
 ### DKLs23 Complete Refresh
 
-DKLs23 refresh uses `RefreshSession::new`, which re-runs the full DKG
-(including OT re-initialization). This is the recommended mode when OT
-state may have been partially compromised.
+DKLs23 refresh uses `RefreshSession::new_dkls` (C ABI: `tss_refresh_new_dkls`),
+which re-runs DKG with a zero-constant polynomial and re-initializes the
+pairwise OT and zero-share state. All `n` parties take part, under the same
+fresh `session_id`.
+
+- The group key, address and chain code are unchanged; every verifying share
+  moves, and the refreshed public key package is returned with the new handle.
+- Each party verifies every party's proof commitment and checks the refreshed
+  package against its own refreshed share.
+- Refreshed shares sign only with shares from the same refresh: DKLs23 derives
+  the refreshed session id from the previous one, the refresh `session_id` and
+  the round-2 commitments.
+- A failed round ends the session; start a new refresh with a new
+  `session_id`. The input handle stays valid until the application replaces it.
+
+Run it after importing a key (see Key Import (DKLs23)) and after upgrading from
+DKLs23 0.5.1 or earlier, so the OT state is regenerated, and periodically as
+proactive security.
 
 ### FROST Dealer/Receiver Refresh
 
@@ -328,6 +386,21 @@ encrypting the blob before storage.
 2. Recommended: AES-256-GCM with a key derived from a user password (Argon2id)
 3. The library does NOT handle encryption -- this is the application's responsibility
 4. The library documents this requirement clearly in the `export_key_share` rustdoc
+
+### Key Import (DKLs23)
+
+An existing secp256k1 or secp256r1 ECDSA key (for example from a GG18 or
+single-key wallet) becomes DKLs23 shares through a trusted dealer:
+`dkls_import::dkls_split_key(config, secret_key, chain_code)` (C ABI:
+`tss_dkls_split_key`) wraps DKLs23 `re_key` with a fresh random session id.
+
+- The group key is the key's own public key, so addresses do not change.
+  Passing the key's existing BIP-32 chain code keeps derived addresses too.
+- The secret key must be a canonical, non-zero 32-byte big-endian scalar.
+- The dealer holds every share and generates every pairwise OT setup. Hand
+  each share to its party over a confidential channel, erase the key and the
+  shares on the dealer, and have all parties run a complete refresh
+  (`RefreshSession::new_dkls`) before signing.
 
 ### Import Validation
 

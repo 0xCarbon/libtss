@@ -107,7 +107,7 @@ public sealed class SignSession : IDisposable
         byte[] encodedInput = MessageCodec.Encode(received);
         var outSignature = new NativeTssBuffer();
         var outMessages = new NativeTssBuffer();
-        bool complete;
+        byte complete;
         int status;
 
         fixed (byte* pInput = encodedInput)
@@ -128,7 +128,7 @@ public sealed class SignSession : IDisposable
         }
         TssException.ThrowIfError(status);
 
-        if (complete)
+        if (complete != 0)
         {
             byte[] signature = outSignature.ToArray();
             outMessages.Dispose();

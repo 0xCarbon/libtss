@@ -222,6 +222,12 @@ impl KeyShareHandle {
     /// Group public key (combined verification key).
     pub fn group_verifying_key(&self) -> Vec<u8>;
 
+    /// 32-byte BIP-32 chain code paired with the group key; together they form
+    /// an xpub whose off-MPC child derivation matches `derive_child`. Only the
+    /// BIP-32-capable suites (Secp256k1ECDSA, Secp256r1ECDSA, Secp256k1Taproot);
+    /// others return `ProtocolMismatch`.
+    pub fn chain_code(&self) -> Result<Vec<u8>, TssError>;
+
     /// Full public key package (group key + all verifying shares).
     pub fn public_key_package(&self) -> &PublicKeyPackage;
 
@@ -522,6 +528,27 @@ pub fn derive_path(
 ) -> Result<KeyShareHandle, TssError>;
 ```
 
+### BOLT 3 Key Derivation (DKLs23 secp256k1)
+
+```rust
+/// localpubkey-style derivation for a commitment.
+pub fn bolt3_derive(key_share: &KeyShareHandle, per_commitment_point: &[u8])
+    -> Result<KeyShareHandle, TssError>;
+/// revocationpubkey derivation once the per-commitment secret is revealed.
+pub fn bolt3_derive_revocation(
+    key_share: &KeyShareHandle,
+    per_commitment_point: &[u8],
+    per_commitment_secret: &[u8],
+) -> Result<KeyShareHandle, TssError>;
+/// The same derivations on a public key package.
+pub fn bolt3_derive_public_keys(package: &PublicKeyPackage, per_commitment_point: &[u8])
+    -> Result<PublicKeyPackage, TssError>;
+pub fn bolt3_derive_revocation_public_keys(package: &PublicKeyPackage, per_commitment_point: &[u8])
+    -> Result<PublicKeyPackage, TssError>;
+```
+
+See [07-key-management.md](07-key-management.md#bolt-3-key-derivation-lightning).
+
 ## FROST-Specific Operations
 
 These operations exist only for FROST and are not part of the unified session API.
@@ -578,6 +605,15 @@ pub fn frost_generate_with_dealer(
 pub fn frost_split_key(
     config: &ThresholdConfig,
     secret_key: &[u8],
+) -> Result<(Vec<KeyShareHandle>, PublicKeyPackage), TssError>;
+
+/// Import an existing ECDSA key as DKLs23 shares (Secp256k1ECDSA or
+/// Secp256r1ECDSA). `chain_code` keeps an existing BIP-32 chain code.
+/// The parties run `RefreshSession::new_dkls` before use.
+pub fn dkls_split_key(
+    config: &ThresholdConfig,
+    secret_key: &[u8],
+    chain_code: Option<&[u8]>,
 ) -> Result<(Vec<KeyShareHandle>, PublicKeyPackage), TssError>;
 
 /// Trusted dealer refresh: generate refreshing shares without interaction.

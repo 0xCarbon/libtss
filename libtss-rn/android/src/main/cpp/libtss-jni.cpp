@@ -39,6 +39,7 @@ void tss_handle_free(TssHandle handle);
 TssStatus tss_handle_identifier(TssHandle handle, uint16_t* out_id);
 TssStatus tss_handle_verifying_share(TssHandle handle, TssBuffer* out);
 TssStatus tss_handle_group_key(TssHandle handle, TssBuffer* out);
+TssStatus tss_handle_chain_code(TssHandle handle, TssBuffer* out);
 TssStatus tss_handle_pubkey_package(TssHandle handle, TssBuffer* out);
 uint8_t tss_handle_ciphersuite(TssHandle handle);
 TssStatus tss_handle_export(TssHandle handle, TssBuffer* out);
@@ -723,6 +724,22 @@ Java_com_libtss_LibtssModule_nativeHandleGroupKey(JNIEnv* env, jclass, jstring h
 
     TssBuffer out{nullptr, 0};
     TssStatus status = tss_handle_group_key(parsed, &out);
+    if (!ensure_status(env, status)) {
+        return nullptr;
+    }
+
+    return take_base64(env, out);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_libtss_LibtssModule_nativeHandleChainCode(JNIEnv* env, jclass, jstring handle) {
+    TssHandle parsed = 0;
+    if (!parse_handle(env, handle, &parsed)) {
+        return nullptr;
+    }
+
+    TssBuffer out{nullptr, 0};
+    TssStatus status = tss_handle_chain_code(parsed, &out);
     if (!ensure_status(env, status)) {
         return nullptr;
     }

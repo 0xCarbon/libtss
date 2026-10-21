@@ -278,6 +278,11 @@ impl PublicKeyPackage {
         self.min_signers
     }
 
+    /// Every party's verifying share, keyed by identifier.
+    pub fn verifying_shares(&self) -> &BTreeMap<Identifier, Vec<u8>> {
+        &self.verifying_shares
+    }
+
     /// Serialize to a binary format.
     /// Format: suite(1) + min_signers(2 LE) + vk_len(4 LE) + vk + share_count(2 LE)
     ///         + [id(2 LE) + share_len(4 LE) + share_data] ...

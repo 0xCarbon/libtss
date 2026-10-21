@@ -218,6 +218,9 @@ def _declare_signatures(lib: ctypes.CDLL) -> None:
     lib.tss_handle_group_key.restype = TssStatus
     lib.tss_handle_group_key.argtypes = [c_uint64, POINTER(TssBuffer)]
 
+    lib.tss_handle_chain_code.restype = TssStatus
+    lib.tss_handle_chain_code.argtypes = [c_uint64, POINTER(TssBuffer)]
+
     lib.tss_handle_pubkey_package.restype = TssStatus
     lib.tss_handle_pubkey_package.argtypes = [c_uint64, POINTER(TssBuffer)]
 
@@ -267,6 +270,12 @@ def _declare_signatures(lib: ctypes.CDLL) -> None:
         POINTER(c_uint64), POINTER(TssBuffer),
     ]
 
+    lib.tss_refresh_new_dkls.restype = TssStatus
+    lib.tss_refresh_new_dkls.argtypes = [
+        c_uint64, POINTER(c_uint8), c_size_t,
+        POINTER(c_uint64), POINTER(TssBuffer),
+    ]
+
     lib.tss_refresh_receiver.restype = TssStatus
     lib.tss_refresh_receiver.argtypes = [c_uint64, POINTER(c_uint64)]
 
@@ -297,6 +306,30 @@ def _declare_signatures(lib: ctypes.CDLL) -> None:
     lib.tss_frost_generate_dealer.restype = TssStatus
     lib.tss_frost_generate_dealer.argtypes = [
         c_uint8, c_uint16, c_uint16,
+        POINTER(c_uint64), POINTER(c_size_t), POINTER(TssBuffer),
+    ]
+
+    lib.tss_bolt3_derive.restype = TssStatus
+    lib.tss_bolt3_derive.argtypes = [c_uint64, TssSlice, POINTER(c_uint64)]
+
+    lib.tss_bolt3_derive_revocation.restype = TssStatus
+    lib.tss_bolt3_derive_revocation.argtypes = [
+        c_uint64, TssSlice, TssSlice, POINTER(c_uint64),
+    ]
+
+    lib.tss_bolt3_derive_pubkey_package.restype = TssStatus
+    lib.tss_bolt3_derive_pubkey_package.argtypes = [
+        TssSlice, TssSlice, POINTER(TssBuffer),
+    ]
+
+    lib.tss_bolt3_derive_revocation_pubkey_package.restype = TssStatus
+    lib.tss_bolt3_derive_revocation_pubkey_package.argtypes = [
+        TssSlice, TssSlice, POINTER(TssBuffer),
+    ]
+
+    lib.tss_dkls_split_key.restype = TssStatus
+    lib.tss_dkls_split_key.argtypes = [
+        c_uint8, TssSlice, TssSlice, c_uint16, c_uint16,
         POINTER(c_uint64), POINTER(c_size_t), POINTER(TssBuffer),
     ]
 

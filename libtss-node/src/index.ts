@@ -88,6 +88,141 @@ export function frostSplitKey(
 	}
 }
 
+/**
+ * Import an existing ECDSA key as DKLs23 shares (trusted dealer).
+ *
+ * `suite` is `Secp256k1ECDSA` or `Secp256r1ECDSA`; `secretKey` is a 32-byte
+ * big-endian scalar; `chainCode` is the key's existing 32-byte BIP-32 chain
+ * code, or omitted to sample a new one. The group key is the key's own public
+ * key. The caller holds every share: hand each one to its party, erase the
+ * key and the shares, and have the parties run `RefreshSession.createDkls`
+ * before use. `secretKey` is wiped after the call.
+ */
+export function dklsSplitKey(
+	suite: Ciphersuite,
+	secretKey: Uint8Array,
+	maxSigners: number,
+	minSigners: number,
+	chainCode?: Uint8Array,
+): { keyShares: KeyShareHandle[]; publicKeys: Uint8Array } {
+	try {
+		if (
+			!Number.isInteger(minSigners) ||
+			!Number.isInteger(maxSigners) ||
+			minSigners < 2 ||
+			maxSigners < minSigners ||
+			maxSigners > 255
+		) {
+			throw new RangeError(
+				"DKLs23 requires integers with 2 <= minSigners <= maxSigners <= 255",
+			);
+		}
+		const outHandles = new BigUint64Array(maxSigners);
+		const outCount: [number | bigint] = [0n];
+		const outPkg = allocBuffer();
+		checkStatus(
+			lib.tss_dkls_split_key(
+				suite,
+				makeSlice(secretKey),
+				makeSlice(chainCode ?? new Uint8Array(0)),
+				maxSigners,
+				minSigners,
+				outHandles,
+				outCount,
+				outPkg,
+			),
+		);
+		const count = Number(outCount[0]);
+		const shares: KeyShareHandle[] = [];
+		for (let i = 0; i < count; i++) {
+			shares.push(new KeyShareHandle(outHandles[i]));
+		}
+		return { keyShares: shares, publicKeys: readBuffer(outPkg) };
+	} finally {
+		wipeBytes(secretKey);
+	}
+}
+
+/**
+ * BOLT 3 derivation of a DKLs23 secp256k1 key share for a commitment
+ * (`basepoint + SHA256(perCommitmentPoint || basepoint)·G`). Every party
+ * derives with the same 33-byte compressed point. A derived share keeps the
+ * base share's OT state, so a counterparty banned under a derived key is
+ * banned for the base key too.
+ */
+export function bolt3Derive(
+	keyShare: KeyShareHandle,
+	perCommitmentPoint: Uint8Array,
+): KeyShareHandle {
+	const outHandle: [bigint] = [0n];
+	checkStatus(
+		lib.tss_bolt3_derive(
+			keyShare.handle,
+			makeSlice(perCommitmentPoint),
+			outHandle,
+		),
+	);
+	return new KeyShareHandle(outHandle[0]);
+}
+
+/**
+ * BOLT 3 revocation derivation for a commitment whose 32-byte
+ * `perCommitmentSecret` was revealed; the secret must match the point.
+ * `perCommitmentSecret` is wiped after the call.
+ */
+export function bolt3DeriveRevocation(
+	keyShare: KeyShareHandle,
+	perCommitmentPoint: Uint8Array,
+	perCommitmentSecret: Uint8Array,
+): KeyShareHandle {
+	try {
+		const outHandle: [bigint] = [0n];
+		checkStatus(
+			lib.tss_bolt3_derive_revocation(
+				keyShare.handle,
+				makeSlice(perCommitmentPoint),
+				makeSlice(perCommitmentSecret),
+				outHandle,
+			),
+		);
+		return new KeyShareHandle(outHandle[0]);
+	} finally {
+		wipeBytes(perCommitmentSecret);
+	}
+}
+
+/** `bolt3Derive` on a serialized secp256k1 ECDSA public key package. */
+export function bolt3DerivePublicKeys(
+	publicKeys: Uint8Array,
+	perCommitmentPoint: Uint8Array,
+): Uint8Array {
+	const out = allocBuffer();
+	checkStatus(
+		lib.tss_bolt3_derive_pubkey_package(
+			makeSlice(publicKeys),
+			makeSlice(perCommitmentPoint),
+			out,
+		),
+	);
+	return readBuffer(out);
+}
+
+/** `bolt3DeriveRevocation` on a public key package (no secret needed). */
+export function bolt3DeriveRevocationPublicKeys(
+	publicKeys: Uint8Array,
+	perCommitmentPoint: Uint8Array,
+): Uint8Array {
+	const out = allocBuffer();
+	checkStatus(
+		lib.tss_bolt3_derive_revocation_pubkey_package(
+			makeSlice(publicKeys),
+			makeSlice(perCommitmentPoint),
+			out,
+		),
+	);
+	return readBuffer(out);
+}
+
 export function frostAggregate(
 	suite: Ciphersuite,
 	message: Uint8Array,

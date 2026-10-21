@@ -115,7 +115,10 @@ const [s3, r1_3] = DkgSession.create(config, 3);
 
 - **`KeyShareHandle`** — wraps an opaque handle to a participant's key share
   - `identifier()`, `ciphersuite()`, `protocol()`
-  - `verifyingShare()`, `groupVerifyingKey()`, `publicKeyPackage()`
+  - `verifyingShare()`, `groupVerifyingKey()`, `chainCode()`, `publicKeyPackage()`
+    (`chainCode()` is the 32-byte BIP-32 chain code paired with the group key —
+    Secp256k1ECDSA, Secp256r1ECDSA and Secp256k1Taproot only; other suites throw
+    a `TssError` with `TssStatusCode.PROTO_MISMATCH`)
   - `export()`, `exportSecure()`, `free()`
 - **`SecureBuffer`** — zeroing buffer allocated outside V8's pooled slab
   - `bytes()`, `destroy()`, `[Symbol.dispose]()`, `length`, `isDestroyed`
@@ -196,10 +199,10 @@ matters. Use **libtss-wasm** for browser or portable environments.
 ## Testing
 
 ```sh
-# Unit tests (message codec, error types — no native library needed)
-npm test
-
-# Integration tests require the built native library
+# Build the native library first — the KeyShareHandle tests drive a real DKG through it
 cargo build --release -p libtss-ffi
-npm test
+
+# From libtss-node/, point the binding at the build output (.so on Linux)
+cd libtss-node
+LIBTSS_LIB="$PWD/../target/release/liblibtss_ffi.dylib" npm test
 ```

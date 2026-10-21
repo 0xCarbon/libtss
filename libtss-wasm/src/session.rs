@@ -464,7 +464,8 @@ impl WasmRefreshResult {
 /// One participant acts as the dealer and calls `WasmRefreshSession.createDealer()`.
 /// All participants (including the dealer) then call `next()` with their refresh share message.
 ///
-/// Only supported for FROST ciphersuites (0-5). DKLs23 does not support refresh.
+/// Only supported for FROST ciphersuites (0-5). The DKLs23 complete refresh
+/// (`RefreshSession::new_dkls` in libtss) is not exposed in WASM yet.
 #[wasm_bindgen]
 pub struct WasmRefreshSession {
     inner: Option<RefreshSession>,

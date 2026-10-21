@@ -135,8 +135,8 @@ public class MemoryHardeningTests
     {
         RequireNativeLibrary();
 
-        var handles = FrostOperations.GenerateDealer(
-            Ciphersuite.Ed25519, 3, 2, out _);
+        var (handles, _) = FrostOperations.GenerateDealer(
+            Ciphersuite.Ed25519, 3, 2);
         try
         {
             var handle = handles[0];
@@ -156,8 +156,8 @@ public class MemoryHardeningTests
     {
         RequireNativeLibrary();
 
-        var handles = FrostOperations.GenerateDealer(
-            Ciphersuite.Ed25519, 3, 2, out _);
+        var (handles, _) = FrostOperations.GenerateDealer(
+            Ciphersuite.Ed25519, 3, 2);
         var handle = handles[0];
         // Dispose the other handles
         for (int i = 1; i < handles.Length; i++)
@@ -175,8 +175,8 @@ public class MemoryHardeningTests
     {
         RequireNativeLibrary();
 
-        var handles = FrostOperations.GenerateDealer(
-            Ciphersuite.Ed25519, 3, 2, out _);
+        var (handles, _) = FrostOperations.GenerateDealer(
+            Ciphersuite.Ed25519, 3, 2);
         using var handle = handles[0];
         for (int i = 1; i < handles.Length; i++)
             handles[i].Dispose();

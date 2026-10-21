@@ -280,10 +280,11 @@ class SignSession:
 # ── Refresh Session ──────────────────────────────────────────────────────────
 
 class RefreshSession:
-    """Key share refresh session (FROST only).
+    """Key share refresh session.
 
-    Use :meth:`create_dealer` for the refresh initiator and
-    :meth:`create_receiver` for other participants.
+    FROST: use :meth:`create_dealer` for the refresh initiator and
+    :meth:`create_receiver` for other participants. DKLs23: every party
+    uses :meth:`create_dkls`.
     """
 
     __slots__ = ("_handle", "_closed", "_lock")
@@ -332,6 +333,36 @@ class RefreshSession:
 
         msg_bytes = buffer_to_bytes(out_messages)
         messages = _msg.decode(msg_bytes)
+        return cls(out_session.value), messages
+
+    @classmethod
+    def create_dkls(
+        cls,
+        key_share: KeyShareHandle,
+        session_id: bytes,
+    ) -> tuple[RefreshSession, list[Message]]:
+        """Start a DKLs23 complete refresh (secp256k1 / secp256r1).
+
+        All parties run it together under the same fresh ``session_id``;
+        :meth:`next` is called three times. The group key stays the same and
+        every share and its OT state are regenerated. Refreshed shares sign
+        only with shares from the same refresh.
+        """
+        if not session_id:
+            raise ValueError("session_id must not be empty")
+        lib = get_lib()
+        sid = (ctypes.c_uint8 * len(session_id)).from_buffer_copy(session_id)
+        out_session = ctypes.c_uint64()
+        out_messages = TssBuffer()
+
+        status = lib.tss_refresh_new_dkls(
+            key_share.raw,
+            sid, len(session_id),
+            ctypes.byref(out_session), ctypes.byref(out_messages),
+        )
+        check_status(status)
+
+        messages = _msg.decode(buffer_to_bytes(out_messages))
         return cls(out_session.value), messages
 
     @classmethod

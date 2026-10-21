@@ -1,7 +1,11 @@
 package tss
 
 import (
+	"bytes"
+	"crypto/hmac"
 	"crypto/sha256"
+	"crypto/sha512"
+	"encoding/binary"
 	"errors"
 	"testing"
 )
@@ -387,5 +391,70 @@ func TestAbortCulpritAndBan(t *testing.T) {
 		}
 		roundC = stepD.Messages
 		roundD = stepC.Messages
+	}
+}
+
+// tssErrProtoMismatch mirrors TSS_ERR_PROTO_MISMATCH; cgo constants are not
+// reachable from _test.go files.
+const tssErrProtoMismatch = 8
+
+func TestDKLs23ChainCode(t *testing.T) {
+	shares, _ := runDKG(t, CiphersuiteSecp256k1ECDSA, 2, 2, []byte("chain-code-session"))
+	for _, share := range shares {
+		defer share.Free()
+	}
+
+	parentChainCode, err := shares[0].ChainCode()
+	if err != nil {
+		t.Fatalf("ChainCode: %v", err)
+	}
+	if len(parentChainCode) != 32 {
+		t.Fatalf("chain code length = %d, want 32", len(parentChainCode))
+	}
+	otherChainCode, err := shares[1].ChainCode()
+	if err != nil {
+		t.Fatalf("ChainCode (party 2): %v", err)
+	}
+	if !bytes.Equal(parentChainCode, otherChainCode) {
+		t.Fatal("chain code differs across parties")
+	}
+
+	child, err := DeriveChild(shares[0], 5)
+	if err != nil {
+		t.Fatalf("DeriveChild: %v", err)
+	}
+	defer child.Free()
+
+	parentKey, err := shares[0].GroupKey()
+	if err != nil {
+		t.Fatalf("GroupKey: %v", err)
+	}
+	mac := hmac.New(sha512.New, parentChainCode)
+	mac.Write(parentKey)
+	mac.Write(binary.BigEndian.AppendUint32(nil, 5))
+	expectedChildChainCode := mac.Sum(nil)[32:]
+
+	childChainCode, err := child.ChainCode()
+	if err != nil {
+		t.Fatalf("ChainCode (child): %v", err)
+	}
+	if !bytes.Equal(childChainCode, expectedChildChainCode) {
+		t.Fatal("child chain code is not the BIP-32 IR of its parent")
+	}
+}
+
+func TestChainCodeUnsupportedSuite(t *testing.T) {
+	shares, _ := runDKG(t, CiphersuiteEd25519, 3, 2, nil)
+	for _, share := range shares {
+		defer share.Free()
+	}
+
+	_, err := shares[0].ChainCode()
+	var tssErr *TssError
+	if !errors.As(err, &tssErr) {
+		t.Fatalf("ChainCode error = %v, want *TssError", err)
+	}
+	if tssErr.Code != tssErrProtoMismatch {
+		t.Fatalf("ChainCode error code = %d, want %d", tssErr.Code, tssErrProtoMismatch)
 	}
 }

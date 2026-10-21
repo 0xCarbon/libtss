@@ -7,7 +7,7 @@ use dkls23_secp256k1::protocols::dkg::{
 use dkls23_secp256k1::protocols::messages::{MessageTag, PhaseInput, PhaseOutput};
 use dkls23_secp256k1::protocols::signature::EcdsaSignature;
 use dkls23_secp256k1::protocols::signing::SignData;
-use dkls23_secp256k1::protocols::{Abort, AbortKind, Parameters, PartyIndex};
+use dkls23_secp256k1::protocols::{Abort, AbortKind, AbortReason, Parameters, PartyIndex};
 use dkls23_secp256k1::{Party, PublicKeyPackage as DklsPublicKeyPackage};
 use k256::elliptic_curve::sec1::ToSec1Point;
 use k256::elliptic_curve::PrimeField;
@@ -46,12 +46,12 @@ pub struct DklsSignState<'a> {
     pub(crate) self_broadcast: Option<Broadcast3to4>,
 }
 
-fn identifier_to_party_index(id: Identifier) -> Result<PartyIndex, TssError> {
+pub(crate) fn identifier_to_party_index(id: Identifier) -> Result<PartyIndex, TssError> {
     let value = u8::try_from(id.as_u16()).map_err(|_| TssError::InvalidIdentifier)?;
     PartyIndex::new(value).map_err(|_| TssError::InvalidIdentifier)
 }
 
-fn identifier_to_session_party_index(
+pub(crate) fn identifier_to_session_party_index(
     id: Identifier,
     share_count: u8,
 ) -> Result<PartyIndex, TssError> {
@@ -62,14 +62,37 @@ fn identifier_to_session_party_index(
     Ok(index)
 }
 
-fn party_index_to_identifier(index: PartyIndex) -> Result<Identifier, TssError> {
+pub(crate) fn party_index_to_identifier(index: PartyIndex) -> Result<Identifier, TssError> {
     Identifier::new(u16::from(index.as_u8()))
 }
 
-fn abort_to_error(abort: Abort) -> TssError {
+/// The counterparty a recoverable abort accuses, if any. `Abort.index` is
+/// the party reporting the abort, never the culprit. Local-state errors and
+/// session mismatches accuse no one.
+pub(crate) fn accused(reason: &AbortReason) -> Option<PartyIndex> {
+    match reason {
+        AbortReason::ProofVerificationFailed { counterparty, .. }
+        | AbortReason::CommitmentMismatch { counterparty, .. }
+        | AbortReason::TrivialInstancePoint { counterparty, .. }
+        | AbortReason::OtConsistencyCheckFailed { counterparty, .. }
+        | AbortReason::MultiplicationVerificationFailed { counterparty, .. }
+        | AbortReason::GammaUInconsistency { counterparty, .. }
+        | AbortReason::ZeroShareDecommitFailed { counterparty, .. } => Some(*counterparty),
+        AbortReason::ChainCodeCommitmentFailed { party, .. }
+        | AbortReason::MissingMessageFromParty { party, .. } => Some(*party),
+        AbortReason::UnexpectedSender { sender, .. }
+        | AbortReason::DuplicateSender { sender, .. } => Some(*sender),
+        _ => None,
+    }
+}
+
+pub(crate) fn abort_to_error(abort: Abort) -> TssError {
     match abort.kind {
         AbortKind::Recoverable => TssError::Abort {
-            culprits: party_index_to_identifier(abort.index).into_iter().collect(),
+            culprits: accused(&abort.reason)
+                .and_then(|index| party_index_to_identifier(index).ok())
+                .into_iter()
+                .collect(),
             message: abort.description(),
             ban: None,
         },
@@ -84,7 +107,7 @@ fn abort_to_error(abort: Abort) -> TssError {
     }
 }
 
-fn phase_output_to_messages(
+pub(crate) fn phase_output_to_messages(
     output: &PhaseOutput,
     from: Identifier,
 ) -> Result<Vec<Message>, TssError> {
@@ -109,7 +132,7 @@ fn phase_output_to_messages(
     Ok(messages)
 }
 
-fn messages_to_phase_input(
+pub(crate) fn messages_to_phase_input(
     messages: &[Message],
     self_id: Identifier,
 ) -> Result<PhaseInput, TssError> {
@@ -139,15 +162,21 @@ fn messages_to_phase_input(
     Ok(input)
 }
 
-fn message_error(error: impl std::fmt::Display) -> TssError {
+pub(crate) fn message_error(error: impl std::fmt::Display) -> TssError {
     TssError::DeserializeFailed(error.to_string())
 }
 
-fn phase_input_broadcast<T: MessageTag>(input: &PhaseInput, sender: u8) -> Result<T, TssError> {
+pub(crate) fn phase_input_broadcast<T: MessageTag>(
+    input: &PhaseInput,
+    sender: u8,
+) -> Result<T, TssError> {
     input.get_broadcast(sender).map_err(message_error)
 }
 
-fn phase_input_p2p<T: MessageTag>(input: &PhaseInput, sender: u8) -> Result<T, TssError> {
+pub(crate) fn phase_input_p2p<T: MessageTag>(
+    input: &PhaseInput,
+    sender: u8,
+) -> Result<T, TssError> {
     input.get_p2p(sender).map_err(message_error)
 }
 
@@ -581,13 +610,23 @@ mod tests {
         let recoverable = abort_to_error(recoverable);
         let banned = abort_to_error(banned);
 
+        // The reporting party (index 1) is not a culprit.
         assert_eq!(
             recoverable,
             TssError::Abort {
-                culprits: vec![id(1)],
+                culprits: vec![],
                 message: "phase2 called before phase1".into(),
                 ban: None,
             }
+        );
+        let accusing = abort_to_error(Abort::recoverable(
+            PartyIndex::new(1).unwrap(),
+            AbortReason::ProofVerificationFailed {
+                counterparty: PartyIndex::new(2).unwrap(),
+            },
+        ));
+        assert!(
+            matches!(accusing, TssError::Abort { culprits, ban: None, .. } if culprits == vec![id(2)])
         );
         assert_eq!(
             banned,

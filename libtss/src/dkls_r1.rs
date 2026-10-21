@@ -12,7 +12,7 @@ use dkls23_secp256r1::protocols::signing::{
     Broadcast3to4, SignData, TransmitPhase1to2, TransmitPhase2to3,
 };
 use dkls23_secp256r1::protocols::{
-    Abort, AbortKind, Parameters, PartyIndex, PublicKeyPackage as DklsPublicKeyPackage,
+    Abort, Parameters, PartyIndex, PublicKeyPackage as DklsPublicKeyPackage,
 };
 use dkls23_secp256r1::Party;
 use p256::elliptic_curve::sec1::ToSec1Point;
@@ -65,21 +65,7 @@ fn party_index_to_identifier(index: PartyIndex) -> Result<Identifier, TssError> 
 }
 
 fn abort_to_error(abort: Abort) -> TssError {
-    match abort.kind {
-        AbortKind::Recoverable => TssError::Abort {
-            culprits: party_index_to_identifier(abort.index).into_iter().collect(),
-            message: abort.description(),
-            ban: None,
-        },
-        AbortKind::BanCounterparty(counterparty) => {
-            let ban = party_index_to_identifier(counterparty).ok();
-            TssError::Abort {
-                culprits: ban.into_iter().collect(),
-                message: abort.description(),
-                ban,
-            }
-        }
-    }
+    crate::dkls::abort_to_error(abort)
 }
 
 fn phase_output_to_messages(

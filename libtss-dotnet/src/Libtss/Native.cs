@@ -89,7 +89,7 @@ internal static unsafe class Native
         ulong* out_key_share,
         TssBuffer* out_pubkey_package,
         TssBuffer* out_messages,
-        [MarshalAs(UnmanagedType.U1)] bool* out_complete);
+        byte* out_complete);
 
     // --- Sign Session ---
 
@@ -110,7 +110,7 @@ internal static unsafe class Native
         TssSlice messages,
         TssBuffer* out_signature,
         TssBuffer* out_messages,
-        [MarshalAs(UnmanagedType.U1)] bool* out_complete);
+        byte* out_complete);
 
     // --- Refresh Session ---
 
@@ -119,6 +119,14 @@ internal static unsafe class Native
         ulong key_share,
         ushort* participants,
         nuint participants_len,
+        ulong* out_session,
+        TssBuffer* out_messages);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_refresh_new_dkls(
+        ulong key_share,
+        byte* session_id,
+        nuint session_id_len,
         ulong* out_session,
         TssBuffer* out_messages);
 
@@ -134,7 +142,7 @@ internal static unsafe class Native
         ulong* out_key_share,
         TssBuffer* out_pubkey_package,
         TssBuffer* out_messages,
-        [MarshalAs(UnmanagedType.U1)] bool* out_complete);
+        byte* out_complete);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
     public static extern void tss_session_free(ulong session);
@@ -149,6 +157,9 @@ internal static unsafe class Native
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int tss_handle_group_key(ulong handle, TssBuffer* @out);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_handle_chain_code(ulong handle, TssBuffer* @out);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int tss_handle_pubkey_package(ulong handle, TssBuffer* @out);
@@ -215,6 +226,42 @@ internal static unsafe class Native
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int tss_frost_generate_dealer(
         byte suite,
+        ushort max_signers,
+        ushort min_signers,
+        ulong* out_handles,
+        nuint* out_handle_count,
+        TssBuffer* out_pubkey_package);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_bolt3_derive(
+        ulong key_share,
+        TssSlice per_commitment_point,
+        ulong* out_handle);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_bolt3_derive_revocation(
+        ulong key_share,
+        TssSlice per_commitment_point,
+        TssSlice per_commitment_secret,
+        ulong* out_handle);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_bolt3_derive_pubkey_package(
+        TssSlice pubkey_package,
+        TssSlice per_commitment_point,
+        TssBuffer* out_pubkey_package);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_bolt3_derive_revocation_pubkey_package(
+        TssSlice pubkey_package,
+        TssSlice per_commitment_point,
+        TssBuffer* out_pubkey_package);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_dkls_split_key(
+        byte suite,
+        TssSlice secret_key,
+        TssSlice chain_code,
         ushort max_signers,
         ushort min_signers,
         ulong* out_handles,

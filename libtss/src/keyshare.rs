@@ -101,6 +101,39 @@ impl KeyShareHandle {
         self.public_key_package.verifying_key().to_vec()
     }
 
+    /// Return the 32-byte BIP-32 chain code this share derives children with.
+    ///
+    /// Pair it with [`group_verifying_key`](Self::group_verifying_key) to build
+    /// a BIP-32 extended public key whose off-MPC child derivation matches the
+    /// child shares each party derives via [`derive_child`](crate::derive_child).
+    /// The chain code is public material.
+    ///
+    /// Supported for exactly the ciphersuites `derive_child` supports:
+    /// - `Secp256k1ECDSA` / `Secp256r1ECDSA` (DKLs23): the chain code established
+    ///   at DKG time. Children carry the BIP-32 `IR` chain code, so an external
+    ///   CKDpub agrees with `derive_child` at any depth.
+    /// - `Secp256k1Taproot` (FROST): `SHA-256(group verifying key)`. Because the
+    ///   chain code is re-derived from each child's key rather than carried as
+    ///   `IR`, an external CKDpub agrees with `derive_child` at depth 1 only.
+    ///
+    /// Every other ciphersuite has no BIP-32 derivation and returns
+    /// [`TssError::ProtocolMismatch`].
+    pub fn chain_code(&self) -> Result<Vec<u8>, TssError> {
+        match self.suite {
+            Ciphersuite::Secp256k1ECDSA | Ciphersuite::Secp256r1ECDSA => REGISTRY
+                .with::<KeyShareInner, _>(self.id, |inner| match inner {
+                    KeyShareInner::DKLs23(party, _) => Ok(party.chain_code().to_vec()),
+                    KeyShareInner::DKLs23Secp256r1(party, _) => Ok(party.chain_code().to_vec()),
+                    _ => Err(TssError::ProtocolMismatch),
+                })?,
+            Ciphersuite::Secp256k1Taproot => Ok(crate::derive::taproot_chain_code(
+                self.public_key_package.verifying_key(),
+            )
+            .to_vec()),
+            _ => Err(TssError::ProtocolMismatch),
+        }
+    }
+
     pub fn ciphersuite(&self) -> Ciphersuite {
         self.suite
     }
@@ -579,6 +612,13 @@ fn describe_dkls_key_share_k1(
             "group verifying key does not match public package",
         ));
     }
+    if party.parameters.threshold != public_keys.threshold()
+        || party.parameters.share_count != public_keys.share_count()
+    {
+        return Err(inconsistent_key_share(
+            "threshold parameters do not match public package",
+        ));
+    }
     Ok((
         identifier,
         actual.to_sec1_point(true).as_bytes().to_vec(),
@@ -605,6 +645,13 @@ fn describe_dkls_key_share_r1(
     if party.pk != *public_keys.verifying_key() {
         return Err(inconsistent_key_share(
             "group verifying key does not match public package",
+        ));
+    }
+    if party.parameters.threshold != public_keys.threshold()
+        || party.parameters.share_count != public_keys.share_count()
+    {
+        return Err(inconsistent_key_share(
+            "threshold parameters do not match public package",
         ));
     }
     Ok((
@@ -847,6 +894,7 @@ mod tests {
         assert!(handle.identifier().as_u16() > 0);
         assert!(!handle.verifying_share().is_empty());
         assert!(!handle.group_verifying_key().is_empty());
+        assert_eq!(handle.chain_code().unwrap().len(), 32);
         assert_eq!(
             handle
                 .public_key_package()
@@ -864,6 +912,7 @@ mod tests {
         assert!(handle.identifier().as_u16() > 0);
         assert!(!handle.verifying_share().is_empty());
         assert!(!handle.group_verifying_key().is_empty());
+        assert_eq!(handle.chain_code().unwrap().len(), 32);
         assert_eq!(
             handle
                 .public_key_package()
@@ -897,6 +946,7 @@ mod tests {
         assert_eq!(imported.verifying_share(), handle.verifying_share());
         assert_eq!(imported.group_verifying_key(), handle.group_verifying_key());
         assert_eq!(imported.ciphersuite(), handle.ciphersuite());
+        assert_eq!(imported.chain_code().unwrap(), handle.chain_code().unwrap());
     }
 
     #[test]
@@ -1096,5 +1146,34 @@ mod tests {
             import_key_share(&exported, Ciphersuite::Secp256k1ECDSA).unwrap_err(),
             TssError::DeserializeFailed("group verifying key does not match public package".into())
         );
+    }
+
+    #[test]
+    fn dkls_share_with_mismatched_threshold_is_rejected() {
+        use dkls23_secp256k1::protocols::{Parameters, PublicKeyPackage as Package};
+
+        let parameters = Parameters::new(2, 3).unwrap();
+        let (parties, package) = dkls23_secp256k1::protocols::re_key::re_key(
+            &parameters,
+            b"mismatch",
+            &Scalar::from(7u64),
+            None,
+            dkls23_secp256k1::compute_eth_address,
+        );
+        let shares = (1..=3)
+            .map(|i| {
+                let index = dkls23_secp256k1::protocols::PartyIndex::new(i).unwrap();
+                (index, *package.verifying_share(index).unwrap())
+            })
+            .collect();
+        let relabelled = Package::new(
+            *package.verifying_key(),
+            shares,
+            Parameters::new(3, 3).unwrap(),
+        );
+        assert!(
+            KeyShareHandle::new(KeyShareInner::DKLs23(parties[0].clone(), relabelled)).is_err()
+        );
+        assert!(KeyShareHandle::new(KeyShareInner::DKLs23(parties[0].clone(), package)).is_ok());
     }
 }

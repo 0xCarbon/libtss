@@ -17,6 +17,9 @@ zeroize = { workspace = true }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+hmac = "0.12"
+sha2 = "0.10"
+k256 = { workspace = true }
 
 [build-dependencies]
 cbindgen = "0.27"
@@ -24,3 +27,6 @@ cbindgen = "0.27"
 [[bench]]
 name = "benchmarks"
 harness = false
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tarpaulin)"] }
