@@ -239,7 +239,7 @@ deviations. Every known TSS attack exploits insufficient input validation.
 
 **Implementation** (two layers of validation):
 
-**Layer 1: DKLs23 protocol crate (v0.4.1)** — validates at every phase entry point (also enforced by session state machines):
+**Layer 1: DKLs23 protocol crate (v0.6.1)** — validates at every phase entry point (also enforced by session state machines):
 
 | Input | Validation |
 |-------|-----------|

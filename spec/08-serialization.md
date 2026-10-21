@@ -53,7 +53,7 @@ participants without parsing the contents. Deserialization and validation happen
 
 ### DKLs23 Messages
 
-DKLs23 messages use serde with bincode encoding:
+DKLs23 messages use serde with postcard encoding:
 
 | Message | Content | Size Estimate (2-of-3) |
 |---------|---------|----------------------|
@@ -139,7 +139,7 @@ DER encoding is available via a helper function.
 ├────────────────────────────────────────────┤
 │ Payload length: u32 (big-endian)           │
 │ Payload: [u8; length]                      │
-│  (serde-bincode serialized key material)   │
+│  (serde-postcard serialized key material)  │
 ├────────────────────────────────────────────┤
 │ Public key package (serialized)            │
 │  length: u32                               │
@@ -170,7 +170,7 @@ Protocol messages that participate in Fiat-Shamir hashing MUST be canonically en
 - No optional padding or alignment bytes
 - Field order is fixed by the struct definition
 
-This is enforced by Rust's serde + bincode, which produces deterministic output
+This is enforced by Rust's serde + postcard, which produces deterministic output
 for the same input.
 
 ### Endianness
