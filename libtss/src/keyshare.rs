@@ -122,12 +122,8 @@ impl KeyShareHandle {
         match self.suite {
             Ciphersuite::Secp256k1ECDSA | Ciphersuite::Secp256r1ECDSA => REGISTRY
                 .with::<KeyShareInner, _>(self.id, |inner| match inner {
-                    KeyShareInner::DKLs23(party, _) => {
-                        Ok(party.derivation_data.chain_code.to_vec())
-                    }
-                    KeyShareInner::DKLs23Secp256r1(party, _) => {
-                        Ok(party.derivation_data.chain_code.to_vec())
-                    }
+                    KeyShareInner::DKLs23(party, _) => Ok(party.chain_code().to_vec()),
+                    KeyShareInner::DKLs23Secp256r1(party, _) => Ok(party.chain_code().to_vec()),
                     _ => Err(TssError::ProtocolMismatch),
                 })?,
             Ciphersuite::Secp256k1Taproot => Ok(crate::derive::taproot_chain_code(
