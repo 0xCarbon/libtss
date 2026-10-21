@@ -88,6 +88,50 @@ export function frostSplitKey(
 	}
 }
 
+/**
+ * Import an existing ECDSA key as DKLs23 shares (trusted dealer).
+ *
+ * `suite` is `Secp256k1ECDSA` or `Secp256r1ECDSA`; `secretKey` is a 32-byte
+ * big-endian scalar; `chainCode` is the key's existing 32-byte BIP-32 chain
+ * code, or omitted to sample a new one. The group key is the key's own public
+ * key. The caller holds every share: hand each one to its party, erase the
+ * key and the shares, and have the parties run `RefreshSession.createDkls`
+ * before use. `secretKey` is wiped after the call.
+ */
+export function dklsSplitKey(
+	suite: Ciphersuite,
+	secretKey: Uint8Array,
+	maxSigners: number,
+	minSigners: number,
+	chainCode?: Uint8Array,
+): { keyShares: KeyShareHandle[]; publicKeys: Uint8Array } {
+	try {
+		const outHandles = new BigUint64Array(maxSigners);
+		const outCount: [number | bigint] = [0n];
+		const outPkg = allocBuffer();
+		checkStatus(
+			lib.tss_dkls_split_key(
+				suite,
+				makeSlice(secretKey),
+				makeSlice(chainCode ?? new Uint8Array(0)),
+				maxSigners,
+				minSigners,
+				outHandles,
+				outCount,
+				outPkg,
+			),
+		);
+		const count = Number(outCount[0]);
+		const shares: KeyShareHandle[] = [];
+		for (let i = 0; i < count; i++) {
+			shares.push(new KeyShareHandle(outHandles[i]));
+		}
+		return { keyShares: shares, publicKeys: readBuffer(outPkg) };
+	} finally {
+		wipeBytes(secretKey);
+	}
+}
+
 export function frostAggregate(
 	suite: Ciphersuite,
 	message: Uint8Array,

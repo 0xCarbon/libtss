@@ -81,6 +81,24 @@ TssStatus tss_derive_child(TssHandle key_share, uint32_t child_number, TssHandle
 // NUL-terminated C string.
 TssStatus tss_derive_path(TssHandle key_share, const char *path, TssHandle *out_handle);
 
+// Import an existing ECDSA key as DKLs23 shares (trusted dealer).
+//
+// `suite` is `Secp256k1ECDSA` (6) or `Secp256r1ECDSA` (7); `secret_key` is a
+// 32-byte big-endian scalar. `chain_code` is either empty (sample a new one)
+// or the key's existing 32-byte BIP-32 chain code. `out_handles` must have
+// room for `max_signers` handles. The group key is the key's own public key.
+// The caller holds every share: hand each one to its party, erase the key
+// and the shares, and have the parties run a complete refresh
+// (`tss_refresh_new_dkls`) before use.
+TssStatus tss_dkls_split_key(uint8_t suite,
+                             struct TssSlice secret_key,
+                             struct TssSlice chain_code,
+                             uint16_t max_signers,
+                             uint16_t min_signers,
+                             TssHandle *out_handles,
+                             size_t *out_handle_count,
+                             struct TssBuffer *out_pubkey_package);
+
 // Return a pointer to the last error message (NUL-terminated).
 //
 // **Lifetime:** The returned pointer is only valid until the next libtss FFI

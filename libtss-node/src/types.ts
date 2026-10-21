@@ -13,6 +13,7 @@ export enum Ciphersuite {
 	Ristretto255 = 4,
 	Ed448 = 5,
 	Secp256k1ECDSA = 6,
+	Secp256r1ECDSA = 7,
 }
 
 export interface ThresholdConfig {
@@ -64,7 +65,8 @@ export type RefreshOutput =
 	| { complete: true; keyShare: KeyShareHandle; publicKeys: Uint8Array };
 
 export function protocolForCiphersuite(suite: Ciphersuite): Protocol {
-	return suite === Ciphersuite.Secp256k1ECDSA
+	return suite === Ciphersuite.Secp256k1ECDSA ||
+		suite === Ciphersuite.Secp256r1ECDSA
 		? Protocol.DKLs23
 		: Protocol.Frost;
 }

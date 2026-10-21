@@ -31,7 +31,7 @@ use crate::types::Identifier;
 /// requires (both supported curves qualify with DKLs23's `serde` feature).
 pub trait RefreshCurve:
     DklsCurve<
-    Scalar: serde::Serialize + serde::de::DeserializeOwned,
+    Scalar: serde::Serialize + serde::de::DeserializeOwned + Zeroize,
     AffinePoint: serde::Serialize + serde::de::DeserializeOwned,
 >
 {
@@ -39,7 +39,7 @@ pub trait RefreshCurve:
 
 impl<C> RefreshCurve for C where
     C: DklsCurve<
-        Scalar: serde::Serialize + serde::de::DeserializeOwned,
+        Scalar: serde::Serialize + serde::de::DeserializeOwned + Zeroize,
         AffinePoint: serde::Serialize + serde::de::DeserializeOwned,
     >
 {
@@ -47,7 +47,7 @@ impl<C> RefreshCurve for C where
 
 /// Per-party state of a DKLs23 complete refresh, carried between the three
 /// message rounds until [`phase4`] consumes it.
-pub struct DklsRefreshState<C: DklsCurve> {
+pub struct DklsRefreshState<C: RefreshCurve> {
     party: Party<C>,
     pubkey: PublicKeyPackage<C>,
     refresh_sid: Vec<u8>,
@@ -62,13 +62,13 @@ pub struct DklsRefreshState<C: DklsCurve> {
     phase2_input: Option<PhaseInput>,
 }
 
-impl<C: DklsCurve> Drop for DklsRefreshState<C> {
+impl<C: RefreshCurve> Drop for DklsRefreshState<C> {
     fn drop(&mut self) {
         if let Some(fragment) = self.self_fragment.as_mut() {
-            *fragment = C::Scalar::ZERO;
+            fragment.zeroize();
         }
         if let Some(correction) = self.correction_value.as_mut() {
-            *correction = C::Scalar::ZERO;
+            correction.zeroize();
         }
         if let Some(kept) = self.zero_kept_2to3.as_mut() {
             zeroize_zero_kept_2to3(kept);
@@ -80,10 +80,10 @@ impl<C: DklsCurve> Drop for DklsRefreshState<C> {
         }
         if let Some(kept) = self.mul_kept_3to4.as_mut() {
             for value in kept.values_mut() {
-                value.ot_sender.s = C::Scalar::ZERO;
+                value.ot_sender.s.zeroize();
                 value.ot_receiver.seed.zeroize();
-                value.nonce = C::Scalar::ZERO;
-                value.vec_r.iter_mut().for_each(|r| *r = C::Scalar::ZERO);
+                value.nonce.zeroize();
+                value.vec_r.iter_mut().for_each(Zeroize::zeroize);
                 value.correlation.zeroize();
             }
         }
@@ -210,7 +210,7 @@ pub fn phase2<C: RefreshCurve>(
         seen[sender] = true;
     }
     if seen.iter().any(|present| !present) {
-        fragments.iter_mut().for_each(|f| *f = C::Scalar::ZERO);
+        fragments.iter_mut().for_each(Zeroize::zeroize);
         return Err(TssError::DeserializeFailed(
             "missing refresh fragment for phase2".into(),
         ));
@@ -219,7 +219,7 @@ pub fn phase2<C: RefreshCurve>(
     let (correction_value, proof_commitment, zero_kept, zero_transmit) = state
         .party
         .refresh_complete_phase2(&state.refresh_sid, &fragments);
-    fragments.iter_mut().for_each(|f| *f = C::Scalar::ZERO);
+    fragments.iter_mut().for_each(Zeroize::zeroize);
 
     let mut output = PhaseOutput::new();
     output

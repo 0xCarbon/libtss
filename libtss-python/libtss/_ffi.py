@@ -270,6 +270,12 @@ def _declare_signatures(lib: ctypes.CDLL) -> None:
         POINTER(c_uint64), POINTER(TssBuffer),
     ]
 
+    lib.tss_refresh_new_dkls.restype = TssStatus
+    lib.tss_refresh_new_dkls.argtypes = [
+        c_uint64, POINTER(c_uint8), c_size_t,
+        POINTER(c_uint64), POINTER(TssBuffer),
+    ]
+
     lib.tss_refresh_receiver.restype = TssStatus
     lib.tss_refresh_receiver.argtypes = [c_uint64, POINTER(c_uint64)]
 
@@ -300,6 +306,12 @@ def _declare_signatures(lib: ctypes.CDLL) -> None:
     lib.tss_frost_generate_dealer.restype = TssStatus
     lib.tss_frost_generate_dealer.argtypes = [
         c_uint8, c_uint16, c_uint16,
+        POINTER(c_uint64), POINTER(c_size_t), POINTER(TssBuffer),
+    ]
+
+    lib.tss_dkls_split_key.restype = TssStatus
+    lib.tss_dkls_split_key.argtypes = [
+        c_uint8, TssSlice, TssSlice, c_uint16, c_uint16,
         POINTER(c_uint64), POINTER(c_size_t), POINTER(TssBuffer),
     ]
 

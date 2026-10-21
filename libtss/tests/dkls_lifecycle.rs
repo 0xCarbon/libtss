@@ -1,7 +1,9 @@
-//! DKLs23 complete refresh through the unified session API.
+//! DKLs23 key lifecycle through the unified API: complete refresh and key import.
 
 use std::collections::BTreeMap;
 
+use k256::elliptic_curve::sec1::ToSec1Point;
+use libtss::dkls_import::dkls_split_key;
 use libtss::session::dkg::{DkgOutput, DkgSession};
 use libtss::session::refresh::{RefreshOutput, RefreshSession};
 use libtss::session::sign::{SignOutput, SignSession};
@@ -222,6 +224,125 @@ fn refresh_rejects_empty_session_id_and_other_suites() {
     let frost = dkg(Ciphersuite::Ed25519);
     assert!(matches!(
         RefreshSession::new_dkls(&frost[&id(1)], b"refresh-1"),
+        Err(TssError::ProtocolMismatch)
+    ));
+}
+
+fn handles_by_id(handles: Vec<KeyShareHandle>) -> BTreeMap<Identifier, KeyShareHandle> {
+    handles.into_iter().map(|h| (h.identifier(), h)).collect()
+}
+
+fn import(
+    suite: Ciphersuite,
+    secret: &[u8],
+    chain_code: Option<&[u8]>,
+) -> BTreeMap<Identifier, KeyShareHandle> {
+    let config = ThresholdConfig {
+        min_signers: 2,
+        max_signers: 3,
+        suite,
+    };
+    let (handles, public_keys) = dkls_split_key(&config, secret, chain_code).unwrap();
+    assert_eq!(handles.len(), 3);
+    for handle in &handles {
+        assert_eq!(handle.public_key_package(), &public_keys);
+    }
+    handles_by_id(handles)
+}
+
+fn public_key(suite: Ciphersuite, secret: &[u8]) -> Vec<u8> {
+    match suite {
+        Ciphersuite::Secp256k1ECDSA => k256::SecretKey::from_slice(secret)
+            .unwrap()
+            .public_key()
+            .to_sec1_bytes()
+            .to_vec(),
+        _ => p256::SecretKey::from_slice(secret)
+            .unwrap()
+            .public_key()
+            .to_sec1_bytes()
+            .to_vec(),
+    }
+}
+
+fn compressed(suite: Ciphersuite, sec1: &[u8]) -> Vec<u8> {
+    match suite {
+        Ciphersuite::Secp256k1ECDSA => k256::PublicKey::from_sec1_bytes(sec1)
+            .unwrap()
+            .to_sec1_point(true)
+            .as_bytes()
+            .to_vec(),
+        _ => p256::PublicKey::from_sec1_bytes(sec1)
+            .unwrap()
+            .to_sec1_point(true)
+            .as_bytes()
+            .to_vec(),
+    }
+}
+
+#[test]
+fn imported_key_keeps_its_public_key_and_chain_code_and_signs() {
+    let secret = [0x42u8; 32];
+    let chain_code = [0x17u8; 32];
+    for suite in SUITES {
+        let shares = import(suite, &secret, Some(&chain_code));
+        let group_key = shares[&id(1)].group_verifying_key();
+        assert_eq!(
+            compressed(suite, &group_key),
+            compressed(suite, &public_key(suite, &secret))
+        );
+        for share in shares.values() {
+            assert_eq!(share.chain_code().unwrap(), chain_code);
+        }
+
+        let hash = [8u8; 32];
+        let signers = BTreeMap::from([(id(2), &shares[&id(2)]), (id(3), &shares[&id(3)])]);
+        let signature = sign(suite, &signers, hash).unwrap();
+        assert!(verifies(suite, &group_key, &hash, &signature), "{suite:?}");
+
+        // The recommended follow-up refresh keeps the key.
+        let parties: Vec<_> = shares.keys().copied().collect();
+        let refreshed = refresh(&shares, &same_id(&parties, b"after-import")).unwrap();
+        let signers = BTreeMap::from([(id(1), &refreshed[&id(1)]), (id(2), &refreshed[&id(2)])]);
+        let signature = sign(suite, &signers, hash).unwrap();
+        assert!(verifies(suite, &group_key, &hash, &signature), "{suite:?}");
+    }
+}
+
+#[test]
+fn two_imports_of_one_key_do_not_sign_together() {
+    for suite in SUITES {
+        let first = import(suite, &[0x42u8; 32], None);
+        let second = import(suite, &[0x42u8; 32], None);
+        let mixed = BTreeMap::from([(id(1), &first[&id(1)]), (id(2), &second[&id(2)])]);
+        assert!(sign(suite, &mixed, [8u8; 32]).is_err(), "{suite:?}");
+    }
+}
+
+#[test]
+fn import_rejects_invalid_input() {
+    let config = |suite| ThresholdConfig {
+        min_signers: 2,
+        max_signers: 3,
+        suite,
+    };
+    let k1 = config(Ciphersuite::Secp256k1ECDSA);
+    let invalid = |result: Result<_, TssError>| matches!(result, Err(TssError::InvalidConfig(_)));
+
+    assert!(invalid(dkls_split_key(&k1, &[0u8; 32], None)));
+    assert!(invalid(dkls_split_key(&k1, &[1u8; 31], None)));
+    assert!(invalid(dkls_split_key(&k1, &[0xffu8; 32], None)));
+    assert!(invalid(dkls_split_key(&k1, &[1u8; 32], Some(&[0u8; 31]))));
+    assert!(invalid(dkls_split_key(
+        &ThresholdConfig {
+            min_signers: 1,
+            ..k1.clone()
+        },
+        &[1u8; 32],
+        None
+    )));
+    assert!(matches!(
+        dkls_split_key(&config(Ciphersuite::Ed25519), &[1u8; 32], None),
         Err(TssError::ProtocolMismatch)
     ));
 }

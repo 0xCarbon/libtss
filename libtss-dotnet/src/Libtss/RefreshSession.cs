@@ -67,6 +67,47 @@ public sealed class RefreshSession : IDisposable
     }
 
     /// <summary>
+    /// Creates a DKLs23 complete refresh session (secp256k1 / secp256r1).
+    /// </summary>
+    /// <remarks>
+    /// All parties run it together under the same fresh <paramref name="sessionId"/>;
+    /// <see cref="Next"/> is called three times. The group key stays the same and every
+    /// share and its OT state are regenerated. Refreshed shares sign only with shares
+    /// from the same refresh.
+    /// </remarks>
+    /// <param name="keyShare">The existing DKLs23 key share to refresh.</param>
+    /// <param name="sessionId">Non-empty refresh session identifier shared by all parties.</param>
+    /// <returns>A tuple of the new session and the first-round messages to send.</returns>
+    public static unsafe (RefreshSession Session, Message[] Messages) CreateDkls(
+        KeyShareHandle keyShare,
+        byte[] sessionId)
+    {
+        ArgumentNullException.ThrowIfNull(keyShare);
+        ArgumentNullException.ThrowIfNull(sessionId);
+        if (sessionId.Length == 0)
+            throw new ArgumentException("sessionId must not be empty", nameof(sessionId));
+
+        ulong sessionHandle;
+        var outMessages = new NativeTssBuffer();
+        int status;
+
+        fixed (byte* pSessionId = sessionId)
+        fixed (TssBuffer* pOutMessages = &outMessages.Raw)
+        {
+            status = Native.tss_refresh_new_dkls(
+                keyShare.Handle,
+                pSessionId,
+                (nuint)sessionId.Length,
+                &sessionHandle,
+                pOutMessages);
+        }
+        TssException.ThrowIfError(status);
+
+        var messages = MessageCodec.Decode(outMessages.ToArray());
+        return (new RefreshSession(sessionHandle), messages);
+    }
+
+    /// <summary>
     /// Creates a receiver-only refresh session (does not produce first-round messages).
     /// </summary>
     /// <remarks>
@@ -103,7 +144,7 @@ public sealed class RefreshSession : IDisposable
         ulong outKeyShare;
         var outPubKeyPkg = new NativeTssBuffer();
         var outMessages = new NativeTssBuffer();
-        bool complete;
+        byte complete;
         int status;
 
         fixed (byte* pInput = encodedInput)
@@ -125,7 +166,7 @@ public sealed class RefreshSession : IDisposable
         }
         TssException.ThrowIfError(status);
 
-        if (complete)
+        if (complete != 0)
         {
             byte[] pubKeyPkgBytes = outPubKeyPkg.ToArray();
             outMessages.Dispose();

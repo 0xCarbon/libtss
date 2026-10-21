@@ -53,14 +53,24 @@ const native = koffi.load(findLib());
 
 // ── Struct types ───────────────────────────────────────────────────────────
 
+// koffi registers type names process-wide, so a second load of this module
+// (e.g. one per test file in a single Jest worker) reuses the existing type.
+function struct(name: string, fields: Record<string, string>): koffi.IKoffiCType {
+	try {
+		return koffi.struct(name, fields);
+	} catch {
+		return koffi.resolve(name);
+	}
+}
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-const TssSlice = koffi.struct("TssSlice", {
+const TssSlice = struct("TssSlice", {
 	data: "uint8_t *",
 	len: "size_t",
 });
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-const TssBuffer = koffi.struct("TssBuffer", {
+const TssBuffer = struct("TssBuffer", {
 	data: "uint8_t *",
 	len: "size_t",
 });
@@ -140,6 +150,9 @@ export const lib: Record<string, (...args: any[]) => any> = {
 	tss_refresh_new: native.func(
 		"int32_t tss_refresh_new(uint64_t key_share, const uint16_t *participants, size_t participants_len, _Out_ uint64_t *out_session, _Out_ TssBuffer *out_messages)",
 	),
+	tss_refresh_new_dkls: native.func(
+		"int32_t tss_refresh_new_dkls(uint64_t key_share, const uint8_t *session_id, size_t session_id_len, _Out_ uint64_t *out_session, _Out_ TssBuffer *out_messages)",
+	),
 	tss_refresh_receiver: native.func(
 		"int32_t tss_refresh_receiver(uint64_t key_share, _Out_ uint64_t *out_session)",
 	),
@@ -156,6 +169,9 @@ export const lib: Record<string, (...args: any[]) => any> = {
 	),
 	tss_frost_tweak_pubkey_package: native.func(
 		"int32_t tss_frost_tweak_pubkey_package(TssSlice pubkey_package, const uint8_t *merkle_root, size_t merkle_root_len, _Out_ TssBuffer *out_tweaked_package)",
+	),
+	tss_dkls_split_key: native.func(
+		"int32_t tss_dkls_split_key(uint8_t suite, TssSlice secret_key, TssSlice chain_code, uint16_t max_signers, uint16_t min_signers, uint64_t *out_handles, _Out_ size_t *out_handle_count, _Out_ TssBuffer *out_pubkey_package)",
 	),
 	tss_frost_split_key: native.func(
 		"int32_t tss_frost_split_key(uint8_t suite, TssSlice secret_key, uint16_t max_signers, uint16_t min_signers, uint64_t *out_handles, _Out_ size_t *out_handle_count, _Out_ TssBuffer *out_pubkey_package)",

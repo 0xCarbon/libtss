@@ -91,7 +91,7 @@ public sealed class DkgSession : IDisposable
         ulong outKeyShare;
         var outPubKeyPkg = new NativeTssBuffer();
         var outMessages = new NativeTssBuffer();
-        bool complete;
+        byte complete;
         int status;
 
         fixed (byte* pInput = encodedInput)
@@ -113,7 +113,7 @@ public sealed class DkgSession : IDisposable
         }
         TssException.ThrowIfError(status);
 
-        if (complete)
+        if (complete != 0)
         {
             byte[] pubKeyPkgBytes = outPubKeyPkg.ToArray();
             outMessages.Dispose();

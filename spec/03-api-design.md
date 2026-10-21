@@ -586,6 +586,15 @@ pub fn frost_split_key(
     secret_key: &[u8],
 ) -> Result<(Vec<KeyShareHandle>, PublicKeyPackage), TssError>;
 
+/// Import an existing ECDSA key as DKLs23 shares (Secp256k1ECDSA or
+/// Secp256r1ECDSA). `chain_code` keeps an existing BIP-32 chain code.
+/// The parties run `RefreshSession::new_dkls` before use.
+pub fn dkls_split_key(
+    config: &ThresholdConfig,
+    secret_key: &[u8],
+    chain_code: Option<&[u8]>,
+) -> Result<(Vec<KeyShareHandle>, PublicKeyPackage), TssError>;
+
 /// Trusted dealer refresh: generate refreshing shares without interaction.
 /// The group public key does NOT change.
 pub fn frost_refresh_with_dealer(

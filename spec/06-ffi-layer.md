@@ -333,6 +333,14 @@ TssStatus tss_refresh_new(
     TssHandle *out_session, TssBuffer *out_messages
 );
 
+// DKLs23 complete refresh (all n parties, same fresh session_id); advance with
+// tss_refresh_next three times.
+TssStatus tss_refresh_new_dkls(
+    TssHandle key_share,
+    const uint8_t *session_id, size_t session_id_len,
+    TssHandle *out_session, TssBuffer *out_messages
+);
+
 /// Create a FROST refresh receiver session (non-dealer participant).
 /// The receiver waits for messages from the dealer refresh and does
 /// not produce initial messages. Use with tss_frost_refresh_dealer.
@@ -391,6 +399,17 @@ TssStatus tss_frost_generate_dealer(
 
 TssStatus tss_frost_split_key(
     uint8_t suite, TssSlice secret_key, uint16_t max_signers, uint16_t min_signers,
+    TssHandle *out_handles, size_t *out_handle_count,
+    TssBuffer *out_pubkey_package
+);
+
+// --- DKLs23 Key Import (trusted dealer) ---
+
+// suite: Secp256k1ECDSA (6) or Secp256r1ECDSA (7). chain_code: empty, or the
+// key's existing 32-byte BIP-32 chain code. Run tss_refresh_new_dkls after.
+TssStatus tss_dkls_split_key(
+    uint8_t suite, TssSlice secret_key, TssSlice chain_code,
+    uint16_t max_signers, uint16_t min_signers,
     TssHandle *out_handles, size_t *out_handle_count,
     TssBuffer *out_pubkey_package
 );

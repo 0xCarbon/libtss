@@ -2,6 +2,7 @@
 #![allow(clippy::missing_safety_doc)]
 
 pub mod derive;
+pub mod dkls_ops;
 pub mod error;
 pub mod frost_ops;
 pub mod handles;

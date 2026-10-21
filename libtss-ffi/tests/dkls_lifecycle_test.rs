@@ -1,4 +1,5 @@
-//! FFI-level test for the DKLs23 complete refresh (tss_refresh_new_dkls).
+//! FFI-level tests for DKLs23 complete refresh (tss_refresh_new_dkls) and key
+//! import (tss_dkls_split_key).
 
 mod common;
 
@@ -109,4 +110,55 @@ fn dkls_refresh_requires_session_id() {
     for key in keys {
         tss_handle_free(key);
     }
+}
+
+fn split(suite: u8, secret: &[u8], chain_code: &[u8]) -> Result<Vec<TssHandle>, TssStatus> {
+    let mut handles = [0u64; 3];
+    let mut count = 0usize;
+    let mut package = TssBuffer::empty();
+    let status = libtss_ffi::dkls_ops::tss_dkls_split_key(
+        suite,
+        slice(secret),
+        slice(chain_code),
+        3,
+        2,
+        handles.as_mut_ptr(),
+        &mut count,
+        &mut package,
+    );
+    if status != TSS_OK {
+        return Err(status);
+    }
+    let _ = take_buffer(&mut package);
+    Ok(handles[..count].to_vec())
+}
+
+#[test]
+fn dkls_split_key_imports_refreshes_and_signs() {
+    for suite in [SUITE_SECP256K1_ECDSA, SUITE_SECP256R1_ECDSA] {
+        let keys = split(suite, &[0x42; 32], &[0x17; 32]).unwrap();
+        assert_eq!(keys.len(), 3);
+        let refreshed = refresh(&keys, b"ffi-after-import");
+        assert_eq!(group_key(keys[0]), group_key(refreshed[0]));
+        assert_eq!(run_dkls_sign(&refreshed[..2], &[4u8; 32]).len(), 64);
+        for key in keys.into_iter().chain(refreshed) {
+            tss_handle_free(key);
+        }
+    }
+}
+
+#[test]
+fn dkls_split_key_rejects_invalid_input() {
+    assert_eq!(
+        split(SUITE_SECP256K1_ECDSA, &[0; 32], &[]).unwrap_err(),
+        TSS_ERR_INVALID_CONFIG
+    );
+    assert_eq!(
+        split(SUITE_SECP256K1_ECDSA, &[1; 32], &[0; 31]).unwrap_err(),
+        TSS_ERR_INVALID_CONFIG
+    );
+    assert_eq!(
+        split(SUITE_ED25519, &[1; 32], &[]).unwrap_err(),
+        TSS_ERR_PROTO_MISMATCH
+    );
 }

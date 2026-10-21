@@ -225,6 +225,36 @@ export class RefreshSession extends SessionHandle {
 		return [session, messages];
 	}
 
+	/**
+	 * DKLs23 complete refresh (secp256k1 / secp256r1). All parties run it
+	 * together under the same fresh `sessionId`; `next()` is called three
+	 * times. The group key stays the same and every share and its OT state
+	 * are regenerated. Refreshed shares sign only with shares from the same
+	 * refresh.
+	 */
+	static createDkls(
+		keyShare: KeyShareHandle,
+		sessionId: Uint8Array,
+	): [RefreshSession, Message[]] {
+		if (sessionId.length === 0) {
+			throw new Error("sessionId must not be empty");
+		}
+		const outSession: [bigint] = [0n];
+		const outMessages = allocBuffer();
+		checkStatus(
+			lib.tss_refresh_new_dkls(
+				keyShare.handle,
+				sessionId,
+				sessionId.length,
+				outSession,
+				outMessages,
+			),
+		);
+		const session = new RefreshSession(outSession[0]);
+		const messages = decodeMessages(readBuffer(outMessages));
+		return [session, messages];
+	}
+
 	static createReceiver(keyShare: KeyShareHandle): RefreshSession {
 		const outSession: [bigint] = [0n];
 		checkStatus(

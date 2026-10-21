@@ -247,7 +247,7 @@ fresh `session_id`.
 - A failed round ends the session; start a new refresh with a new
   `session_id`. The input handle stays valid until the application replaces it.
 
-Run it after importing a key (see Key Import) and after upgrading from
+Run it after importing a key (see Key Import (DKLs23)) and after upgrading from
 DKLs23 0.5.1 or earlier, so the OT state is regenerated, and periodically as
 proactive security.
 
@@ -364,6 +364,21 @@ encrypting the blob before storage.
 2. Recommended: AES-256-GCM with a key derived from a user password (Argon2id)
 3. The library does NOT handle encryption -- this is the application's responsibility
 4. The library documents this requirement clearly in the `export_key_share` rustdoc
+
+### Key Import (DKLs23)
+
+An existing secp256k1 or secp256r1 ECDSA key (for example from a GG18 or
+single-key wallet) becomes DKLs23 shares through a trusted dealer:
+`dkls_import::dkls_split_key(config, secret_key, chain_code)` (C ABI:
+`tss_dkls_split_key`) wraps DKLs23 `re_key` with a fresh random session id.
+
+- The group key is the key's own public key, so addresses do not change.
+  Passing the key's existing BIP-32 chain code keeps derived addresses too.
+- The secret key must be a canonical, non-zero 32-byte big-endian scalar.
+- The dealer holds every share and generates every pairwise OT setup. Hand
+  each share to its party over a confidential channel, erase the key and the
+  shares on the dealer, and have all parties run a complete refresh
+  (`RefreshSession::new_dkls`) before signing.
 
 ### Import Validation
 
