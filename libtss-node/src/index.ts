@@ -132,6 +132,81 @@ export function dklsSplitKey(
 	}
 }
 
+/**
+ * BOLT 3 derivation of a DKLs23 secp256k1 key share for a commitment
+ * (`basepoint + SHA256(perCommitmentPoint || basepoint)·G`). Every party
+ * derives with the same 33-byte compressed point. A derived share keeps the
+ * base share's OT state, so a counterparty banned under a derived key is
+ * banned for the base key too.
+ */
+export function bolt3Derive(
+	keyShare: KeyShareHandle,
+	perCommitmentPoint: Uint8Array,
+): KeyShareHandle {
+	const outHandle: [bigint] = [0n];
+	checkStatus(
+		lib.tss_bolt3_derive(
+			keyShare.handle,
+			makeSlice(perCommitmentPoint),
+			outHandle,
+		),
+	);
+	return new KeyShareHandle(outHandle[0]);
+}
+
+/**
+ * BOLT 3 revocation derivation for a commitment whose 32-byte
+ * `perCommitmentSecret` was revealed; the secret must match the point.
+ */
+export function bolt3DeriveRevocation(
+	keyShare: KeyShareHandle,
+	perCommitmentPoint: Uint8Array,
+	perCommitmentSecret: Uint8Array,
+): KeyShareHandle {
+	const outHandle: [bigint] = [0n];
+	checkStatus(
+		lib.tss_bolt3_derive_revocation(
+			keyShare.handle,
+			makeSlice(perCommitmentPoint),
+			makeSlice(perCommitmentSecret),
+			outHandle,
+		),
+	);
+	return new KeyShareHandle(outHandle[0]);
+}
+
+/** `bolt3Derive` on a serialized secp256k1 ECDSA public key package. */
+export function bolt3DerivePublicKeys(
+	publicKeys: Uint8Array,
+	perCommitmentPoint: Uint8Array,
+): Uint8Array {
+	const out = allocBuffer();
+	checkStatus(
+		lib.tss_bolt3_derive_pubkey_package(
+			makeSlice(publicKeys),
+			makeSlice(perCommitmentPoint),
+			out,
+		),
+	);
+	return readBuffer(out);
+}
+
+/** `bolt3DeriveRevocation` on a public key package (no secret needed). */
+export function bolt3DeriveRevocationPublicKeys(
+	publicKeys: Uint8Array,
+	perCommitmentPoint: Uint8Array,
+): Uint8Array {
+	const out = allocBuffer();
+	checkStatus(
+		lib.tss_bolt3_derive_revocation_pubkey_package(
+			makeSlice(publicKeys),
+			makeSlice(perCommitmentPoint),
+			out,
+		),
+	);
+	return readBuffer(out);
+}
+
 export function frostAggregate(
 	suite: Ciphersuite,
 	message: Uint8Array,

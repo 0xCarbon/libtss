@@ -2,6 +2,7 @@
 
 use crate::ffi_entry;
 use crate::messages::checked_slice;
+use crate::session::borrow_key_share;
 use crate::types::{TssBuffer, TssHandle, TssSlice, TssStatus};
 
 /// Import an existing ECDSA key as DKLs23 shares (trusted dealer).
@@ -56,6 +57,108 @@ pub extern "C" fn tss_dkls_split_key(
         }
         *out_count = handle_slice.len();
         *out_pkg = TssBuffer::from_vec(pubkey.serialize()?);
+        Ok(())
+    })
+}
+
+/// BOLT 3 derivation of a DKLs23 secp256k1 key share for a commitment
+/// (`basepoint + SHA256(per_commitment_point || basepoint)·G`).
+///
+/// `per_commitment_point` is a 33-byte compressed point; every party derives
+/// with the same point. `key_share` stays valid; `out_handle` receives the
+/// derived share. A derived share keeps the base share's OT state, so a
+/// counterparty banned under a derived key is banned for the base key too.
+/// Non-secp256k1-ECDSA shares return `TSS_ERR_PROTO_MISMATCH`.
+#[no_mangle]
+pub extern "C" fn tss_bolt3_derive(
+    key_share: TssHandle,
+    per_commitment_point: TssSlice,
+    out_handle: *mut TssHandle,
+) -> TssStatus {
+    ffi_entry!({
+        let out = unsafe { out_handle.as_mut() }
+            .ok_or_else(|| libtss::TssError::InvalidConfig("out_handle is null".into()))?;
+        *out = 0;
+
+        let handle = borrow_key_share(key_share)?;
+        let derived = libtss::bolt3::bolt3_derive(&handle, checked_slice(per_commitment_point)?)?;
+        *out = derived.handle_id();
+        std::mem::forget(derived);
+        Ok(())
+    })
+}
+
+/// BOLT 3 revocation derivation of a DKLs23 secp256k1 key share, for a
+/// commitment whose 32-byte big-endian `per_commitment_secret` was revealed.
+/// The secret must match `per_commitment_point`, or `TSS_ERR_TWEAK` is
+/// returned. `key_share` stays valid; `out_handle` receives the derived share.
+#[no_mangle]
+pub extern "C" fn tss_bolt3_derive_revocation(
+    key_share: TssHandle,
+    per_commitment_point: TssSlice,
+    per_commitment_secret: TssSlice,
+    out_handle: *mut TssHandle,
+) -> TssStatus {
+    ffi_entry!({
+        let out = unsafe { out_handle.as_mut() }
+            .ok_or_else(|| libtss::TssError::InvalidConfig("out_handle is null".into()))?;
+        *out = 0;
+
+        let handle = borrow_key_share(key_share)?;
+        let derived = libtss::bolt3::bolt3_derive_revocation(
+            &handle,
+            checked_slice(per_commitment_point)?,
+            checked_slice(per_commitment_secret)?,
+        )?;
+        *out = derived.handle_id();
+        std::mem::forget(derived);
+        Ok(())
+    })
+}
+
+/// `tss_bolt3_derive` on a serialized secp256k1 ECDSA public key package:
+/// writes the derived package to `out_pubkey_package`.
+#[no_mangle]
+pub extern "C" fn tss_bolt3_derive_pubkey_package(
+    pubkey_package: TssSlice,
+    per_commitment_point: TssSlice,
+    out_pubkey_package: *mut TssBuffer,
+) -> TssStatus {
+    ffi_entry!({
+        let out = unsafe { out_pubkey_package.as_mut() }
+            .ok_or_else(|| libtss::TssError::InvalidConfig("out_pubkey_package is null".into()))?;
+        *out = TssBuffer::empty();
+
+        let package = libtss::PublicKeyPackage::deserialize(checked_slice(pubkey_package)?)?;
+        let derived = libtss::bolt3::bolt3_derive_public_keys(
+            &package,
+            checked_slice(per_commitment_point)?,
+        )?;
+        *out = TssBuffer::from_vec(derived.serialize()?);
+        Ok(())
+    })
+}
+
+/// `tss_bolt3_derive_revocation` on a serialized secp256k1 ECDSA public key
+/// package (no secret needed): writes the derived package to
+/// `out_pubkey_package`.
+#[no_mangle]
+pub extern "C" fn tss_bolt3_derive_revocation_pubkey_package(
+    pubkey_package: TssSlice,
+    per_commitment_point: TssSlice,
+    out_pubkey_package: *mut TssBuffer,
+) -> TssStatus {
+    ffi_entry!({
+        let out = unsafe { out_pubkey_package.as_mut() }
+            .ok_or_else(|| libtss::TssError::InvalidConfig("out_pubkey_package is null".into()))?;
+        *out = TssBuffer::empty();
+
+        let package = libtss::PublicKeyPackage::deserialize(checked_slice(pubkey_package)?)?;
+        let derived = libtss::bolt3::bolt3_derive_revocation_public_keys(
+            &package,
+            checked_slice(per_commitment_point)?,
+        )?;
+        *out = TssBuffer::from_vec(derived.serialize()?);
         Ok(())
     })
 }

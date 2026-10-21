@@ -99,6 +99,40 @@ TssStatus tss_dkls_split_key(uint8_t suite,
                              size_t *out_handle_count,
                              struct TssBuffer *out_pubkey_package);
 
+// BOLT 3 derivation of a DKLs23 secp256k1 key share for a commitment
+// (`basepoint + SHA256(per_commitment_point || basepoint)·G`).
+//
+// `per_commitment_point` is a 33-byte compressed point; every party derives
+// with the same point. `key_share` stays valid; `out_handle` receives the
+// derived share. A derived share keeps the base share's OT state, so a
+// counterparty banned under a derived key is banned for the base key too.
+// Non-secp256k1-ECDSA shares return `TSS_ERR_PROTO_MISMATCH`.
+TssStatus tss_bolt3_derive(TssHandle key_share,
+                           struct TssSlice per_commitment_point,
+                           TssHandle *out_handle);
+
+// BOLT 3 revocation derivation of a DKLs23 secp256k1 key share, for a
+// commitment whose 32-byte big-endian `per_commitment_secret` was revealed.
+// The secret must match `per_commitment_point`, or `TSS_ERR_TWEAK` is
+// returned. `key_share` stays valid; `out_handle` receives the derived share.
+TssStatus tss_bolt3_derive_revocation(TssHandle key_share,
+                                      struct TssSlice per_commitment_point,
+                                      struct TssSlice per_commitment_secret,
+                                      TssHandle *out_handle);
+
+// `tss_bolt3_derive` on a serialized secp256k1 ECDSA public key package:
+// writes the derived package to `out_pubkey_package`.
+TssStatus tss_bolt3_derive_pubkey_package(struct TssSlice pubkey_package,
+                                          struct TssSlice per_commitment_point,
+                                          struct TssBuffer *out_pubkey_package);
+
+// `tss_bolt3_derive_revocation` on a serialized secp256k1 ECDSA public key
+// package (no secret needed): writes the derived package to
+// `out_pubkey_package`.
+TssStatus tss_bolt3_derive_revocation_pubkey_package(struct TssSlice pubkey_package,
+                                                     struct TssSlice per_commitment_point,
+                                                     struct TssBuffer *out_pubkey_package);
+
 // Return a pointer to the last error message (NUL-terminated).
 //
 // **Lifetime:** The returned pointer is only valid until the next libtss FFI

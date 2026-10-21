@@ -1,5 +1,6 @@
 // libtss: Threshold signing library unifying FROST (RFC 9591) and DKLs23.
 pub mod address;
+pub mod bolt3;
 pub mod derive;
 pub mod dkls;
 pub mod dkls_import;

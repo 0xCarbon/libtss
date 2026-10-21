@@ -57,3 +57,57 @@ def split_key(
     pkg_bytes = buffer_to_bytes(out_pkg)
     handles = [KeyShareHandle(handles_arr[i]) for i in range(handle_count.value)]
     return handles, pkg_bytes
+
+
+def bolt3_derive(key_share: KeyShareHandle, per_commitment_point: bytes) -> KeyShareHandle:
+    """BOLT 3 derivation of a DKLs23 secp256k1 key share for a commitment.
+
+    Computes ``basepoint + SHA256(per_commitment_point || basepoint)·G``; every
+    party derives with the same 33-byte compressed point. A derived share keeps
+    the base share's OT state, so a counterparty banned under a derived key is
+    banned for the base key too.
+    """
+    out = ctypes.c_uint64()
+    check_status(get_lib().tss_bolt3_derive(
+        key_share.raw, make_slice(per_commitment_point), ctypes.byref(out),
+    ))
+    return KeyShareHandle(out.value)
+
+
+def bolt3_derive_revocation(
+    key_share: KeyShareHandle,
+    per_commitment_point: bytes,
+    per_commitment_secret: bytes | bytearray,
+) -> KeyShareHandle:
+    """BOLT 3 revocation derivation for a commitment whose 32-byte
+    ``per_commitment_secret`` was revealed; the secret must match the point."""
+    out = ctypes.c_uint64()
+    secret = make_slice(per_commitment_secret)
+    try:
+        check_status(get_lib().tss_bolt3_derive_revocation(
+            key_share.raw, make_slice(per_commitment_point), secret,
+            ctypes.byref(out),
+        ))
+    finally:
+        wipe_ctypes_array(getattr(secret, "_backing", None))
+    return KeyShareHandle(out.value)
+
+
+def bolt3_derive_public_keys(public_keys: bytes, per_commitment_point: bytes) -> bytes:
+    """:func:`bolt3_derive` on a serialized secp256k1 ECDSA public key package."""
+    out = TssBuffer()
+    check_status(get_lib().tss_bolt3_derive_pubkey_package(
+        make_slice(public_keys), make_slice(per_commitment_point), ctypes.byref(out),
+    ))
+    return buffer_to_bytes(out)
+
+
+def bolt3_derive_revocation_public_keys(
+    public_keys: bytes, per_commitment_point: bytes,
+) -> bytes:
+    """:func:`bolt3_derive_revocation` on a public key package (no secret)."""
+    out = TssBuffer()
+    check_status(get_lib().tss_bolt3_derive_revocation_pubkey_package(
+        make_slice(public_keys), make_slice(per_commitment_point), ctypes.byref(out),
+    ))
+    return buffer_to_bytes(out)

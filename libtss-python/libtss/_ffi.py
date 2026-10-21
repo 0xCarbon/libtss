@@ -309,6 +309,24 @@ def _declare_signatures(lib: ctypes.CDLL) -> None:
         POINTER(c_uint64), POINTER(c_size_t), POINTER(TssBuffer),
     ]
 
+    lib.tss_bolt3_derive.restype = TssStatus
+    lib.tss_bolt3_derive.argtypes = [c_uint64, TssSlice, POINTER(c_uint64)]
+
+    lib.tss_bolt3_derive_revocation.restype = TssStatus
+    lib.tss_bolt3_derive_revocation.argtypes = [
+        c_uint64, TssSlice, TssSlice, POINTER(c_uint64),
+    ]
+
+    lib.tss_bolt3_derive_pubkey_package.restype = TssStatus
+    lib.tss_bolt3_derive_pubkey_package.argtypes = [
+        TssSlice, TssSlice, POINTER(TssBuffer),
+    ]
+
+    lib.tss_bolt3_derive_revocation_pubkey_package.restype = TssStatus
+    lib.tss_bolt3_derive_revocation_pubkey_package.argtypes = [
+        TssSlice, TssSlice, POINTER(TssBuffer),
+    ]
+
     lib.tss_dkls_split_key.restype = TssStatus
     lib.tss_dkls_split_key.argtypes = [
         c_uint8, TssSlice, TssSlice, c_uint16, c_uint16,

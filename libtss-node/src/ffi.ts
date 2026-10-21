@@ -170,6 +170,18 @@ export const lib: Record<string, (...args: any[]) => any> = {
 	tss_frost_tweak_pubkey_package: native.func(
 		"int32_t tss_frost_tweak_pubkey_package(TssSlice pubkey_package, const uint8_t *merkle_root, size_t merkle_root_len, _Out_ TssBuffer *out_tweaked_package)",
 	),
+	tss_bolt3_derive: native.func(
+		"int32_t tss_bolt3_derive(uint64_t key_share, TssSlice per_commitment_point, _Out_ uint64_t *out_handle)",
+	),
+	tss_bolt3_derive_revocation: native.func(
+		"int32_t tss_bolt3_derive_revocation(uint64_t key_share, TssSlice per_commitment_point, TssSlice per_commitment_secret, _Out_ uint64_t *out_handle)",
+	),
+	tss_bolt3_derive_pubkey_package: native.func(
+		"int32_t tss_bolt3_derive_pubkey_package(TssSlice pubkey_package, TssSlice per_commitment_point, _Out_ TssBuffer *out_pubkey_package)",
+	),
+	tss_bolt3_derive_revocation_pubkey_package: native.func(
+		"int32_t tss_bolt3_derive_revocation_pubkey_package(TssSlice pubkey_package, TssSlice per_commitment_point, _Out_ TssBuffer *out_pubkey_package)",
+	),
 	tss_dkls_split_key: native.func(
 		"int32_t tss_dkls_split_key(uint8_t suite, TssSlice secret_key, TssSlice chain_code, uint16_t max_signers, uint16_t min_signers, uint64_t *out_handles, _Out_ size_t *out_handle_count, _Out_ TssBuffer *out_pubkey_package)",
 	),

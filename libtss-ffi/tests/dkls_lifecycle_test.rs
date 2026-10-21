@@ -162,3 +162,84 @@ fn dkls_split_key_rejects_invalid_input() {
         TSS_ERR_PROTO_MISMATCH
     );
 }
+
+fn hex(value: &str) -> Vec<u8> {
+    (0..value.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&value[i..i + 2], 16).unwrap())
+        .collect()
+}
+
+// BOLT 3, Appendix E: Key Derivation Test Vectors.
+const BOLT3_BASE_SECRET: &str = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+const BOLT3_PER_COMMITMENT_SECRET: &str =
+    "1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100";
+const BOLT3_PER_COMMITMENT_POINT: &str =
+    "025f7117a78150fe2ef97db7cfc83bd57b2e2c0d0dd25eaf467a4a1c2a45ce1486";
+const BOLT3_LOCAL_PUBLIC_KEY: &str =
+    "0235f2dbfaa89b57ec7b055afe29849ef7ddfeb1cefdb9ebdc43f5494984db29e5";
+const BOLT3_REVOCATION_PUBLIC_KEY: &str =
+    "02916e326636d19c33f13e8c0c3a03dd157f332f3e99c317c141dd865eb01f8ff0";
+
+fn package_key(package: &[u8]) -> Vec<u8> {
+    libtss::PublicKeyPackage::deserialize(package)
+        .unwrap()
+        .verifying_key()
+        .to_vec()
+}
+
+#[test]
+fn bolt3_derivations_through_the_c_api() {
+    use libtss_ffi::dkls_ops::*;
+    use libtss_ffi::handles::tss_handle_pubkey_package;
+
+    let keys = split(SUITE_SECP256K1_ECDSA, &hex(BOLT3_BASE_SECRET), &[]).unwrap();
+    let point = hex(BOLT3_PER_COMMITMENT_POINT);
+    let secret = hex(BOLT3_PER_COMMITMENT_SECRET);
+
+    let mut derived = Vec::new();
+    let mut revocation = Vec::new();
+    for key in &keys {
+        let mut out = 0;
+        assert_eq!(tss_bolt3_derive(*key, slice(&point), &mut out), TSS_OK);
+        derived.push(out);
+        assert_eq!(
+            tss_bolt3_derive_revocation(*key, slice(&point), slice(&secret), &mut out),
+            TSS_OK
+        );
+        revocation.push(out);
+    }
+    assert_eq!(group_key(derived[0]), hex(BOLT3_LOCAL_PUBLIC_KEY));
+    assert_eq!(group_key(revocation[0]), hex(BOLT3_REVOCATION_PUBLIC_KEY));
+    assert_eq!(run_dkls_sign(&derived[..2], &[5u8; 32]).len(), 64);
+
+    let mut package = TssBuffer::empty();
+    assert_eq!(tss_handle_pubkey_package(keys[0], &mut package), TSS_OK);
+    let package = take_buffer(&mut package);
+    let mut out = TssBuffer::empty();
+    assert_eq!(
+        tss_bolt3_derive_pubkey_package(slice(&package), slice(&point), &mut out),
+        TSS_OK
+    );
+    assert_eq!(
+        package_key(&take_buffer(&mut out)),
+        hex(BOLT3_LOCAL_PUBLIC_KEY)
+    );
+    assert_eq!(
+        tss_bolt3_derive_revocation_pubkey_package(slice(&package), slice(&point), &mut out),
+        TSS_OK
+    );
+    assert_eq!(
+        package_key(&take_buffer(&mut out)),
+        hex(BOLT3_REVOCATION_PUBLIC_KEY)
+    );
+
+    let mut out = 0;
+    assert_eq!(
+        tss_bolt3_derive_revocation(keys[0], slice(&point), slice(&[1u8; 32]), &mut out),
+        TSS_ERR_TWEAK
+    );
+    for key in keys.into_iter().chain(derived).chain(revocation) {
+        tss_handle_free(key);
+    }
+}

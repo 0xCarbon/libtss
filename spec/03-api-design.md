@@ -528,6 +528,27 @@ pub fn derive_path(
 ) -> Result<KeyShareHandle, TssError>;
 ```
 
+### BOLT 3 Key Derivation (DKLs23 secp256k1)
+
+```rust
+/// localpubkey-style derivation for a commitment.
+pub fn bolt3_derive(key_share: &KeyShareHandle, per_commitment_point: &[u8])
+    -> Result<KeyShareHandle, TssError>;
+/// revocationpubkey derivation once the per-commitment secret is revealed.
+pub fn bolt3_derive_revocation(
+    key_share: &KeyShareHandle,
+    per_commitment_point: &[u8],
+    per_commitment_secret: &[u8],
+) -> Result<KeyShareHandle, TssError>;
+/// The same derivations on a public key package.
+pub fn bolt3_derive_public_keys(package: &PublicKeyPackage, per_commitment_point: &[u8])
+    -> Result<PublicKeyPackage, TssError>;
+pub fn bolt3_derive_revocation_public_keys(package: &PublicKeyPackage, per_commitment_point: &[u8])
+    -> Result<PublicKeyPackage, TssError>;
+```
+
+See [07-key-management.md](07-key-management.md#bolt-3-key-derivation-lightning).
+
 ## FROST-Specific Operations
 
 These operations exist only for FROST and are not part of the unified session API.

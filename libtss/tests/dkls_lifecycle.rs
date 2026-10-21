@@ -346,3 +346,99 @@ fn import_rejects_invalid_input() {
         Err(TssError::ProtocolMismatch)
     ));
 }
+
+// BOLT 3, Appendix E: Key Derivation Test Vectors.
+const BOLT3_BASE_SECRET: &str = "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+const BOLT3_PER_COMMITMENT_SECRET: &str =
+    "1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100";
+const BOLT3_PER_COMMITMENT_POINT: &str =
+    "025f7117a78150fe2ef97db7cfc83bd57b2e2c0d0dd25eaf467a4a1c2a45ce1486";
+const BOLT3_LOCAL_PUBLIC_KEY: &str =
+    "0235f2dbfaa89b57ec7b055afe29849ef7ddfeb1cefdb9ebdc43f5494984db29e5";
+const BOLT3_REVOCATION_PUBLIC_KEY: &str =
+    "02916e326636d19c33f13e8c0c3a03dd157f332f3e99c317c141dd865eb01f8ff0";
+
+fn hex(value: &str) -> Vec<u8> {
+    (0..value.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&value[i..i + 2], 16).unwrap())
+        .collect()
+}
+
+#[test]
+fn bolt3_derivations_match_the_bolt3_vectors_and_sign() {
+    use libtss::bolt3;
+
+    let suite = Ciphersuite::Secp256k1ECDSA;
+    let base = import(suite, &hex(BOLT3_BASE_SECRET), None);
+    let point = hex(BOLT3_PER_COMMITMENT_POINT);
+    let hash = [6u8; 32];
+
+    let derived: BTreeMap<_, _> = base
+        .iter()
+        .map(|(id, share)| (*id, bolt3::bolt3_derive(share, &point).unwrap()))
+        .collect();
+    let local_key = derived[&id(1)].group_verifying_key();
+    assert_eq!(local_key, hex(BOLT3_LOCAL_PUBLIC_KEY));
+    assert_eq!(
+        &bolt3::bolt3_derive_public_keys(base[&id(1)].public_key_package(), &point).unwrap(),
+        derived[&id(1)].public_key_package()
+    );
+    let signers = BTreeMap::from([(id(1), &derived[&id(1)]), (id(3), &derived[&id(3)])]);
+    assert!(verifies(
+        suite,
+        &local_key,
+        &hash,
+        &sign(suite, &signers, hash).unwrap()
+    ));
+
+    let secret = hex(BOLT3_PER_COMMITMENT_SECRET);
+    let revocation: BTreeMap<_, _> = base
+        .iter()
+        .map(|(id, share)| {
+            let key = bolt3::bolt3_derive_revocation(share, &point, &secret).unwrap();
+            (*id, key)
+        })
+        .collect();
+    let revocation_key = revocation[&id(1)].group_verifying_key();
+    assert_eq!(revocation_key, hex(BOLT3_REVOCATION_PUBLIC_KEY));
+    assert_eq!(
+        &bolt3::bolt3_derive_revocation_public_keys(base[&id(1)].public_key_package(), &point)
+            .unwrap(),
+        revocation[&id(1)].public_key_package()
+    );
+    let signers = BTreeMap::from([(id(2), &revocation[&id(2)]), (id(3), &revocation[&id(3)])]);
+    assert!(verifies(
+        suite,
+        &revocation_key,
+        &hash,
+        &sign(suite, &signers, hash).unwrap()
+    ));
+}
+
+#[test]
+fn bolt3_rejects_invalid_input() {
+    use libtss::bolt3;
+
+    let base = import(Ciphersuite::Secp256k1ECDSA, &hex(BOLT3_BASE_SECRET), None);
+    let share = &base[&id(1)];
+    let point = hex(BOLT3_PER_COMMITMENT_POINT);
+    assert!(matches!(
+        bolt3::bolt3_derive(share, &point[..32]),
+        Err(TssError::InvalidConfig(_))
+    ));
+    assert!(matches!(
+        bolt3::bolt3_derive_revocation(share, &point, &[1u8; 32]),
+        Err(TssError::TweakError(_))
+    ));
+    assert!(matches!(
+        bolt3::bolt3_derive_revocation(share, &point, &[1u8; 31]),
+        Err(TssError::InvalidConfig(_))
+    ));
+
+    let r1 = import(Ciphersuite::Secp256r1ECDSA, &[0x42u8; 32], None);
+    assert!(matches!(
+        bolt3::bolt3_derive(&r1[&id(1)], &point),
+        Err(TssError::ProtocolMismatch)
+    ));
+}

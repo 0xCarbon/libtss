@@ -70,4 +70,81 @@ public static class DklsOperations
             CryptographicOperations.ZeroMemory(secretKey);
         }
     }
+
+    /// <summary>
+    /// BOLT 3 derivation of a DKLs23 secp256k1 key share for a commitment
+    /// (<c>basepoint + SHA256(perCommitmentPoint || basepoint)·G</c>).
+    /// </summary>
+    /// <remarks>
+    /// Every party derives with the same 33-byte compressed point. A derived share keeps the
+    /// base share's OT state, so a counterparty banned under a derived key is banned for the
+    /// base key too.
+    /// </remarks>
+    public static unsafe KeyShareHandle Bolt3Derive(KeyShareHandle keyShare, byte[] perCommitmentPoint)
+    {
+        ArgumentNullException.ThrowIfNull(keyShare);
+        ArgumentNullException.ThrowIfNull(perCommitmentPoint);
+        ulong handle;
+        int status;
+        fixed (byte* pPoint = perCommitmentPoint)
+        {
+            var point = new TssSlice { Data = pPoint, Len = (nuint)perCommitmentPoint.Length };
+            status = Native.tss_bolt3_derive(keyShare.Handle, point, &handle);
+        }
+        TssException.ThrowIfError(status);
+        return new KeyShareHandle(handle);
+    }
+
+    /// <summary>
+    /// BOLT 3 revocation derivation for a commitment whose 32-byte per-commitment secret was
+    /// revealed; the secret must match the point.
+    /// </summary>
+    public static unsafe KeyShareHandle Bolt3DeriveRevocation(
+        KeyShareHandle keyShare,
+        byte[] perCommitmentPoint,
+        byte[] perCommitmentSecret)
+    {
+        ArgumentNullException.ThrowIfNull(keyShare);
+        ArgumentNullException.ThrowIfNull(perCommitmentPoint);
+        ArgumentNullException.ThrowIfNull(perCommitmentSecret);
+        ulong handle;
+        int status;
+        fixed (byte* pPoint = perCommitmentPoint)
+        fixed (byte* pSecret = perCommitmentSecret)
+        {
+            var point = new TssSlice { Data = pPoint, Len = (nuint)perCommitmentPoint.Length };
+            var secret = new TssSlice { Data = pSecret, Len = (nuint)perCommitmentSecret.Length };
+            status = Native.tss_bolt3_derive_revocation(keyShare.Handle, point, secret, &handle);
+        }
+        TssException.ThrowIfError(status);
+        return new KeyShareHandle(handle);
+    }
+
+    /// <summary><see cref="Bolt3Derive"/> on a serialized secp256k1 ECDSA public key package.</summary>
+    public static unsafe byte[] Bolt3DerivePublicKeys(byte[] publicKeyPackage, byte[] perCommitmentPoint) =>
+        DerivePackage(publicKeyPackage, perCommitmentPoint, revocation: false);
+
+    /// <summary><see cref="Bolt3DeriveRevocation"/> on a public key package (no secret needed).</summary>
+    public static unsafe byte[] Bolt3DeriveRevocationPublicKeys(byte[] publicKeyPackage, byte[] perCommitmentPoint) =>
+        DerivePackage(publicKeyPackage, perCommitmentPoint, revocation: true);
+
+    private static unsafe byte[] DerivePackage(byte[] publicKeyPackage, byte[] perCommitmentPoint, bool revocation)
+    {
+        ArgumentNullException.ThrowIfNull(publicKeyPackage);
+        ArgumentNullException.ThrowIfNull(perCommitmentPoint);
+        var outPkg = new NativeTssBuffer();
+        int status;
+        fixed (byte* pPkg = publicKeyPackage)
+        fixed (byte* pPoint = perCommitmentPoint)
+        fixed (TssBuffer* pOut = &outPkg.Raw)
+        {
+            var pkg = new TssSlice { Data = pPkg, Len = (nuint)publicKeyPackage.Length };
+            var point = new TssSlice { Data = pPoint, Len = (nuint)perCommitmentPoint.Length };
+            status = revocation
+                ? Native.tss_bolt3_derive_revocation_pubkey_package(pkg, point, pOut)
+                : Native.tss_bolt3_derive_pubkey_package(pkg, point, pOut);
+        }
+        TssException.ThrowIfError(status);
+        return outPkg.ToArray();
+    }
 }

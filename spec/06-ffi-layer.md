@@ -461,6 +461,16 @@ bool tss_verify(uint8_t suite, TssSlice message, TssSlice signature, TssSlice pu
 TssStatus tss_derive_child(TssHandle key_share, uint32_t child_number, TssHandle *out);
 TssStatus tss_derive_path(TssHandle key_share, const char *path, TssHandle *out);
 
+// BOLT 3 key derivation (DKLs23 secp256k1 only)
+TssStatus tss_bolt3_derive(TssHandle key_share, TssSlice per_commitment_point, TssHandle *out_handle);
+TssStatus tss_bolt3_derive_revocation(TssHandle key_share, TssSlice per_commitment_point,
+                                      TssSlice per_commitment_secret, TssHandle *out_handle);
+TssStatus tss_bolt3_derive_pubkey_package(TssSlice pubkey_package, TssSlice per_commitment_point,
+                                          TssBuffer *out_pubkey_package);
+TssStatus tss_bolt3_derive_revocation_pubkey_package(TssSlice pubkey_package,
+                                                     TssSlice per_commitment_point,
+                                                     TssBuffer *out_pubkey_package);
+
 // --- Export / Import ---
 TssStatus tss_handle_export(TssHandle handle, TssBuffer *out);
 TssStatus tss_handle_import(const uint8_t *data, size_t data_len, uint8_t suite, TssHandle *out_handle);

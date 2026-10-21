@@ -153,6 +153,32 @@ public class DklsTests
         foreach (var h in shares) h.Dispose();
     }
 
+    // BOLT 3, Appendix E: Key Derivation Test Vectors.
+    private static readonly byte[] Bolt3BaseSecret = Convert.FromHexString("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    private static readonly byte[] Bolt3Secret = Convert.FromHexString("1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100");
+    private static readonly byte[] Bolt3Point = Convert.FromHexString("025f7117a78150fe2ef97db7cfc83bd57b2e2c0d0dd25eaf467a4a1c2a45ce1486");
+    private static readonly byte[] Bolt3Local = Convert.FromHexString("0235f2dbfaa89b57ec7b055afe29849ef7ddfeb1cefdb9ebdc43f5494984db29e5");
+    private static readonly byte[] Bolt3Revocation = Convert.FromHexString("02916e326636d19c33f13e8c0c3a03dd157f332f3e99c317c141dd865eb01f8ff0");
+
+    // suite (1) + min_signers (2) + verifying key length (4) + verifying key
+    private static byte[] PackageKey(byte[] raw) => raw[7..(7 + BitConverter.ToInt32(raw, 3))];
+
+    [Fact]
+    public void Bolt3MatchesTheBolt3Vectors()
+    {
+        var (shares, package) = DklsOperations.SplitKey(
+            Ciphersuite.Secp256k1ECDSA, (byte[])Bolt3BaseSecret.Clone(), 3, 2);
+        using var local = DklsOperations.Bolt3Derive(shares[0], Bolt3Point);
+        using var revocation = DklsOperations.Bolt3DeriveRevocation(shares[0], Bolt3Point, Bolt3Secret);
+        Assert.Equal(Bolt3Local, local.GroupVerifyingKey);
+        Assert.Equal(Bolt3Revocation, revocation.GroupVerifyingKey);
+        Assert.Equal(Bolt3Local, PackageKey(DklsOperations.Bolt3DerivePublicKeys(package, Bolt3Point)));
+        Assert.Equal(Bolt3Revocation, PackageKey(DklsOperations.Bolt3DeriveRevocationPublicKeys(package, Bolt3Point)));
+        Assert.Throws<TssException>(() =>
+            DklsOperations.Bolt3DeriveRevocation(shares[0], Bolt3Point, Enumerable.Repeat((byte)1, 32).ToArray()));
+        foreach (var h in shares) h.Dispose();
+    }
+
     [Fact]
     public void ImportRejectsInvalidInput()
     {

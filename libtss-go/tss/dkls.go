@@ -44,3 +44,83 @@ func DKLsSplitKey(suite Ciphersuite, secretKey, chainCode []byte, maxSigners, mi
 	}
 	return shares, bufferToBytes(&outPkg), nil
 }
+
+// Bolt3Derive derives the BOLT 3 key share for a commitment from a DKLs23
+// secp256k1 share: basepoint + SHA256(perCommitmentPoint || basepoint)·G.
+// perCommitmentPoint is a 33-byte compressed point; every party derives with
+// the same point. The input handle stays valid. A derived share keeps the
+// base share's OT state, so a counterparty banned under a derived key is
+// banned for the base key too.
+func Bolt3Derive(keyShare *KeyShareHandle, perCommitmentPoint []byte) (*KeyShareHandle, error) {
+	if err := checkNonNil("keyShare", keyShare); err != nil {
+		return nil, err
+	}
+	handle, err := keyShare.native.value()
+	if err != nil {
+		return nil, err
+	}
+	var out C.TssHandle
+	if err := callStatus(func() C.TssStatus {
+		return C.tss_bolt3_derive(handle, bytesToSlice(perCommitmentPoint), &out)
+	}); err != nil {
+		return nil, err
+	}
+	return newKeyShareHandle(out), nil
+}
+
+// Bolt3DeriveRevocation derives the BOLT 3 revocation key share for a
+// commitment whose 32-byte perCommitmentSecret was revealed. The secret must
+// match perCommitmentPoint.
+func Bolt3DeriveRevocation(keyShare *KeyShareHandle, perCommitmentPoint, perCommitmentSecret []byte) (*KeyShareHandle, error) {
+	if err := checkNonNil("keyShare", keyShare); err != nil {
+		return nil, err
+	}
+	handle, err := keyShare.native.value()
+	if err != nil {
+		return nil, err
+	}
+	var out C.TssHandle
+	if err := callStatus(func() C.TssStatus {
+		return C.tss_bolt3_derive_revocation(
+			handle,
+			bytesToSlice(perCommitmentPoint),
+			bytesToSlice(perCommitmentSecret),
+			&out,
+		)
+	}); err != nil {
+		return nil, err
+	}
+	return newKeyShareHandle(out), nil
+}
+
+// Bolt3DerivePublicKeys applies Bolt3Derive to a serialized secp256k1 ECDSA
+// public key package and returns the derived package.
+func Bolt3DerivePublicKeys(pubkeyPackage, perCommitmentPoint []byte) ([]byte, error) {
+	var out C.struct_TssBuffer
+	if err := callStatus(func() C.TssStatus {
+		return C.tss_bolt3_derive_pubkey_package(
+			bytesToSlice(pubkeyPackage),
+			bytesToSlice(perCommitmentPoint),
+			&out,
+		)
+	}); err != nil {
+		return nil, err
+	}
+	return bufferToBytes(&out), nil
+}
+
+// Bolt3DeriveRevocationPublicKeys applies Bolt3DeriveRevocation to a
+// serialized secp256k1 ECDSA public key package (no secret needed).
+func Bolt3DeriveRevocationPublicKeys(pubkeyPackage, perCommitmentPoint []byte) ([]byte, error) {
+	var out C.struct_TssBuffer
+	if err := callStatus(func() C.TssStatus {
+		return C.tss_bolt3_derive_revocation_pubkey_package(
+			bytesToSlice(pubkeyPackage),
+			bytesToSlice(perCommitmentPoint),
+			&out,
+		)
+	}); err != nil {
+		return nil, err
+	}
+	return bufferToBytes(&out), nil
+}

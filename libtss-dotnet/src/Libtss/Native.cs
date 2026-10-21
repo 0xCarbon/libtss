@@ -233,6 +233,31 @@ internal static unsafe class Native
         TssBuffer* out_pubkey_package);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_bolt3_derive(
+        ulong key_share,
+        TssSlice per_commitment_point,
+        ulong* out_handle);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_bolt3_derive_revocation(
+        ulong key_share,
+        TssSlice per_commitment_point,
+        TssSlice per_commitment_secret,
+        ulong* out_handle);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_bolt3_derive_pubkey_package(
+        TssSlice pubkey_package,
+        TssSlice per_commitment_point,
+        TssBuffer* out_pubkey_package);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_bolt3_derive_revocation_pubkey_package(
+        TssSlice pubkey_package,
+        TssSlice per_commitment_point,
+        TssBuffer* out_pubkey_package);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int tss_dkls_split_key(
         byte suite,
         TssSlice secret_key,

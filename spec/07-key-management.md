@@ -174,6 +174,27 @@ related by the same additive tweak. This is expected and does not affect securit
 
 Recommendation: derive keys as needed, refresh the master (root) shares periodically.
 
+## BOLT 3 Key Derivation (Lightning)
+
+`libtss::bolt3` exposes the BOLT 3 "Key Derivation" of DKLs23 secp256k1
+shares (C ABI: `tss_bolt3_derive`, `tss_bolt3_derive_revocation` and the
+`*_pubkey_package` variants):
+
+- `bolt3_derive(share, per_commitment_point)`: `basepoint +
+  SHA256(per_commitment_point || basepoint)·G` (`localpubkey`, `remotepubkey`,
+  `local_htlcpubkey`, `local_delayedpubkey`).
+- `bolt3_derive_revocation(share, per_commitment_point, per_commitment_secret)`:
+  `revocationpubkey` and its private key, once the counterparty reveals the
+  per-commitment secret; the secret must match the point.
+- `bolt3_derive_public_keys` / `bolt3_derive_revocation_public_keys` derive
+  the public key package without a share.
+
+Each party computes the tweak from public points, so no caller-chosen scalar
+reaches the shares; raw additive or multiplicative tweaks are not exposed.
+Points are 33-byte compressed SEC1; the secret is a 32-byte big-endian
+scalar. A derived share keeps the base share's OT state: a counterparty banned
+under a derived key is banned for the base key and every key derived from it.
+
 ## Share Refresh
 
 Share refresh replaces all participants' shares with new shares of the same secret key.

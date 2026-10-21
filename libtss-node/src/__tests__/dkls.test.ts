@@ -1,6 +1,12 @@
 import { createECDH } from "node:crypto";
 import type { KeyShareHandle } from "../handle";
-import { dklsSplitKey } from "../index";
+import {
+	bolt3Derive,
+	bolt3DerivePublicKeys,
+	bolt3DeriveRevocation,
+	bolt3DeriveRevocationPublicKeys,
+	dklsSplitKey,
+} from "../index";
 import { RefreshSession } from "../session";
 import { Ciphersuite, type Message } from "../types";
 import { freeAll } from "./helpers";
@@ -104,6 +110,67 @@ describe("DKLs23 key import and refresh", () => {
 			).toThrow();
 		} finally {
 			freeAll(keyShares);
+		}
+	});
+});
+
+// BOLT 3, Appendix E: Key Derivation Test Vectors.
+const hex = (value: string) => new Uint8Array(Buffer.from(value, "hex"));
+const BOLT3_BASE_SECRET =
+	"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f";
+const BOLT3_SECRET =
+	"1f1e1d1c1b1a191817161514131211100f0e0d0c0b0a09080706050403020100";
+const BOLT3_POINT =
+	"025f7117a78150fe2ef97db7cfc83bd57b2e2c0d0dd25eaf467a4a1c2a45ce1486";
+const BOLT3_LOCAL =
+	"0235f2dbfaa89b57ec7b055afe29849ef7ddfeb1cefdb9ebdc43f5494984db29e5";
+const BOLT3_REVOCATION =
+	"02916e326636d19c33f13e8c0c3a03dd157f332f3e99c317c141dd865eb01f8ff0";
+
+// suite (1) + min_signers (2) + verifying key length (4) + verifying key
+const packageKey = (raw: Uint8Array) =>
+	Buffer.from(raw.subarray(7, 7 + Buffer.from(raw).readUInt32LE(3))).toString(
+		"hex",
+	);
+
+describe("BOLT 3 derivation", () => {
+	it("matches the BOLT 3 vectors", () => {
+		const { keyShares, publicKeys } = dklsSplitKey(
+			Ciphersuite.Secp256k1ECDSA,
+			hex(BOLT3_BASE_SECRET),
+			3,
+			2,
+		);
+		const local = bolt3Derive(keyShares[0], hex(BOLT3_POINT));
+		const revocation = bolt3DeriveRevocation(
+			keyShares[0],
+			hex(BOLT3_POINT),
+			hex(BOLT3_SECRET),
+		);
+		try {
+			expect(Buffer.from(local.groupVerifyingKey()).toString("hex")).toBe(
+				BOLT3_LOCAL,
+			);
+			expect(Buffer.from(revocation.groupVerifyingKey()).toString("hex")).toBe(
+				BOLT3_REVOCATION,
+			);
+			expect(
+				packageKey(bolt3DerivePublicKeys(publicKeys, hex(BOLT3_POINT))),
+			).toBe(BOLT3_LOCAL);
+			expect(
+				packageKey(
+					bolt3DeriveRevocationPublicKeys(publicKeys, hex(BOLT3_POINT)),
+				),
+			).toBe(BOLT3_REVOCATION);
+			expect(() =>
+				bolt3DeriveRevocation(
+					keyShares[0],
+					hex(BOLT3_POINT),
+					new Uint8Array(32).fill(1),
+				),
+			).toThrow();
+		} finally {
+			freeAll([...keyShares, local, revocation]);
 		}
 	});
 });
