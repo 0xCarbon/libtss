@@ -28,6 +28,7 @@ hmac = "0.12"
 sha2 = "0.10"
 thiserror = "2"
 rand_core.workspace = true
+rand.workspace = true
 
 [dev-dependencies]
 trybuild = "1"

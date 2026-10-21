@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 
-use rand_core::OsRng;
+use rand::rngs::SysRng;
+use rand_core::UnwrapErr;
 use zeroize::{Zeroize, Zeroizing};
 
 use crate::{
@@ -307,9 +308,13 @@ fn part1_inner<C: frost_core::Ciphersuite>(
     min_signers: u16,
 ) -> Result<(Zeroizing<Vec<u8>>, Vec<Message>), TssError> {
     let identifier = to_frost_id::<C>(self_id)?;
-    let (secret, package) =
-        frost_core::keys::dkg::part1::<C, _>(identifier, max_signers, min_signers, OsRng)
-            .map_err(TssError::from)?;
+    let (secret, package) = frost_core::keys::dkg::part1::<C, _>(
+        identifier,
+        max_signers,
+        min_signers,
+        UnwrapErr(SysRng),
+    )
+    .map_err(TssError::from)?;
     Ok((
         Zeroizing::new(secret.serialize().map_err(TssError::from)?),
         vec![Message {
@@ -380,7 +385,7 @@ fn commit_inner<C: frost_core::Ciphersuite>(
         .map_err(TssError::from)?;
     let identifier = from_frost_id(suite, *key_package.identifier())?;
     let (nonces, commitments) =
-        frost_core::round1::commit::<C, _>(key_package.signing_share(), &mut OsRng);
+        frost_core::round1::commit::<C, _>(key_package.signing_share(), &mut UnwrapErr(SysRng));
     Ok((
         Zeroizing::new(nonces.serialize().map_err(TssError::from)?),
         Message {
@@ -441,7 +446,7 @@ fn generate_with_dealer_inner<C: frost_core::Ciphersuite>(
     max_signers: u16,
     min_signers: u16,
 ) -> Result<(SerializedKeyPackages, PublicKeyPackage), TssError> {
-    let mut rng = OsRng;
+    let mut rng = UnwrapErr(SysRng);
     let (shares, public_key_package) = frost_core::keys::generate_with_dealer::<C, _>(
         max_signers,
         min_signers,
@@ -470,7 +475,7 @@ fn split_key_inner<C: frost_core::Ciphersuite>(
     min_signers: u16,
 ) -> Result<(SerializedKeyPackages, PublicKeyPackage), TssError> {
     let secret = frost_core::SigningKey::<C>::deserialize(secret_key).map_err(TssError::from)?;
-    let mut rng = OsRng;
+    let mut rng = UnwrapErr(SysRng);
     let (shares, public_key_package) = frost_core::keys::split::<C, _>(
         &secret,
         max_signers,
@@ -507,7 +512,7 @@ fn repair_part1_inner<C: frost_core::Ciphersuite>(
         .map(to_frost_id::<C>)
         .collect::<Result<Vec<_>, _>>()?;
     let participant = to_frost_id::<C>(participant)?;
-    let mut rng = OsRng;
+    let mut rng = UnwrapErr(SysRng);
     let deltas = frost_core::keys::repairable::repair_share_part1::<C, _>(
         &helpers,
         &key_package,
@@ -564,7 +569,7 @@ fn refresh_with_dealer_inner<C: frost_core::Ciphersuite>(
         .copied()
         .map(to_frost_id::<C>)
         .collect::<Result<Vec<_>, _>>()?;
-    let mut rng = OsRng;
+    let mut rng = UnwrapErr(SysRng);
     let (shares, refreshed_public_key_package) =
         frost_core::keys::refresh::compute_refreshing_shares::<C, _>(
             public_key_package,

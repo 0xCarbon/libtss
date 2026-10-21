@@ -294,7 +294,7 @@ mod tests {
     }
 
     fn frost_handle() -> KeyShareHandle {
-        let rng = rand_core::OsRng;
+        let rng = rand_core::UnwrapErr(rand::rngs::SysRng);
         let (shares, pubkeys) = frost_tr::keys::generate_with_dealer(
             3,
             2,

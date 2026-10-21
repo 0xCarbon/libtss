@@ -755,9 +755,10 @@ mod tests {
     use dkls23_secp256k1::Party;
     use frost_secp256k1_tr::{
         keys,
-        rand_core::{CryptoRng, RngCore},
+        rand_core::{TryCryptoRng, TryRng},
     };
     use k256::{elliptic_curve::sec1::ToSec1Point, AffinePoint, Scalar};
+    use std::convert::Infallible;
 
     use super::{import_key_share, wrap_export, KeyShareHandle, KeyShareInner};
     use crate::{handle::REGISTRY, Ciphersuite, Identifier, TssError};
@@ -775,29 +776,24 @@ mod tests {
         }
     }
 
-    impl RngCore for TestRng {
-        fn next_u32(&mut self) -> u32 {
-            self.next_u64() as u32
+    impl TryRng for TestRng {
+        type Error = Infallible;
+
+        fn try_next_u32(&mut self) -> Result<u32, Infallible> {
+            Ok(self.try_next_u64()? as u32)
         }
 
-        fn next_u64(&mut self) -> u64 {
+        fn try_next_u64(&mut self) -> Result<u64, Infallible> {
             self.0 ^= self.0 << XORSHIFT_A;
             self.0 ^= self.0 >> XORSHIFT_B;
             self.0 ^= self.0 << XORSHIFT_C;
-            self.0
+            Ok(self.0)
         }
 
-        fn fill_bytes(&mut self, dest: &mut [u8]) {
-            self.try_fill_bytes(dest).unwrap();
-        }
-
-        fn try_fill_bytes(
-            &mut self,
-            dest: &mut [u8],
-        ) -> Result<(), frost_secp256k1_tr::rand_core::Error> {
+        fn try_fill_bytes(&mut self, dest: &mut [u8]) -> Result<(), Infallible> {
             let mut filled = 0;
             while filled < dest.len() {
-                let bytes = self.next_u64().to_le_bytes();
+                let bytes = self.try_next_u64()?.to_le_bytes();
                 let remaining = dest.len() - filled;
                 let count = remaining.min(bytes.len());
                 dest[filled..filled + count].copy_from_slice(&bytes[..count]);
@@ -807,7 +803,7 @@ mod tests {
         }
     }
 
-    impl CryptoRng for TestRng {}
+    impl TryCryptoRng for TestRng {}
 
     fn sample_frost_handle() -> KeyShareHandle {
         let mut rng = TestRng::new(0x1234_5678_9abc_def0);
