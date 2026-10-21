@@ -1265,7 +1265,7 @@ dependencies = [
  "cbindgen",
  "criterion",
  "hmac 0.12.1",
- "k256 0.14.0-rc.8",
+ "k256 0.14.0",
  "libc",
  "libtss",
  "sha2 0.10.9",
