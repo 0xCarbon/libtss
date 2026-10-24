@@ -900,7 +900,11 @@ Java_com_libtss_LibtssModule_nativeRefreshReceiver(
         return nullptr;
     }
 
-    return handle_to_jstring(env, session);
+    jstring result = handle_to_jstring(env, session);
+    if (result == nullptr) {
+        tss_session_free(session);
+    }
+    return result;
 }
 
 extern "C" JNIEXPORT jobjectArray JNICALL
