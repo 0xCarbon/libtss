@@ -34,6 +34,22 @@ func (c Ciphersuite) Protocol() Protocol {
 	return ProtocolFROST
 }
 
+// SignatureLength is the length in bytes of a signature produced under the
+// ciphersuite, or 0 for an unknown ciphersuite.
+func (c Ciphersuite) SignatureLength() int {
+	switch c {
+	case CiphersuiteSecp256k1Taproot, CiphersuiteEd25519, CiphersuiteRistretto255,
+		CiphersuiteSecp256k1ECDSA, CiphersuiteSecp256r1ECDSA:
+		return 64
+	case CiphersuiteSecp256k1, CiphersuiteP256:
+		return 65
+	case CiphersuiteEd448:
+		return 114
+	default:
+		return 0
+	}
+}
+
 func (c Ciphersuite) MarshalJSON() ([]byte, error) {
 	var name string
 	switch c {
@@ -111,9 +127,16 @@ func (c ThresholdConfig) Validate() error {
 	return nil
 }
 
+// NoRecoveryID is Signature.RecoveryID for signatures without a recovery
+// identifier (FROST).
+const NoRecoveryID = -1
+
 type Signature struct {
 	Protocol Protocol
 	Data     []byte
+	// RecoveryID is the ECDSA recovery identifier (0 or 1) of a DKLs23
+	// signature, and NoRecoveryID for FROST signatures.
+	RecoveryID int
 }
 
 type PublicKeyPackage struct {
