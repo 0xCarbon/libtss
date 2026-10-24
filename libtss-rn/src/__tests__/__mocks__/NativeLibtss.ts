@@ -20,6 +20,7 @@ type SessionResult = {
 	keyShareHandle?: string;
 	pubkeyPackage?: string;
 	signature?: string;
+	recoveryId?: number;
 	round?: number;
 };
 
@@ -35,6 +36,7 @@ type HandleState = {
 
 const handles = new Map<string, HandleState>();
 const freed: string[] = [];
+const freedSessions: string[] = [];
 const dkgNewQueue: Array<{
 	handle: string;
 	messages: string;
@@ -142,6 +144,9 @@ const NativeLibtss = {
 	handleFree: jest.fn(async (handle: string) => {
 		freed.push(handle);
 	}),
+	sessionFree: jest.fn(async (handle: string) => {
+		freedSessions.push(handle);
+	}),
 	handleIdentifier: jest.fn(async (handle: string) => {
 		const state = handles.get(handle);
 		if (!state) {
@@ -244,6 +249,9 @@ export const __mock = {
 	freedHandles(): string[] {
 		return [...freed];
 	},
+	freedSessions(): string[] {
+		return [...freedSessions];
+	},
 	pushDkgNew(entry: { handle: string; messages: string }): void {
 		dkgNewQueue.push(entry);
 	},
@@ -287,6 +295,7 @@ export const __mock = {
 	reset(): void {
 		handles.clear();
 		freed.length = 0;
+		freedSessions.length = 0;
 		dkgNewQueue.length = 0;
 		dkgNextQueue.length = 0;
 		signNewQueue.length = 0;

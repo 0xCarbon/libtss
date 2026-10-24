@@ -1,3 +1,4 @@
+import { u16 } from "./checks";
 import type { Message } from "./types";
 
 function walkMessages(
@@ -50,8 +51,8 @@ export function encodeMessages(messages: Message[]): Uint8Array {
 	let offset = 0;
 
 	for (const message of messages) {
-		view.setUint16(offset, message.from, true);
-		view.setUint16(offset + 2, message.to ?? 0, true);
+		view.setUint16(offset, u16(message.from, "from"), true);
+		view.setUint16(offset + 2, u16(message.to ?? 0, "to"), true);
 		view.setUint32(offset + 4, message.data.length, true);
 		out.set(message.data, offset + 8);
 		offset += 8 + message.data.length;

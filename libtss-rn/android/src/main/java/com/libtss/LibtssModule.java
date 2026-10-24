@@ -79,6 +79,35 @@ public final class LibtssModule extends ReactContextBaseJavaModule {
         }
     }
 
+    // JS numbers arrive as doubles. Reject non-integers and out-of-range
+    // values instead of letting a cast truncate them.
+    private static int checkedInt(double value, int min, int max, String name) {
+        if (Double.isNaN(value) || value != Math.rint(value) || value < min || value > max) {
+            throw new IllegalArgumentException(name + " must be an integer in [" + min + ", " + max + "]");
+        }
+        return (int) value;
+    }
+
+    private static int suiteValue(double value) {
+        return checkedInt(value, 0, 255, "suite");
+    }
+
+    private static int identifierValue(double value, String name) {
+        return checkedInt(value, 1, 0xFFFF, name);
+    }
+
+    @Nullable
+    private static int[] identifiers(@Nullable ReadableArray values, String name) {
+        if (values == null) {
+            return null;
+        }
+        int[] out = new int[values.size()];
+        for (int i = 0; i < values.size(); i++) {
+            out[i] = identifierValue(values.getDouble(i), name);
+        }
+        return out;
+    }
+
     private WritableMap sessionInitResult(String[] value) {
         WritableMap result = Arguments.createMap();
         result.putString("handle", value[0]);
@@ -101,12 +130,20 @@ public final class LibtssModule extends ReactContextBaseJavaModule {
         if (value.length > 4 && value[4] instanceof String) {
             result.putString("signature", (String) value[4]);
         }
+        if (value.length > 5 && value[5] instanceof Integer) {
+            result.putInt("recoveryId", (Integer) value[5]);
+        }
         return result;
     }
 
     @ReactMethod
     public void dkgNew(double suite, double selfId, double maxSigners, double minSigners, @Nullable String sessionId, Promise promise) {
-        resolve(promise, () -> sessionInitResult(nativeDkgNew((int) suite, (int) selfId, (int) maxSigners, (int) minSigners, sessionId)));
+        resolve(promise, () -> sessionInitResult(nativeDkgNew(
+                suiteValue(suite),
+                identifierValue(selfId, "selfId"),
+                checkedInt(maxSigners, 1, 0xFFFF, "maxSigners"),
+                checkedInt(minSigners, 1, 0xFFFF, "minSigners"),
+                sessionId)));
     }
 
     @ReactMethod
@@ -116,15 +153,8 @@ public final class LibtssModule extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void signNew(String keyShareHandle, String message, @Nullable ReadableArray counterparties, @Nullable String signId, Promise promise) {
-        int[] cp = null;
-        if (counterparties != null) {
-            cp = new int[counterparties.size()];
-            for (int i = 0; i < counterparties.size(); i++) {
-                cp[i] = counterparties.getInt(i);
-            }
-        }
-        final int[] cpFinal = cp;
-        resolve(promise, () -> sessionInitResult(nativeSignNew(keyShareHandle, message, cpFinal, signId)));
+        resolve(promise, () -> sessionInitResult(
+                nativeSignNew(keyShareHandle, message, identifiers(counterparties, "counterparty"), signId)));
     }
 
     @ReactMethod
@@ -134,15 +164,8 @@ public final class LibtssModule extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void refreshNew(String keyShareHandle, @Nullable ReadableArray participants, Promise promise) {
-        int[] p = null;
-        if (participants != null) {
-            p = new int[participants.size()];
-            for (int i = 0; i < participants.size(); i++) {
-                p[i] = participants.getInt(i);
-            }
-        }
-        final int[] pFinal = p;
-        resolve(promise, () -> sessionInitResult(nativeRefreshNew(keyShareHandle, pFinal)));
+        resolve(promise, () -> sessionInitResult(
+                nativeRefreshNew(keyShareHandle, identifiers(participants, "participant"))));
     }
 
     @ReactMethod
@@ -151,17 +174,20 @@ public final class LibtssModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
-    public void repairHelperTerm(String keyShareHandle, ReadableArray helpers, int target, String repairId, Promise promise) {
-        int[] h = new int[helpers.size()];
-        for (int i = 0; i < helpers.size(); i++) {
-            h[i] = helpers.getInt(i);
-        }
-        resolve(promise, () -> nativeRepairHelperTerm(keyShareHandle, h, target, repairId));
+    public void repairHelperTerm(String keyShareHandle, ReadableArray helpers, double target, String repairId, Promise promise) {
+        resolve(promise, () -> {
+            if (helpers == null) {
+                throw new IllegalArgumentException("helpers is required");
+            }
+            return nativeRepairHelperTerm(
+                    keyShareHandle, identifiers(helpers, "helper"), identifierValue(target, "target"), repairId);
+        });
     }
 
     @ReactMethod
-    public void repairAssemble(int suite, String pubkeyPackage, int target, String messages, Promise promise) {
-        resolve(promise, () -> nativeRepairAssemble(suite, pubkeyPackage, target, messages));
+    public void repairAssemble(double suite, String pubkeyPackage, double target, String messages, Promise promise) {
+        resolve(promise, () -> nativeRepairAssemble(
+                suiteValue(suite), pubkeyPackage, identifierValue(target, "target"), messages));
     }
 
     @ReactMethod
@@ -203,6 +229,14 @@ public final class LibtssModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
+    public void sessionFree(String handle, Promise promise) {
+        resolve(promise, () -> {
+            nativeSessionFree(handle);
+            return null;
+        });
+    }
+
+    @ReactMethod
     public void handleIdentifier(String handle, Promise promise) {
         resolve(promise, () -> nativeHandleIdentifier(handle));
     }
@@ -239,7 +273,7 @@ public final class LibtssModule extends ReactContextBaseJavaModule {
 
     @ReactMethod
     public void importKeyShare(double suite, String data, Promise promise) {
-        resolve(promise, () -> nativeImportKeyShare((int) suite, data));
+        resolve(promise, () -> nativeImportKeyShare(suiteValue(suite), data));
     }
 
     @ReactMethod
@@ -314,10 +348,7 @@ public final class LibtssModule extends ReactContextBaseJavaModule {
     @ReactMethod
     public void importKeyShareSecure(double suite, String keychainId, Promise promise) {
         resolve(promise, () -> {
-            int suiteInt = (int) suite;
-            if (suite != suiteInt || suiteInt < 0 || suiteInt > 255) {
-                throw new IllegalArgumentException("invalid ciphersuite value: " + suite);
-            }
+            int suiteInt = suiteValue(suite);
             String encoded = getSecurePrefs().getString(keychainId, null);
             if (encoded == null) {
                 throw new IllegalArgumentException("keychain entry not found: " + keychainId);
@@ -357,6 +388,7 @@ public final class LibtssModule extends ReactContextBaseJavaModule {
     private static native String nativeBolt3DerivePubkeyPackage(String pubkeyPackage, String perCommitmentPoint, boolean revocation);
     private static native Object[] nativeRefreshNext(String handle, String messages);
     private static native void nativeHandleFree(String handle);
+    private static native void nativeSessionFree(String handle);
     private static native double nativeHandleIdentifier(String handle);
     private static native String nativeHandleVerifyingShare(String handle);
     private static native String nativeHandleGroupKey(String handle);
@@ -367,9 +399,9 @@ public final class LibtssModule extends ReactContextBaseJavaModule {
     private static native String nativeImportKeyShare(int suite, String data);
     private static native String nativeVersion();
     @ReactMethod
-    public void verify(int suite, String message, String signature, String publicKey, Promise promise) {
+    public void verify(double suite, String message, String signature, String publicKey, Promise promise) {
         try {
-            boolean result = nativeVerify(suite, message, signature, publicKey);
+            boolean result = nativeVerify(suiteValue(suite), message, signature, publicKey);
             promise.resolve(result);
         } catch (Exception e) {
             promise.reject("E_TSS_VERIFY", e);

@@ -1,25 +1,24 @@
 import { fromByteArray, toByteArray } from "base64-js";
+import { identifier, identifiers, u8, u16 } from "./checks";
 import { TssError } from "./error";
 import { KeyShareHandle } from "./handle";
 import { decodeMessages, encodeMessages } from "./message";
 import NativeLibtss from "./NativeLibtss";
 import type {
+	Ciphersuite,
 	DkgOutput,
 	Message,
 	RefreshOutput,
 	SignOutput,
 	ThresholdConfig,
 } from "./types";
-import { Protocol } from "./types";
-
-const FROST_SIGNATURE_BYTES = 64;
-const DKLS23_SIGNATURE_BYTES = 65;
+import { Protocol, protocolForCiphersuite, signatureLength } from "./types";
 
 const sessionRegistry =
 	typeof FinalizationRegistry === "undefined"
 		? null
 		: new FinalizationRegistry<string>((handle) => {
-				void NativeLibtss.handleFree(handle).catch(() => {});
+				void NativeLibtss.sessionFree(handle).catch(() => {});
 			});
 
 function encodeBase64(data: Uint8Array): string {
@@ -65,7 +64,7 @@ abstract class SessionHandle {
 
 		this._freed = true;
 		sessionRegistry?.unregister(this);
-		void NativeLibtss.handleFree(this.handle).catch(() => {});
+		void NativeLibtss.sessionFree(this.handle).catch(() => {});
 	}
 }
 
@@ -75,12 +74,16 @@ export class DkgSession extends SessionHandle {
 		selfId: number,
 		sessionId?: Uint8Array,
 	): Promise<[DkgSession, Message[]]> {
+		const suite = u8(config.suite, "suite");
+		const self = identifier(selfId, "selfId");
+		const maxSigners = u16(config.maxSigners, "maxSigners");
+		const minSigners = u16(config.minSigners, "minSigners");
 		const result = await callNative(() =>
 			NativeLibtss.dkgNew(
-				config.suite,
-				selfId,
-				config.maxSigners,
-				config.minSigners,
+				suite,
+				self,
+				maxSigners,
+				minSigners,
 				sessionId ? encodeBase64(sessionId) : null,
 			),
 		);
@@ -115,11 +118,11 @@ export class DkgSession extends SessionHandle {
 }
 
 export class SignSession extends SessionHandle {
-	private readonly keyShare: KeyShareHandle;
+	private readonly suite: Ciphersuite;
 
-	private constructor(handle: string, keyShare: KeyShareHandle) {
+	private constructor(handle: string, suite: Ciphersuite) {
 		super(handle);
-		this.keyShare = keyShare;
+		this.suite = suite;
 	}
 
 	static async create(
@@ -128,16 +131,20 @@ export class SignSession extends SessionHandle {
 		counterparties?: number[],
 		signId?: Uint8Array,
 	): Promise<[SignSession, Message[]]> {
+		const counterpartyIds = counterparties
+			? identifiers(counterparties, "counterparty")
+			: null;
+		const suite = await keyShare.ciphersuite();
 		const result = await callNative(() =>
 			NativeLibtss.signNew(
 				keyShare.handle,
 				encodeBase64(message),
-				counterparties ?? null,
+				counterpartyIds,
 				signId ? encodeBase64(signId) : null,
 			),
 		);
 		return [
-			new SignSession(result.handle, keyShare),
+			new SignSession(result.handle, suite),
 			decodeMessageBuffer(result.messages),
 		];
 	}
@@ -157,39 +164,26 @@ export class SignSession extends SessionHandle {
 			throw new Error("missing signature payload");
 		}
 
-		const protocol = await this.keyShare.protocol();
+		const protocol = protocolForCiphersuite(this.suite);
 		const signature = decodeBase64(result.signature);
-
-		if (protocol === Protocol.DKLs23) {
-			if (signature.length !== DKLS23_SIGNATURE_BYTES) {
-				throw new Error(
-					`invalid DKLs23 signature length: expected ${DKLS23_SIGNATURE_BYTES} bytes, got ${signature.length}`,
-				);
-			}
-
-			return {
-				complete: true,
-				signature: {
-					data: signature.slice(0, FROST_SIGNATURE_BYTES),
-					recoveryId: signature[FROST_SIGNATURE_BYTES],
-					protocol,
-				},
-			};
+		const expected = signatureLength(this.suite);
+		if (signature.length !== expected) {
+			throw new Error(
+				`invalid signature length for ciphersuite ${this.suite}: expected ${expected} bytes, got ${signature.length}`,
+			);
 		}
 
-		if (signature.length !== FROST_SIGNATURE_BYTES) {
-			throw new Error(
-				`invalid FROST signature length: expected ${FROST_SIGNATURE_BYTES} bytes, got ${signature.length}`,
-			);
+		let recoveryId: number | null = null;
+		if (protocol === Protocol.DKLs23) {
+			if (result.recoveryId !== 0 && result.recoveryId !== 1) {
+				throw new Error("DKLs23 signature is missing its recovery id");
+			}
+			recoveryId = result.recoveryId;
 		}
 
 		return {
 			complete: true,
-			signature: {
-				data: signature,
-				recoveryId: null,
-				protocol,
-			},
+			signature: { data: signature, recoveryId, protocol },
 		};
 	}
 }
@@ -199,8 +193,11 @@ export class RefreshSession extends SessionHandle {
 		keyShare: KeyShareHandle,
 		participants?: number[],
 	): Promise<[RefreshSession, Message[]]> {
+		const participantIds = participants
+			? identifiers(participants, "participant")
+			: null;
 		const result = await callNative(() =>
-			NativeLibtss.refreshNew(keyShare.handle, participants ?? null),
+			NativeLibtss.refreshNew(keyShare.handle, participantIds),
 		);
 		return [
 			new RefreshSession(result.handle),
