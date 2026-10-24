@@ -396,6 +396,29 @@ fn slice_as_slice_rejects_null_with_length() {
 }
 
 #[test]
+fn message_parsers_reject_max_length() {
+    let mut bytes = vec![1u8, 0, 0, 0];
+    bytes.extend_from_slice(&u32::MAX.to_le_bytes());
+    bytes.extend_from_slice(&[0u8; 8]);
+    assert_eq!(libtss_ffi::messages::tss_message_count(ts(&bytes)), 0);
+    assert!(tss_last_error_len() > 0);
+
+    let mut pkg = vec![2u8, 2, 0];
+    pkg.extend_from_slice(&u32::MAX.to_le_bytes());
+    pkg.extend_from_slice(&[0u8; 8]);
+    let mut out = TssBuffer::empty();
+    let status = libtss_ffi::frost_ops::tss_frost_aggregate(
+        2,
+        ts(b"m"),
+        ts(&[]),
+        ts(&[]),
+        ts(&pkg),
+        &mut out,
+    );
+    assert_eq!(status, TSS_ERR_DESERIALIZE);
+}
+
+#[test]
 fn buffer_from_vec_with_spare_capacity() {
     let mut data = Vec::with_capacity(64);
     data.extend_from_slice(&[9u8, 8, 7]);

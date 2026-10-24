@@ -278,6 +278,15 @@ mod tests {
     }
 
     #[test]
+    fn max_length_rejected() {
+        let mut bytes = vec![1, 0, 0, 0];
+        bytes.extend_from_slice(&u32::MAX.to_le_bytes());
+        bytes.extend_from_slice(&[0u8; 8]);
+        let err = deserialize_messages(&bytes).unwrap_err();
+        assert!(matches!(err, TssError::DeserializeFailed(_)));
+    }
+
+    #[test]
     fn zero_from_rejected() {
         let bytes = [0, 0, 0, 0, 1, 0, 0, 0, 9];
 
