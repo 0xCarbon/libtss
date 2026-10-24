@@ -1,4 +1,4 @@
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use crate::error::TssError;
 use crate::types::Identifier;
@@ -34,6 +34,10 @@ pub const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
 ///
 /// Some payloads are confidential (DKG shares, repair terms), so `Debug`
 /// prints only the payload length and `data` is zeroized on drop.
+///
+/// Because `Message` implements `Drop`, it cannot be destructured by move
+/// (`let Message { data, .. } = message` does not compile). Use
+/// [`Message::into_data`] to take the payload; it stays zeroized on drop.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Message {
     pub from: Identifier,
@@ -58,6 +62,19 @@ impl Drop for Message {
 }
 
 impl Message {
+    /// Take the payload, which is zeroized when the returned buffer drops.
+    ///
+    /// ```
+    /// use libtss::{Identifier, Message};
+    ///
+    /// let message = Message { from: Identifier::new(1).unwrap(), to: None, data: vec![7, 8] };
+    /// let data = message.into_data();
+    /// assert_eq!(data.as_slice(), &[7, 8]);
+    /// ```
+    pub fn into_data(mut self) -> Zeroizing<Vec<u8>> {
+        Zeroizing::new(std::mem::take(&mut self.data))
+    }
+
     pub fn is_broadcast(&self) -> bool {
         self.to.is_none()
     }
