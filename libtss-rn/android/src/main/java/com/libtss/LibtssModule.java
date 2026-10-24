@@ -31,6 +31,8 @@ public final class LibtssModule extends ReactContextBaseJavaModule {
         System.loadLibrary("libtss-jni");
     }
 
+    private static final int INVALID_CONFIG = 1;
+
     private interface NativeCall<T> {
         T run() throws Exception;
     }
@@ -65,6 +67,15 @@ public final class LibtssModule extends ReactContextBaseJavaModule {
             }
 
             promise.reject("E_LIBTSS", nativeError.getMessage(), nativeError, userInfo);
+            return;
+        }
+
+        if (error instanceof IllegalArgumentException) {
+            // Argument checks done in the bridge (ranges, missing values)
+            // map to INVALID_CONFIG so JS sees a regular TssError code.
+            WritableMap userInfo = Arguments.createMap();
+            userInfo.putInt("code", INVALID_CONFIG);
+            promise.reject("E_LIBTSS", error.getMessage(), error, userInfo);
             return;
         }
 
@@ -400,12 +411,7 @@ public final class LibtssModule extends ReactContextBaseJavaModule {
     private static native String nativeVersion();
     @ReactMethod
     public void verify(double suite, String message, String signature, String publicKey, Promise promise) {
-        try {
-            boolean result = nativeVerify(suiteValue(suite), message, signature, publicKey);
-            promise.resolve(result);
-        } catch (Exception e) {
-            promise.reject("E_TSS_VERIFY", e);
-        }
+        resolve(promise, () -> nativeVerify(suiteValue(suite), message, signature, publicKey));
     }
 
     private static native boolean nativeVerify(int suite, String message, String signature, String publicKey);
