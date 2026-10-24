@@ -532,8 +532,7 @@ fn describe_frost_key_share<C>(
 where
     C: frost::Ciphersuite,
 {
-    let max_signers = public_keys.max_signers();
-    let identifier = frost_identifier_to_identifier(key_package.identifier(), max_signers)?;
+    let identifier = crate::frost::from_frost_id(suite, *key_package.identifier())?;
     // Derive the verifying share from the signing share (always authoritative).
     // Note: frost-core's refresh_share() updates signing_share but not the cached
     // verifying_share in KeyPackage, so we cannot rely on key_package.verifying_share().
@@ -579,7 +578,7 @@ where
 
     let mut verifying_shares = BTreeMap::new();
     for (frost_identifier, verifying_share) in public_keys.verifying_shares() {
-        let identifier = frost_identifier_to_identifier(frost_identifier, max_signers)?;
+        let identifier = crate::frost::from_frost_id(suite, *frost_identifier)?;
         verifying_shares.insert(
             identifier,
             verifying_share.serialize().map_err(frost_error)?,
@@ -721,55 +720,61 @@ fn describe_dkls_pubkey_r1(
     ))
 }
 
-fn frost_identifier_to_identifier<C>(
-    identifier: &frost::Identifier<C>,
-    max_signers: u16,
-) -> Result<Identifier, TssError>
-where
-    C: frost::Ciphersuite,
-{
-    for candidate in 1..=max_signers {
-        let frost_identifier = frost::Identifier::<C>::try_from(candidate).map_err(frost_error)?;
-        if &frost_identifier == identifier {
-            return Identifier::new(candidate);
-        }
+/// Serializes secret-bearing `value` with postcard into a buffer allocated
+/// once at its exact size, so no reallocation leaves partial copies behind.
+pub(crate) fn serialize_secret<T: serde::Serialize + ?Sized>(
+    value: &T,
+) -> Result<Vec<u8>, TssError> {
+    let size = postcard::serialize_with_flavor::<T, _, usize>(
+        value,
+        postcard::ser_flavors::Size::default(),
+    )?;
+    let mut buffer = Zeroizing::new(vec![0u8; size]);
+    let written = postcard::to_slice(value, &mut buffer)?.len();
+    if written != size {
+        return Err(TssError::DeserializeFailed(
+            "serialized size mismatch".into(),
+        ));
     }
-    Err(TssError::InvalidIdentifier)
+    Ok(std::mem::take(&mut *buffer))
 }
 
 fn serialize_key_share(inner: &KeyShareInner) -> Result<Vec<u8>, TssError> {
     match inner {
         KeyShareInner::FrostSecp256k1Tr(key_package, public_keys) => {
-            postcard::to_allocvec(&(key_package, public_keys)).map_err(Into::into)
+            serialize_secret(&(key_package, public_keys))
         }
         KeyShareInner::FrostSecp256k1(key_package, public_keys) => {
-            postcard::to_allocvec(&(key_package, public_keys)).map_err(Into::into)
+            serialize_secret(&(key_package, public_keys))
         }
         KeyShareInner::FrostEd25519(key_package, public_keys) => {
-            postcard::to_allocvec(&(key_package, public_keys)).map_err(Into::into)
+            serialize_secret(&(key_package, public_keys))
         }
         KeyShareInner::FrostP256(key_package, public_keys) => {
-            postcard::to_allocvec(&(key_package, public_keys)).map_err(Into::into)
+            serialize_secret(&(key_package, public_keys))
         }
         KeyShareInner::FrostRistretto255(key_package, public_keys) => {
-            postcard::to_allocvec(&(key_package, public_keys)).map_err(Into::into)
+            serialize_secret(&(key_package, public_keys))
         }
         KeyShareInner::FrostEd448(key_package, public_keys) => {
-            postcard::to_allocvec(&(key_package, public_keys)).map_err(Into::into)
+            serialize_secret(&(key_package, public_keys))
         }
-        KeyShareInner::DKLs23(party, public_keys) => {
-            postcard::to_allocvec(&(party, public_keys)).map_err(Into::into)
-        }
+        KeyShareInner::DKLs23(party, public_keys) => serialize_secret(&(party, public_keys)),
         KeyShareInner::DKLs23Secp256r1(party, public_keys) => {
-            postcard::to_allocvec(&(party, public_keys)).map_err(Into::into)
+            serialize_secret(&(party, public_keys))
         }
     }
 }
 
+/// Builds the export blob in a single allocation of its final size; growing
+/// the buffer would leave copies of the plaintext payload in freed memory.
 fn wrap_export(suite: Ciphersuite, payload: &[u8]) -> Vec<u8> {
-    let mut output = build_header(suite).to_vec();
+    let header = build_header(suite);
+    let mut output = Vec::with_capacity(EXPORT_HEADER_SIZE + payload.len() + EXPORT_CHECKSUM_SIZE);
+    output.extend_from_slice(&header);
     output.extend_from_slice(payload);
-    output.extend_from_slice(&export_checksum(&output[..8], payload));
+    output.extend_from_slice(&export_checksum(&header, payload));
+    debug_assert_eq!(output.len(), output.capacity());
     output
 }
 
@@ -947,6 +952,23 @@ mod tests {
         assert_eq!(imported.group_verifying_key(), handle.group_verifying_key());
         assert_eq!(imported.ciphersuite(), handle.ciphersuite());
         assert_eq!(imported.chain_code().unwrap(), handle.chain_code().unwrap());
+    }
+
+    #[test]
+    fn export_is_built_in_one_exact_allocation() {
+        for handle in [sample_frost_handle(), sample_dkls_handle()] {
+            let exported = handle.export().unwrap();
+            assert_eq!(exported.len(), exported.capacity());
+        }
+        let payload = vec![7u8; 1000];
+        let wrapped = wrap_export(Ciphersuite::Ed25519, &payload);
+        assert_eq!(wrapped.len(), 8 + payload.len() + 32);
+        assert_eq!(wrapped.len(), wrapped.capacity());
+
+        let value = (vec![1u8; 300], String::from("x"));
+        let serialized = super::serialize_secret(&value).unwrap();
+        assert_eq!(serialized, postcard::to_allocvec(&value).unwrap());
+        assert_eq!(serialized.len(), serialized.capacity());
     }
 
     #[test]

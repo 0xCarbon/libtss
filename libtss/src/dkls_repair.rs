@@ -103,7 +103,7 @@ where
     let term = party
         .repair_term(helpers, target, repair_id)
         .map_err(repair_error)?;
-    postcard::to_allocvec(&term).map_err(TssError::from)
+    keyshare::serialize_secret(&term)
 }
 
 /// Assembles the helpers' messages into the target's repaired share.

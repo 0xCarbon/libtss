@@ -114,3 +114,11 @@ fn dkls_party_not_copy() {
     t.compile_fail("tests/compile_fail/dkls_party_k1_not_copy.rs");
     t.compile_fail("tests/compile_fail/dkls_party_r1_not_copy.rs");
 }
+
+/// FROST signing nonces are single-use: not `Clone`, and moved into `frost_sign`.
+#[test]
+fn frost_nonces_single_use() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/compile_fail/frost_nonces_single_use.rs");
+    t.compile_fail("tests/compile_fail/frost_nonces_not_clone.rs");
+}

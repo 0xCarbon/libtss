@@ -1,0 +1,10 @@
+error[E0382]: use of moved value: `nonces`
+  --> tests/compile_fail/frost_nonces_single_use.rs:15:36
+   |
+12 |     let (nonces, commitment) = frost_commit(&shares[0]).unwrap();
+   |          ------ move occurs because `nonces` has type `SigningNonces`, which does not implement the `Copy` trait
+13 |     let commitments = vec![commitment];
+14 |     let _ = frost_sign(&shares[0], nonces, &commitments, b"first");
+   |                                    ------ value moved here
+15 |     let _ = frost_sign(&shares[0], nonces, &commitments, b"second");
+   |                                    ^^^^^^ value used here after move

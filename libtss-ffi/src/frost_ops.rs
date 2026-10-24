@@ -1,20 +1,29 @@
 use std::collections::BTreeMap;
 
+use zeroize::{Zeroize, Zeroizing};
+
 use crate::ffi_entry;
 use crate::messages::{checked_slice, deserialize_messages};
 use crate::session::{borrow_key_share, checked_optional_slice};
 use crate::types::{TssBuffer, TssHandle, TssSlice, TssStatus};
 
-fn serialize_id_blobs(map: &BTreeMap<libtss::Identifier, Vec<u8>>) -> Vec<u8> {
-    let mut out = Vec::new();
-    for (id, data) in map {
+/// Serializes secret blobs (refresh shares, repair deltas) into one exact-size
+/// buffer, then zeroizes the map's values.
+fn serialize_id_blobs(map: &mut BTreeMap<libtss::Identifier, Vec<u8>>) -> Vec<u8> {
+    let mut out = Vec::with_capacity(map.values().map(|data| 6 + data.len()).sum());
+    for (id, data) in map.iter_mut() {
         out.extend_from_slice(&id.as_u16().to_le_bytes());
         out.extend_from_slice(&(data.len() as u32).to_le_bytes());
         out.extend_from_slice(data);
+        data.zeroize();
     }
     out
 }
 
+/// Aggregate FROST signature shares into a final signature.
+///
+/// `suite` must be a FROST suite equal to the suite of `pubkey_package`;
+/// otherwise `TSS_ERR_PROTO_MISMATCH` is returned.
 #[no_mangle]
 pub extern "C" fn tss_frost_aggregate(
     suite: u8,
@@ -29,11 +38,17 @@ pub extern "C" fn tss_frost_aggregate(
             .ok_or_else(|| libtss::TssError::InvalidConfig("out_signature is null".into()))?;
         *out_signature = TssBuffer::empty();
 
-        let _ = libtss::Ciphersuite::try_from(suite)?;
+        let suite = libtss::Ciphersuite::try_from(suite)?;
+        if suite.protocol() != libtss::Protocol::Frost {
+            return Err(libtss::TssError::ProtocolMismatch);
+        }
         let msg = checked_slice(message)?;
         let commit_msgs = deserialize_messages(checked_slice(commitments)?)?;
         let share_msgs = deserialize_messages(checked_slice(shares)?)?;
         let pkg = libtss::PublicKeyPackage::deserialize(checked_slice(pubkey_package)?)?;
+        if pkg.suite() != suite {
+            return Err(libtss::TssError::ProtocolMismatch);
+        }
 
         let sig = libtss::frost::frost_aggregate(msg, &commit_msgs, &share_msgs, &pkg)?;
         *out_signature = TssBuffer::from_vec(sig.as_bytes().to_vec());
@@ -243,12 +258,13 @@ pub extern "C" fn tss_frost_refresh_dealer(
                 .collect::<Result<Vec<_>, _>>()?
         };
 
-        let (share_map, new_pubkey) =
+        let (mut share_map, new_pubkey) =
             libtss::frost::frost_refresh_with_dealer(&pkg, &participant_ids)?;
+        let new_pkg = new_pubkey.serialize();
 
-        *out_shares = TssBuffer::from_vec(serialize_id_blobs(&share_map));
+        *out_shares = TssBuffer::from_vec(serialize_id_blobs(&mut share_map));
         *out_count = share_map.len();
-        *out_pkg = TssBuffer::from_vec(new_pubkey.serialize()?);
+        *out_pkg = TssBuffer::from_vec(new_pkg?);
         Ok(())
     })
 }
@@ -313,9 +329,9 @@ pub extern "C" fn tss_frost_repair_part1(
         };
         let participant_id = libtss::Identifier::new(participant)?;
 
-        let delta_map =
+        let mut delta_map =
             libtss::frost::frost_repair_part1(&frost_handle, &helper_ids, participant_id)?;
-        *out = TssBuffer::from_vec(serialize_id_blobs(&delta_map));
+        *out = TssBuffer::from_vec(serialize_id_blobs(&mut delta_map));
         *out_count = delta_map.len();
         Ok(())
     })
@@ -335,14 +351,19 @@ pub extern "C" fn tss_frost_repair_part2(
 
         let suite = libtss::Ciphersuite::try_from(suite)?;
 
-        let delta_vec: Vec<Vec<u8>> = if deltas.is_null() || delta_count == 0 {
+        if deltas.is_null() && delta_count > 0 {
+            return Err(libtss::TssError::InvalidConfig(
+                "null pointer with non-zero delta count".into(),
+            ));
+        }
+        let delta_vec: Zeroizing<Vec<Vec<u8>>> = Zeroizing::new(if delta_count == 0 {
             Vec::new()
         } else {
             let raw = unsafe { core::slice::from_raw_parts(deltas, delta_count) };
             raw.iter()
                 .map(|s| checked_slice(*s).map(|b| b.to_vec()))
                 .collect::<Result<Vec<_>, _>>()?
-        };
+        });
 
         let sigma = libtss::frost::frost_repair_part2(suite, &delta_vec)?;
         *out = TssBuffer::from_vec(sigma);
@@ -363,14 +384,19 @@ pub extern "C" fn tss_frost_repair_part3(
             .ok_or_else(|| libtss::TssError::InvalidConfig("out_key is null".into()))?;
         *out = 0;
 
-        let sigma_vec: Vec<Vec<u8>> = if sigmas.is_null() || sigma_count == 0 {
+        if sigmas.is_null() && sigma_count > 0 {
+            return Err(libtss::TssError::InvalidConfig(
+                "null pointer with non-zero sigma count".into(),
+            ));
+        }
+        let sigma_vec: Zeroizing<Vec<Vec<u8>>> = Zeroizing::new(if sigma_count == 0 {
             Vec::new()
         } else {
             let raw = unsafe { core::slice::from_raw_parts(sigmas, sigma_count) };
             raw.iter()
                 .map(|s| checked_slice(*s).map(|b| b.to_vec()))
                 .collect::<Result<Vec<_>, _>>()?
-        };
+        });
 
         let participant_id = libtss::Identifier::new(participant)?;
         let pubkey = libtss::PublicKeyPackage::deserialize(checked_slice(pubkey_package)?)?;

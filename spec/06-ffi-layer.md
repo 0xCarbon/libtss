@@ -367,6 +367,8 @@ TssStatus tss_refresh_next(
 
 /// Aggregate FROST signature shares into a final Schnorr signature.
 /// commitments/shares: concatenated Message buffers from signers' rounds 1/2.
+/// `suite` must be a FROST suite equal to the package's suite; otherwise
+/// TSS_ERR_PROTO_MISMATCH is returned.
 TssStatus tss_frost_aggregate(
     uint8_t suite, TssSlice message,
     TssSlice commitments,
@@ -463,6 +465,7 @@ TssStatus tss_frost_repair_part3(
 // ============================================================
 
 /// Verify a signature. Works for both FROST (Schnorr) and DKLs23 (ECDSA).
+/// Returns false if any slice has a null pointer with a non-zero length.
 bool tss_verify(uint8_t suite, TssSlice message, TssSlice signature, TssSlice public_key);
 
 TssStatus tss_derive_child(TssHandle key_share, uint32_t child_number, TssHandle *out);
@@ -667,15 +670,21 @@ pub struct TssSlice {
 }
 
 impl TssSlice {
-    pub unsafe fn as_slice(&self) -> &[u8] {
-        if self.data.is_null() || self.len == 0 {
-            &[]
+    /// `None` for a null pointer with a non-zero length.
+    pub unsafe fn as_slice(&self) -> Option<&[u8]> {
+        if self.data.is_null() {
+            (self.len == 0).then_some(&[][..])
         } else {
-            std::slice::from_raw_parts(self.data, self.len)
+            Some(std::slice::from_raw_parts(self.data, self.len))
         }
     }
 }
 ```
+
+Every C API entry point treats `{data = NULL, len = 0}` as empty input and
+rejects `{data = NULL, len > 0}` (and the same for pointer/count array pairs)
+with `TSS_ERR_INVALID_CONFIG`, or `false` from `tss_verify`. A null pointer is
+never read as an empty input when its length is non-zero.
 
 ### Thread-Local Error Storage
 

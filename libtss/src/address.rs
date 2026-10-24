@@ -36,9 +36,8 @@ pub fn bitcoin_address_hrp(
         return Err(TssError::ProtocolMismatch);
     }
     let party = keyshare::clone_dkls_party(key_share)?;
-    Ok(dkls23_secp256k1::compute_btc_address_with_hrp(
-        &party.pk, hrp,
-    ))
+    dkls23_secp256k1::try_compute_btc_address_with_hrp(&party.pk, hrp)
+        .map_err(|err| TssError::InvalidConfig(err.to_string()))
 }
 
 /// Extract the Cosmos address from a DKLs23 secp256k1 key share.
@@ -63,9 +62,8 @@ pub fn cosmos_address_hrp(
         return Err(TssError::ProtocolMismatch);
     }
     let party = keyshare::clone_dkls_party(key_share)?;
-    Ok(dkls23_secp256k1::compute_cosmos_address_with_hrp(
-        &party.pk, hrp,
-    ))
+    dkls23_secp256k1::try_compute_cosmos_address_with_hrp(&party.pk, hrp)
+        .map_err(|err| TssError::InvalidConfig(err.to_string()))
 }
 
 /// Extract the TRON address from a DKLs23 secp256k1 key share.
@@ -166,6 +164,24 @@ mod tests {
         let handle = dkls_handle();
         let address = cosmos_address_hrp(&handle, "osmo").unwrap();
         assert!(address.starts_with("osmo1"));
+    }
+
+    #[test]
+    fn invalid_hrp_returns_error() {
+        let handle = dkls_handle();
+        for hrp in ["", "bad hrp", "\u{e9}", &"a".repeat(84)] {
+            assert!(matches!(
+                bitcoin_address_hrp(&handle, hrp),
+                Err(TssError::InvalidConfig(_))
+            ));
+            assert!(matches!(
+                cosmos_address_hrp(&handle, hrp),
+                Err(TssError::InvalidConfig(_))
+            ));
+        }
+        assert!(bitcoin_address_hrp(&handle, "tb")
+            .unwrap()
+            .starts_with("tb1q"));
     }
 
     #[test]

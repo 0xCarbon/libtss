@@ -64,6 +64,9 @@ typedef struct TssBuffer {
 
 const char *tss_version(void);
 
+// Verify a signature. Works for both FROST (Schnorr) and DKLs23 (ECDSA).
+//
+// Returns `false` if any slice has a null pointer with a non-zero length.
 bool tss_verify(uint8_t suite,
                 struct TssSlice message,
                 struct TssSlice signature,
@@ -196,6 +199,10 @@ uint16_t tss_abort_culprit(size_t index);
 
 uint16_t tss_abort_banned_party(void);
 
+// Aggregate FROST signature shares into a final signature.
+//
+// `suite` must be a FROST suite equal to the suite of `pubkey_package`;
+// otherwise `TSS_ERR_PROTO_MISMATCH` is returned.
 TssStatus tss_frost_aggregate(uint8_t suite,
                               struct TssSlice message,
                               struct TssSlice commitments,

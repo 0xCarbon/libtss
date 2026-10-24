@@ -1,7 +1,10 @@
+use zeroize::Zeroize;
+
 use crate::error::TssError;
 use crate::types::Identifier;
 
-const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024; // 16 MiB
+/// Largest message payload accepted by the TLV wire format (16 MiB).
+pub const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
 
 /// Protocol message — opaque to the client.
 ///
@@ -28,11 +31,30 @@ const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024; // 16 MiB
 /// assert!(p2p.for_participant(id2));
 /// assert!(!p2p.for_participant(id1));
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Some payloads are confidential (DKG shares, repair terms), so `Debug`
+/// prints only the payload length and `data` is zeroized on drop.
+#[derive(Clone, PartialEq, Eq)]
 pub struct Message {
     pub from: Identifier,
     pub to: Option<Identifier>,
     pub data: Vec<u8>,
+}
+
+impl std::fmt::Debug for Message {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Message")
+            .field("from", &self.from)
+            .field("to", &self.to)
+            .field("data_len", &self.data.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for Message {
+    fn drop(&mut self) {
+        self.data.zeroize();
+    }
 }
 
 impl Message {
@@ -82,6 +104,11 @@ pub fn filter_for_participant(messages: &[Message], id: Identifier) -> Vec<&Mess
 }
 
 fn tlv_length(len: usize) -> Result<u32, TssError> {
+    if len > MAX_MESSAGE_SIZE {
+        return Err(TssError::InvalidConfig(
+            "message exceeds maximum size".into(),
+        ));
+    }
     u32::try_from(len).map_err(|_| TssError::DeserializeFailed("message data exceeds u32".into()))
 }
 
@@ -257,6 +284,33 @@ mod tests {
     }
 
     #[test]
+    fn oversized_payload_rejected_both_ways() {
+        let message = Message {
+            from: Identifier::new(1).unwrap(),
+            to: None,
+            data: vec![0; super::MAX_MESSAGE_SIZE + 1],
+        };
+        assert!(serialize_messages(std::slice::from_ref(&message)).is_err());
+
+        let mut bytes = vec![1, 0, 0, 0];
+        bytes.extend_from_slice(&((super::MAX_MESSAGE_SIZE + 1) as u32).to_le_bytes());
+        bytes.resize(8 + super::MAX_MESSAGE_SIZE + 1, 0);
+        assert!(matches!(
+            deserialize_messages(&bytes),
+            Err(TssError::DeserializeFailed(_))
+        ));
+    }
+
+    #[test]
+    fn max_length_rejected() {
+        let mut bytes = vec![1, 0, 0, 0];
+        bytes.extend_from_slice(&u32::MAX.to_le_bytes());
+        bytes.extend_from_slice(&[0u8; 8]);
+        let err = deserialize_messages(&bytes).unwrap_err();
+        assert!(matches!(err, TssError::DeserializeFailed(_)));
+    }
+
+    #[test]
     fn zero_from_rejected() {
         let bytes = [0, 0, 0, 0, 1, 0, 0, 0, 9];
 
@@ -353,6 +407,19 @@ mod tests {
         // Sender should not receive own broadcast
         let filtered_sender = filter_for_participant(&messages, id1);
         assert_eq!(filtered_sender.len(), 0);
+    }
+
+    #[test]
+    fn debug_redacts_payload() {
+        let message = Message {
+            from: Identifier::new(1).unwrap(),
+            to: Some(Identifier::new(2).unwrap()),
+            data: vec![0xde, 0xad, 0xbe, 0xef],
+        };
+        let rendered = format!("{message:?}");
+        assert!(rendered.contains("data_len: 4"));
+        assert!(!rendered.contains("222"));
+        assert!(!rendered.contains("[222, 173, 190, 239]"));
     }
 
     #[test]

@@ -48,9 +48,15 @@ the key from the deterministic relationship between nonces.
 4. If a `SignSession` is dropped without completing, the nonces are zeroed
    via Rust's `Drop` + `Zeroize`
 5. DKLs23 instance keys are similarly single-use and zeroed after signing
+6. The low-level `libtss::frost` API returns nonces as an opaque
+   `frost::SigningNonces` value that is neither `Clone` nor serializable;
+   `frost_sign` takes it by value, so one nonce pair yields at most one share.
+   `frost_sign` also rejects nonces committed by a different key share.
 
-**Verification**: The type system enforces single-use via handle consumption. Tests
-verify that reuse attempts return errors.
+**Verification**: The type system enforces single-use via consumption. The
+`frost_nonces_single_use` trybuild test checks that reusing or cloning
+`SigningNonces` does not compile, and session tests verify that further `next()`
+calls return errors.
 
 ## SR-3: Secret Memory Zeroing
 
@@ -69,8 +75,9 @@ swap files, core dumps, or cold boot attacks.
   - Instance keys and inversion masks (DKLs23 signing)
 - Intermediate session secrets are wrapped in `Zeroizing<Vec<u8>>`:
   - `FrostDkgState.round1_secret` and `round2_secret` (DKG round state)
-  - `FrostSignPhase::AwaitCommitments.nonces` (signing nonces)
-  - `frost_dkg_part1/part2` and `frost_commit` return `Zeroizing<Vec<u8>>`
+  - `FrostSignPhase::AwaitCommitments.nonces` (signing nonces, `frost::SigningNonces`)
+  - `frost_dkg_part1/part2` return `Zeroizing<Vec<u8>>`; `frost_commit` returns
+    `frost::SigningNonces`, which wraps `Zeroizing<Vec<u8>>`
   - When state transitions via `std::mem::replace`, old values are zeroed on drop
 - The `zeroize` crate uses `core::ptr::write_volatile` + `compiler_fence(SeqCst)`
   to prevent the compiler from optimizing away the zeroing

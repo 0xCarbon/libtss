@@ -19,9 +19,9 @@ use k256::elliptic_curve::group::{Curve, Group};
 use zeroize::Zeroize;
 
 use crate::dkls::{
-    abort_to_error, identifier_to_party_index, identifier_to_session_party_index, message_error,
-    messages_to_phase_input, party_index_to_identifier, phase_input_broadcast, phase_input_p2p,
-    phase_output_to_messages,
+    abort_to_error, check_parties, check_sender_index, identifier_to_party_index,
+    identifier_to_session_party_index, message_error, messages_to_phase_input, other_parties,
+    party_index_to_identifier, phase_input_broadcast, phase_input_p2p, phase_output_to_messages,
 };
 use crate::error::TssError;
 use crate::message::Message;
@@ -250,7 +250,12 @@ pub fn phase3<C: RefreshCurve>(
     state: &mut DklsRefreshState<C>,
     received: &[Message],
 ) -> Result<Vec<Message>, TssError> {
-    let phase2_input = messages_to_phase_input(received, state.self_id)?;
+    let self_index = identifier_to_session_party_index(state.self_id, state.share_count)?;
+    let phase2_input = messages_to_phase_input(
+        received,
+        state.self_id,
+        &other_parties(state.share_count, self_index),
+    )?;
     let mut zero_kept_2to3 = state
         .zero_kept_2to3
         .take()
@@ -291,8 +296,12 @@ pub fn phase4<C: RefreshCurve>(
     received: &[Message],
 ) -> Result<(Party<C>, PublicKeyPackage<C>), TssError> {
     let phase2_input = state.phase2_input.take().ok_or(TssError::SessionComplete)?;
-    let phase3_input = messages_to_phase_input(received, state.self_id)?;
     let self_index = identifier_to_party_index(state.self_id)?;
+    let phase3_input = messages_to_phase_input(
+        received,
+        state.self_id,
+        &other_parties(state.share_count, self_index),
+    )?;
 
     let mut proofs_commitments = vec![state
         .self_proof_commitment
@@ -305,22 +314,18 @@ pub fn phase4<C: RefreshCurve>(
         if sender == self_index.as_u8() {
             continue;
         }
-        proofs_commitments.push(phase_input_broadcast::<ProofCommitment<C>>(
-            &phase2_input,
-            sender,
-        )?);
-        zero_received_phase2.push(phase_input_p2p::<TransmitInitZeroSharePhase2to4>(
-            &phase2_input,
-            sender,
-        )?);
-        zero_received_phase3.push(phase_input_p2p::<TransmitInitZeroSharePhase3to4>(
-            &phase3_input,
-            sender,
-        )?);
-        mul_received.push(phase_input_p2p::<TransmitInitMulPhase3to4<C>>(
-            &phase3_input,
-            sender,
-        )?);
+        let proof = phase_input_broadcast::<ProofCommitment<C>>(&phase2_input, sender)?;
+        check_sender_index(proof.index, sender)?;
+        proofs_commitments.push(proof);
+        let zero2 = phase_input_p2p::<TransmitInitZeroSharePhase2to4>(&phase2_input, sender)?;
+        check_parties(&zero2.parties, sender, self_index)?;
+        zero_received_phase2.push(zero2);
+        let zero3 = phase_input_p2p::<TransmitInitZeroSharePhase3to4>(&phase3_input, sender)?;
+        check_parties(&zero3.parties, sender, self_index)?;
+        zero_received_phase3.push(zero3);
+        let mul = phase_input_p2p::<TransmitInitMulPhase3to4<C>>(&phase3_input, sender)?;
+        check_parties(&mul.parties, sender, self_index)?;
+        mul_received.push(mul);
     }
 
     let correction_value = state

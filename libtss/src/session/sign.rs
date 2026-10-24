@@ -1,9 +1,8 @@
 use dkls23_secp256k1::Party;
-use zeroize::Zeroizing;
 
 use crate::dkls::{self, DklsSignState};
 use crate::dkls_r1;
-use crate::frost::{frost_aggregate, frost_commit, frost_sign};
+use crate::frost::{frost_aggregate, frost_commit, frost_sign, SigningNonces};
 use crate::keyshare::{self, KeyShareHandle};
 use crate::message::Message;
 use crate::types::{Ciphersuite, Identifier, Protocol, PublicKeyPackage, Signature};
@@ -30,7 +29,7 @@ struct FrostSignState {
 
 enum FrostSignPhase {
     AwaitCommitments {
-        nonces: Zeroizing<Vec<u8>>,
+        nonces: SigningNonces,
         own_commitment: Message,
     },
     AwaitShares {
@@ -213,7 +212,7 @@ impl SignSession {
             } => {
                 let mut all_commitments = vec![own_commitment];
                 all_commitments.extend_from_slice(received);
-                let share = frost_sign(&state.frost_key, &nonces, &all_commitments, &state.msg)?;
+                let share = frost_sign(&state.frost_key, nonces, &all_commitments, &state.msg)?;
                 state.phase = Some(FrostSignPhase::AwaitShares {
                     commitments: all_commitments,
                     own_share: share.clone(),
