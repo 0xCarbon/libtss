@@ -17,7 +17,7 @@ pub(crate) enum SessionEntry {
 /// in the map so that a concurrent `tss_session_free` can record that the
 /// session must be dropped when the call returns it.
 enum Slot {
-    Present(SessionEntry),
+    Present(Box<SessionEntry>),
     CheckedOut { free_pending: bool },
 }
 
@@ -42,7 +42,7 @@ fn entries() -> std::sync::MutexGuard<'static, HashMap<u64, Slot>> {
 pub(crate) fn insert_session(entry: SessionEntry) -> u64 {
     let reg = sessions();
     let id = reg.next_id.fetch_add(1, Ordering::Relaxed);
-    entries().insert(id, Slot::Present(entry));
+    entries().insert(id, Slot::Present(Box::new(entry)));
     id
 }
 
@@ -58,7 +58,7 @@ fn take_session(id: u64) -> Result<SessionEntry, TssError> {
                     free_pending: false,
                 },
             ) {
-                Slot::Present(entry) => Ok(entry),
+                Slot::Present(entry) => Ok(*entry),
                 Slot::CheckedOut { .. } => unreachable!(),
             }
         }
@@ -74,7 +74,7 @@ fn return_session(id: u64, entry: SessionEntry) {
         Some(Slot::CheckedOut {
             free_pending: false,
         }) => {
-            entries.insert(id, Slot::Present(entry));
+            entries.insert(id, Slot::Present(Box::new(entry)));
         }
         _ => {
             entries.remove(&id);
