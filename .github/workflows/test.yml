@@ -39,6 +39,25 @@ jobs:
       - name: Test (release)
         run: cargo test --workspace --release
 
+  rn-jni-syntax:
+    # Compiles the React Native JNI bridge against the runner JDK's jni.h.
+    # The iOS bridge (libtss-rn/ios/Libtss.mm) needs the iOS SDK and React
+    # headers, so it is not compiled here.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Syntax-check libtss-jni.cpp
+        run: |
+          g++ -std=c++17 -fsyntax-only -Wall -Wextra -Werror \
+            -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/linux" \
+            libtss-rn/android/src/main/cpp/libtss-jni.cpp
+
   audit:
     runs-on: ubuntu-latest
     steps:
