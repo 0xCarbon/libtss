@@ -207,3 +207,190 @@ fn test_ffi_verify() {
     let result = libtss_ffi::tss_verify(6, message_slice, signature_slice, public_key_slice);
     assert!(!result);
 }
+
+// -- Pointer/length consistency and suite checks ---------------------------
+
+struct FrostTranscript {
+    message: Vec<u8>,
+    commitments: Vec<u8>,
+    shares: Vec<u8>,
+    pubkey_package: Vec<u8>,
+    signature: Vec<u8>,
+}
+
+/// Runs a 2-of-3 FROST signing round in-process and returns its transcript.
+fn frost_transcript(suite: libtss::Ciphersuite, message: &[u8]) -> FrostTranscript {
+    let config = libtss::ThresholdConfig {
+        min_signers: 2,
+        max_signers: 3,
+        suite,
+    };
+    let (shares, pubkey) = libtss::frost::frost_generate_with_dealer(&config).unwrap();
+    let handles: Vec<_> = shares
+        .into_iter()
+        .take(2)
+        .map(|share| libtss::keyshare::from_frost_dkg(share, &pubkey).unwrap())
+        .collect();
+
+    let mut sessions = Vec::new();
+    let mut commitments = Vec::new();
+    for handle in &handles {
+        let (session, msgs) = libtss::SignSession::new_frost(handle, message).unwrap();
+        sessions.push(session);
+        commitments.extend(msgs);
+    }
+    let mut sig_shares = Vec::new();
+    for (session, handle) in sessions.iter_mut().zip(&handles) {
+        let others: Vec<_> = commitments
+            .iter()
+            .filter(|m| m.from != handle.identifier())
+            .cloned()
+            .collect();
+        match session.next(&others).unwrap() {
+            libtss::SignOutput::Continue(msgs) => sig_shares.extend(msgs),
+            libtss::SignOutput::Complete(_) => panic!("expected shares"),
+        }
+    }
+    let others: Vec<_> = sig_shares
+        .iter()
+        .filter(|m| m.from != handles[0].identifier())
+        .cloned()
+        .collect();
+    let signature = match sessions[0].next(&others).unwrap() {
+        libtss::SignOutput::Complete(sig) => sig.as_bytes().to_vec(),
+        libtss::SignOutput::Continue(_) => panic!("expected signature"),
+    };
+
+    FrostTranscript {
+        message: message.to_vec(),
+        commitments: libtss::serialize_messages(&commitments).unwrap(),
+        shares: libtss::serialize_messages(&sig_shares).unwrap(),
+        pubkey_package: pubkey.serialize().unwrap(),
+        signature,
+    }
+}
+
+fn ts(bytes: &[u8]) -> TssSlice {
+    TssSlice {
+        data: bytes.as_ptr(),
+        len: bytes.len(),
+    }
+}
+
+#[test]
+fn verify_rejects_null_pointer_with_nonzero_length() {
+    let suite = libtss::Ciphersuite::Ed25519;
+    let transcript = frost_transcript(suite, b"");
+    let pkg = libtss::PublicKeyPackage::deserialize(&transcript.pubkey_package).unwrap();
+    let null_empty = TssSlice {
+        data: core::ptr::null(),
+        len: 0,
+    };
+    let null_nonzero = TssSlice {
+        data: core::ptr::null(),
+        len: 32,
+    };
+
+    // A signature over the empty message verifies with a consistent empty slice.
+    assert!(libtss_ffi::tss_verify(
+        suite as u8,
+        null_empty,
+        ts(&transcript.signature),
+        ts(pkg.verifying_key()),
+    ));
+    // The same input with a null pointer and non-zero length is rejected.
+    assert!(!libtss_ffi::tss_verify(
+        suite as u8,
+        null_nonzero,
+        ts(&transcript.signature),
+        ts(pkg.verifying_key()),
+    ));
+    let null_sig = TssSlice {
+        data: core::ptr::null(),
+        len: transcript.signature.len(),
+    };
+    assert!(!libtss_ffi::tss_verify(
+        suite as u8,
+        null_empty,
+        null_sig,
+        ts(pkg.verifying_key()),
+    ));
+}
+
+#[test]
+fn frost_aggregate_requires_matching_suite() {
+    let transcript = frost_transcript(libtss::Ciphersuite::Ed25519, b"aggregate suite");
+    let aggregate = |suite: u8| {
+        let mut out = TssBuffer::empty();
+        let status = libtss_ffi::frost_ops::tss_frost_aggregate(
+            suite,
+            ts(&transcript.message),
+            ts(&transcript.commitments),
+            ts(&transcript.shares),
+            ts(&transcript.pubkey_package),
+            &mut out,
+        );
+        let bytes = if out.data.is_null() {
+            Vec::new()
+        } else {
+            unsafe { core::slice::from_raw_parts(out.data, out.len) }.to_vec()
+        };
+        libtss_ffi::memory::tss_buffer_free(&mut out);
+        (status, bytes)
+    };
+
+    let (status, sig) = aggregate(libtss::Ciphersuite::Ed25519 as u8);
+    assert_eq!(status, TSS_OK);
+    assert_eq!(sig, transcript.signature);
+
+    for other in [
+        libtss::Ciphersuite::Secp256k1Taproot,
+        libtss::Ciphersuite::Secp256k1,
+        libtss::Ciphersuite::Ristretto255,
+        libtss::Ciphersuite::Secp256k1ECDSA,
+        libtss::Ciphersuite::Secp256r1ECDSA,
+    ] {
+        let (status, sig) = aggregate(other as u8);
+        assert_eq!(status, TSS_ERR_PROTO_MISMATCH, "suite {other:?}");
+        assert!(sig.is_empty());
+    }
+}
+
+#[test]
+fn frost_repair_rejects_null_arrays_with_nonzero_count() {
+    let mut out = TssBuffer::empty();
+    let status = libtss_ffi::frost_ops::tss_frost_repair_part2(
+        libtss::Ciphersuite::Ed25519 as u8,
+        core::ptr::null(),
+        2,
+        &mut out,
+    );
+    assert_eq!(status, TSS_ERR_INVALID_CONFIG);
+
+    let mut key = 0;
+    let status = libtss_ffi::frost_ops::tss_frost_repair_part3(
+        core::ptr::null(),
+        2,
+        3,
+        TssSlice {
+            data: core::ptr::null(),
+            len: 0,
+        },
+        &mut key,
+    );
+    assert_eq!(status, TSS_ERR_INVALID_CONFIG);
+}
+
+#[test]
+fn slice_as_slice_rejects_null_with_length() {
+    let null_nonzero = TssSlice {
+        data: core::ptr::null(),
+        len: 4,
+    };
+    assert!(unsafe { null_nonzero.as_slice() }.is_none());
+    let null_empty = TssSlice {
+        data: core::ptr::null(),
+        len: 0,
+    };
+    assert_eq!(unsafe { null_empty.as_slice() }, Some(&[][..]));
+}

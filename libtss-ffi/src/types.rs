@@ -72,13 +72,15 @@ impl TssSlice {
         }
     }
 
+    /// Returns `None` for a null pointer with a non-zero length.
+    ///
     /// # Safety
-    /// The pointer must be valid for the given length.
-    pub unsafe fn as_slice<'a>(&self) -> &'a [u8] {
-        if self.data.is_null() || self.len == 0 {
-            &[]
+    /// A non-null pointer must be valid for reads of `len` bytes.
+    pub unsafe fn as_slice<'a>(&self) -> Option<&'a [u8]> {
+        if self.data.is_null() {
+            (self.len == 0).then_some(&[][..])
         } else {
-            core::slice::from_raw_parts(self.data, self.len)
+            Some(core::slice::from_raw_parts(self.data, self.len))
         }
     }
 }

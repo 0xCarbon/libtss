@@ -255,8 +255,13 @@ pub extern "C" fn tss_refresh_new(
 
         let handle = borrow_key_share(key_share)?;
 
+        if participants.is_null() && participants_len > 0 {
+            return Err(libtss::TssError::InvalidConfig(
+                "null pointer with non-zero participant count".into(),
+            ));
+        }
         let participant_ids: Vec<libtss::Identifier> =
-            if participants.is_null() || participants_len == 0 {
+            if participants_len == 0 {
                 Vec::new()
             } else {
                 let raw = unsafe { core::slice::from_raw_parts(participants, participants_len) };

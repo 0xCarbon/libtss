@@ -15,6 +15,10 @@ fn serialize_id_blobs(map: &BTreeMap<libtss::Identifier, Vec<u8>>) -> Vec<u8> {
     out
 }
 
+/// Aggregate FROST signature shares into a final signature.
+///
+/// `suite` must be a FROST suite equal to the suite of `pubkey_package`;
+/// otherwise `TSS_ERR_PROTO_MISMATCH` is returned.
 #[no_mangle]
 pub extern "C" fn tss_frost_aggregate(
     suite: u8,
@@ -29,11 +33,17 @@ pub extern "C" fn tss_frost_aggregate(
             .ok_or_else(|| libtss::TssError::InvalidConfig("out_signature is null".into()))?;
         *out_signature = TssBuffer::empty();
 
-        let _ = libtss::Ciphersuite::try_from(suite)?;
+        let suite = libtss::Ciphersuite::try_from(suite)?;
+        if suite.protocol() != libtss::Protocol::Frost {
+            return Err(libtss::TssError::ProtocolMismatch);
+        }
         let msg = checked_slice(message)?;
         let commit_msgs = deserialize_messages(checked_slice(commitments)?)?;
         let share_msgs = deserialize_messages(checked_slice(shares)?)?;
         let pkg = libtss::PublicKeyPackage::deserialize(checked_slice(pubkey_package)?)?;
+        if pkg.suite() != suite {
+            return Err(libtss::TssError::ProtocolMismatch);
+        }
 
         let sig = libtss::frost::frost_aggregate(msg, &commit_msgs, &share_msgs, &pkg)?;
         *out_signature = TssBuffer::from_vec(sig.as_bytes().to_vec());
@@ -335,7 +345,12 @@ pub extern "C" fn tss_frost_repair_part2(
 
         let suite = libtss::Ciphersuite::try_from(suite)?;
 
-        let delta_vec: Vec<Vec<u8>> = if deltas.is_null() || delta_count == 0 {
+        if deltas.is_null() && delta_count > 0 {
+            return Err(libtss::TssError::InvalidConfig(
+                "null pointer with non-zero delta count".into(),
+            ));
+        }
+        let delta_vec: Vec<Vec<u8>> = if delta_count == 0 {
             Vec::new()
         } else {
             let raw = unsafe { core::slice::from_raw_parts(deltas, delta_count) };
@@ -363,7 +378,12 @@ pub extern "C" fn tss_frost_repair_part3(
             .ok_or_else(|| libtss::TssError::InvalidConfig("out_key is null".into()))?;
         *out = 0;
 
-        let sigma_vec: Vec<Vec<u8>> = if sigmas.is_null() || sigma_count == 0 {
+        if sigmas.is_null() && sigma_count > 0 {
+            return Err(libtss::TssError::InvalidConfig(
+                "null pointer with non-zero sigma count".into(),
+            ));
+        }
+        let sigma_vec: Vec<Vec<u8>> = if sigma_count == 0 {
             Vec::new()
         } else {
             let raw = unsafe { core::slice::from_raw_parts(sigmas, sigma_count) };
