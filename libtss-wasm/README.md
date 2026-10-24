@@ -216,6 +216,9 @@ console.log("Ed25519 signature (hex):", Buffer.from(sig1.signature).toString("he
 | `neo3Address(ks)`       | NEO N3 address (suite 7 only)                            |
 | `suiR1Address(ks)`      | Sui secp256r1 address (suite 7 only)                     |
 | `deriveChild(ks, n)`    | BIP-32 non-hardened child derivation                     |
+| `dklsSplitKey(...)`     | Import an existing ECDSA key as DKLs23 shares (trusted dealer) |
+| `bolt3Derive*(...)`     | BOLT 3 key derivation of DKLs23 secp256k1 shares / packages |
+| `dklsRepairHelperTerm` / `dklsRepairAssemble` | DKLs23 share repair (authenticate the target; refresh after) |
 | `derivePath(ks, path)`  | BIP-32 path derivation (e.g. `"m/44/60/0/0"`)           |
 | `messageCount(buf)`     | Count TLV-framed messages in a buffer                    |
 | `messageAt(buf, i)`     | Decode message at index `i` from a buffer                |
@@ -228,7 +231,7 @@ console.log("Ed25519 signature (hex):", Buffer.from(sig1.signature).toString("he
 - **`SecureKeyShare`** — opaque wrapper keeping key share plaintext in WASM linear memory (zeroed on drop)
 - **`WasmDkgSession`** — drives DKG protocol rounds; use `WasmDkgSession.create()`
 - **`WasmSignSession`** — drives signing protocol rounds; use `WasmSignSession.newFrost()` / `newDkls()` / `newDklsR1()`
-- **`WasmRefreshSession`** — drives FROST key refresh; use `WasmRefreshSession.createDealer()` / `createReceiver()`
+- **`WasmRefreshSession`** — drives key refresh; FROST via `WasmRefreshSession.createDealer()` / `createReceiver()`, DKLs23 complete refresh via `createDkls()`
 
 ### TypeScript Helpers (`src/secure.ts`)
 

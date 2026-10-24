@@ -20,6 +20,7 @@
 
 pub mod address;
 pub mod derive;
+pub mod dkls;
 pub mod error;
 pub mod handle;
 pub mod message;

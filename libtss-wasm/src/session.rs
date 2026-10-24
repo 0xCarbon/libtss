@@ -459,13 +459,12 @@ impl WasmRefreshResult {
     }
 }
 
-/// A FROST key-refresh session.
+/// A key-refresh session.
 ///
-/// One participant acts as the dealer and calls `WasmRefreshSession.createDealer()`.
-/// All participants (including the dealer) then call `next()` with their refresh share message.
-///
-/// Only supported for FROST ciphersuites (0-5). The DKLs23 complete refresh
-/// (`RefreshSession::new_dkls` in libtss) is not exposed in WASM yet.
+/// FROST (suites 0-5): one participant acts as the dealer and calls
+/// `WasmRefreshSession.createDealer()`; all participants (including the dealer)
+/// then call `next()` with their refresh share message. DKLs23 (suites 6-7):
+/// every party calls `WasmRefreshSession.createDkls()` and `next()` three times.
 #[wasm_bindgen]
 pub struct WasmRefreshSession {
     inner: Option<RefreshSession>,
@@ -508,6 +507,34 @@ impl WasmRefreshSession {
 
         let arr = js_sys::Array::new();
         arr.push(&JsValue::from(wasm_session));
+        arr.push(&JsValue::from(result));
+        Ok(arr)
+    }
+
+    /// Create a DKLs23 complete refresh session (suites 6 and 7).
+    ///
+    /// All parties run it together under the same fresh `sessionId`; `next()`
+    /// is called three times. The group key stays the same and every share and
+    /// its OT state are regenerated. Refreshed shares sign only with shares
+    /// from the same refresh. Returns a `[WasmRefreshSession, WasmRefreshResult]`
+    /// JS Array.
+    #[wasm_bindgen(static_method_of = WasmRefreshSession, js_name = "createDkls")]
+    pub fn create_dkls(
+        key_share: &WasmKeyShareHandle,
+        session_id: &[u8],
+    ) -> Result<js_sys::Array, JsValue> {
+        let (session, messages) = map_err(RefreshSession::new_dkls(&key_share.inner, session_id))?;
+        let encoded = encode_messages(&messages)?;
+        let result = WasmRefreshResult {
+            messages: encoded.to_vec(),
+            complete: false,
+            key_share: None,
+            public_key_package: None,
+        };
+        let arr = js_sys::Array::new();
+        arr.push(&JsValue::from(WasmRefreshSession {
+            inner: Some(session),
+        }));
         arr.push(&JsValue::from(result));
         Ok(arr)
     }
