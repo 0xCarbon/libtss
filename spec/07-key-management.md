@@ -200,7 +200,10 @@ under a derived key is banned for the base key and every key derived from it.
 ## Share Refresh
 
 Share refresh replaces all participants' shares with new shares of the same secret key.
-After refresh, old shares are useless (proactive security).
+New shares cannot be combined with shares from before the refresh, so a
+threshold of old shares from one epoch is needed to sign with them. Refresh
+cannot revoke copies someone keeps: every party must erase its old shares and
+their backups (proactive security assumes this erasure).
 
 ### Unified Refresh Session
 
@@ -292,7 +295,8 @@ refresh paths.
 | Property | Guaranteed |
 |----------|-----------|
 | Public key unchanged | Yes (zero-constant polynomial) |
-| Old shares invalidated | Yes (new shares are independent) |
+| Old shares unusable with new shares | Yes (new shares are independent) |
+| Old shares revoked | No: a threshold of retained old shares still signs; erase them |
 | Forward secrecy | Yes (compromising new shares reveals nothing about old shares) |
 | Participant set change | Yes (for FROST dealer refresh; for DKG refresh, all participants must be present) |
 | OT state refreshed | DKLs23 complete refresh: yes |

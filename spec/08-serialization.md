@@ -110,23 +110,30 @@ DER encoding is available via a helper function.
 
 ### PublicKeyPackage
 
+All integers are little-endian. There is no version field.
+
 ```
 ┌────────────────────────────────────────────────────┐
-│ Header                                             │
-│  version: u16                                     │
-│  ciphersuite: u8                                  │
-│  min_signers: u16                                 │
-│  num_shares: u16                                  │
+│ ciphersuite: u8                                    │
+│ min_signers: u16                                   │
 ├────────────────────────────────────────────────────┤
-│ Group Verifying Key                                │
-│  length: u16                                      │
-│  bytes: [u8; length]                              │
+│ Group verifying key                                │
+│  length: u32                                       │
+│  bytes: [u8; length]                               │
 ├────────────────────────────────────────────────────┤
-│ Verifying Shares (repeated num_shares times)       │
-│  identifier: [u8; scalar_size]                    │
-│  share: [u8; element_size]                        │
+│ num_shares: u16                                    │
+│ Verifying shares (num_shares times, ascending id)  │
+│  identifier: u16 (1..=65535)                       │
+│  length: u32                                       │
+│  share: [u8; length]                               │
 └────────────────────────────────────────────────────┘
 ```
+
+Deserialization rejects truncated input, trailing bytes, an unknown
+ciphersuite and identifier 0. DKLs23 operations additionally require the
+identifiers to be exactly `1..=num_shares`, every point to be a valid
+non-identity compressed point, and the group key and verifying shares to lie
+on one polynomial of degree below `min_signers`.
 
 ### Key Share Export (see also 07-key-management.md)
 
