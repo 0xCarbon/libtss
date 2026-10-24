@@ -394,3 +394,15 @@ fn slice_as_slice_rejects_null_with_length() {
     };
     assert_eq!(unsafe { null_empty.as_slice() }, Some(&[][..]));
 }
+
+#[test]
+fn buffer_from_vec_with_spare_capacity() {
+    let mut data = Vec::with_capacity(64);
+    data.extend_from_slice(&[9u8, 8, 7]);
+    let mut buf = TssBuffer::from_vec(data);
+    assert_eq!(buf.len, 3);
+    let slice = unsafe { core::slice::from_raw_parts(buf.data, buf.len) };
+    assert_eq!(slice, &[9, 8, 7]);
+    libtss_ffi::memory::tss_buffer_free(&mut buf);
+    assert!(TssBuffer::from_vec(Vec::with_capacity(16)).data.is_null());
+}

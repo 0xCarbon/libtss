@@ -1,3 +1,5 @@
+use zeroize::Zeroize;
+
 #[allow(non_camel_case_types)]
 pub type TssStatus = i32;
 pub type TssHandle = u64;
@@ -33,9 +35,18 @@ impl TssBuffer {
         }
     }
 
-    pub fn from_vec(bytes: Vec<u8>) -> Self {
+    /// Takes ownership of `bytes`. If the vector has spare capacity, its
+    /// contents are copied into an exact-size allocation and the original is
+    /// zeroized, since shrinking in place may reallocate without wiping.
+    pub fn from_vec(mut bytes: Vec<u8>) -> Self {
         if bytes.is_empty() {
+            bytes.zeroize();
             return Self::empty();
+        }
+        if bytes.capacity() != bytes.len() {
+            let exact = bytes.as_slice().to_vec();
+            bytes.zeroize();
+            bytes = exact;
         }
         let boxed = bytes.into_boxed_slice();
         let len = boxed.len();

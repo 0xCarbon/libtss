@@ -55,7 +55,9 @@ fn next_message<'a>(
 }
 
 pub(crate) fn serialize_messages(messages: &[libtss::Message]) -> Vec<u8> {
-    let mut out = Vec::new();
+    // Exact capacity: payloads may be confidential, and growth would leave
+    // copies in freed memory.
+    let mut out = Vec::with_capacity(messages.iter().map(|m| 8 + m.data.len()).sum());
     for msg in messages {
         out.extend_from_slice(&msg.from.as_u16().to_le_bytes());
         out.extend_from_slice(
@@ -163,7 +165,18 @@ pub extern "C" fn tss_message_build(
             Some(libtss::Identifier::new(to)?)
         };
         let payload = raw_slice(data, data_len)?;
-        let mut bytes = unsafe { buf.take_vec() };
+        let existing = unsafe { buf.take_vec() };
+        let existing = zeroize::Zeroizing::new(existing);
+        let total = existing
+            .len()
+            .checked_add(8)
+            .and_then(|n| n.checked_add(payload.len()))
+            .ok_or_else(|| libtss::TssError::InvalidConfig("message too large".into()))?;
+        let payload_len = u32::try_from(payload.len())
+            .map_err(|_| libtss::TssError::InvalidConfig("message data exceeds u32".into()))?;
+        // Build in a fresh exact-size buffer; the previous one is zeroized.
+        let mut bytes = Vec::with_capacity(total);
+        bytes.extend_from_slice(&existing);
 
         bytes.extend_from_slice(&from_id.as_u16().to_le_bytes());
         bytes.extend_from_slice(
@@ -172,7 +185,7 @@ pub extern "C" fn tss_message_build(
                 .unwrap_or(0)
                 .to_le_bytes(),
         );
-        bytes.extend_from_slice(&(payload.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&payload_len.to_le_bytes());
         bytes.extend_from_slice(payload);
 
         *buf = TssBuffer::from_vec(bytes);
