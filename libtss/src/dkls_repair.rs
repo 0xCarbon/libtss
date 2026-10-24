@@ -108,8 +108,11 @@ where
 
 /// Assembles the helpers' messages into the target's repaired share.
 ///
-/// `public_keys` is the group's public key package (as before the loss, or
-/// after the latest refresh). Only messages addressed to `target` are used;
+/// `public_keys` is the group's public key package as of the latest refresh,
+/// obtained from an authenticated source: the repaired share takes its
+/// threshold and the other parties' verifying shares from it. The package must
+/// be consistent (its verifying shares and group key lie on one polynomial of
+/// degree below `min_signers`). Only messages addressed to `target` are used;
 /// each must come from the helper its term names. The result cannot sign
 /// until all parties run a complete refresh.
 ///
@@ -118,9 +121,10 @@ where
 /// [`TssError::ProtocolMismatch`] for a non-DKLs23 suite or a package of
 /// another suite, [`TssError::DeserializeFailed`] for a malformed term,
 /// [`TssError::InvalidConfig`] for an invalid target, too few terms or a term
-/// whose helper is not its sender, and [`TssError::InvalidShare`] if the
-/// terms disagree on the group's context or do not add up to the target's
-/// verifying share.
+/// whose helper is not its sender, and [`TssError::InvalidShare`] for an
+/// inconsistent package, duplicate helpers, terms that disagree on the
+/// group's context, or terms that do not add up to the target's verifying
+/// share.
 pub fn repair_assemble(
     suite: Ciphersuite,
     public_keys: &PublicKeyPackage,

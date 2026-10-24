@@ -19,6 +19,43 @@ from ctypes import (
     c_uint64,
 )
 
+
+class _CheckedInt:
+    """ctypes argument type that rejects values out of range.
+
+    Plain ``c_uint8``/``c_uint16`` arguments wrap silently (65539 becomes 3).
+    """
+
+    _ctype: type
+    _max: int
+
+    @classmethod
+    def from_param(cls, value):
+        if isinstance(value, bool) or not isinstance(value, int):
+            raise TypeError(f"expected an int, got {type(value).__name__}")
+        if not 0 <= value <= cls._max:
+            raise ValueError(f"{value} is out of range [0, {cls._max}]")
+        return cls._ctype(value)
+
+
+class CheckedU8(_CheckedInt):
+    _ctype = c_uint8
+    _max = 0xFF
+
+
+class CheckedU16(_CheckedInt):
+    _ctype = c_uint16
+    _max = 0xFFFF
+
+
+def u16_array(values) -> ctypes.Array:
+    """A ``c_uint16`` array of ``values``, each range-checked."""
+    values = list(values)
+    for value in values:
+        CheckedU16.from_param(value)
+    return (c_uint16 * len(values))(*values)
+
+
 # Capture at module level so __del__ can use them during interpreter shutdown.
 _memset = ctypes.memset
 _addressof = ctypes.addressof
@@ -158,7 +195,7 @@ def _declare_signatures(lib: ctypes.CDLL) -> None:
 
     # Verify
     lib.tss_verify.restype = c_bool
-    lib.tss_verify.argtypes = [c_uint8, TssSlice, TssSlice, TssSlice]
+    lib.tss_verify.argtypes = [CheckedU8, TssSlice, TssSlice, TssSlice]
 
     # Error handling
     lib.tss_last_error.restype = c_char_p
@@ -201,7 +238,7 @@ def _declare_signatures(lib: ctypes.CDLL) -> None:
 
     lib.tss_message_build.restype = TssStatus
     lib.tss_message_build.argtypes = [
-        POINTER(TssBuffer), c_uint16, c_uint16,
+        POINTER(TssBuffer), CheckedU16, CheckedU16,
         POINTER(c_uint8), c_size_t,
     ]
 
@@ -229,13 +266,13 @@ def _declare_signatures(lib: ctypes.CDLL) -> None:
 
     lib.tss_handle_import.restype = TssStatus
     lib.tss_handle_import.argtypes = [
-        POINTER(c_uint8), c_size_t, c_uint8, POINTER(c_uint64),
+        POINTER(c_uint8), c_size_t, CheckedU8, POINTER(c_uint64),
     ]
 
     # DKG session
     lib.tss_dkg_new.restype = TssStatus
     lib.tss_dkg_new.argtypes = [
-        c_uint8, c_uint16, c_uint16, c_uint16,
+        CheckedU8, CheckedU16, CheckedU16, CheckedU16,
         POINTER(c_uint8), c_size_t,
         POINTER(c_uint64), POINTER(TssBuffer),
     ]
@@ -289,7 +326,7 @@ def _declare_signatures(lib: ctypes.CDLL) -> None:
     # FROST operations
     lib.tss_frost_aggregate.restype = TssStatus
     lib.tss_frost_aggregate.argtypes = [
-        c_uint8, TssSlice, TssSlice, TssSlice, TssSlice,
+        CheckedU8, TssSlice, TssSlice, TssSlice, TssSlice,
         POINTER(TssBuffer),
     ]
 
@@ -305,7 +342,7 @@ def _declare_signatures(lib: ctypes.CDLL) -> None:
 
     lib.tss_frost_generate_dealer.restype = TssStatus
     lib.tss_frost_generate_dealer.argtypes = [
-        c_uint8, c_uint16, c_uint16,
+        CheckedU8, CheckedU16, CheckedU16,
         POINTER(c_uint64), POINTER(c_size_t), POINTER(TssBuffer),
     ]
 
@@ -329,24 +366,24 @@ def _declare_signatures(lib: ctypes.CDLL) -> None:
 
     lib.tss_repair_helper_term.restype = TssStatus
     lib.tss_repair_helper_term.argtypes = [
-        c_uint64, POINTER(c_uint16), c_size_t, c_uint16, TssSlice,
+        c_uint64, POINTER(c_uint16), c_size_t, CheckedU16, TssSlice,
         POINTER(TssBuffer),
     ]
 
     lib.tss_repair_assemble.restype = TssStatus
     lib.tss_repair_assemble.argtypes = [
-        c_uint8, TssSlice, c_uint16, TssSlice, POINTER(c_uint64),
+        CheckedU8, TssSlice, CheckedU16, TssSlice, POINTER(c_uint64),
     ]
 
     lib.tss_dkls_split_key.restype = TssStatus
     lib.tss_dkls_split_key.argtypes = [
-        c_uint8, TssSlice, TssSlice, c_uint16, c_uint16,
+        CheckedU8, TssSlice, TssSlice, CheckedU16, CheckedU16,
         POINTER(c_uint64), POINTER(c_size_t), POINTER(TssBuffer),
     ]
 
     lib.tss_frost_split_key.restype = TssStatus
     lib.tss_frost_split_key.argtypes = [
-        c_uint8, TssSlice, c_uint16, c_uint16,
+        CheckedU8, TssSlice, CheckedU16, CheckedU16,
         POINTER(c_uint64), POINTER(c_size_t), POINTER(TssBuffer),
     ]
 
@@ -363,18 +400,18 @@ def _declare_signatures(lib: ctypes.CDLL) -> None:
 
     lib.tss_frost_repair_part1.restype = TssStatus
     lib.tss_frost_repair_part1.argtypes = [
-        c_uint64, POINTER(c_uint16), c_size_t, c_uint16,
+        c_uint64, POINTER(c_uint16), c_size_t, CheckedU16,
         POINTER(TssBuffer), POINTER(c_size_t),
     ]
 
     lib.tss_frost_repair_part2.restype = TssStatus
     lib.tss_frost_repair_part2.argtypes = [
-        c_uint8, POINTER(TssSlice), c_size_t, POINTER(TssBuffer),
+        CheckedU8, POINTER(TssSlice), c_size_t, POINTER(TssBuffer),
     ]
 
     lib.tss_frost_repair_part3.restype = TssStatus
     lib.tss_frost_repair_part3.argtypes = [
-        POINTER(TssSlice), c_size_t, c_uint16, TssSlice,
+        POINTER(TssSlice), c_size_t, CheckedU16, TssSlice,
         POINTER(c_uint64),
     ]
 

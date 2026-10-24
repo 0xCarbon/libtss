@@ -1,3 +1,4 @@
+import { u8, u16, u16Array } from "./checks";
 import { checkStatus } from "./error";
 import { allocBuffer, lib, makeSlice, readBuffer } from "./ffi";
 import { KeyShareHandle } from "./handle";
@@ -48,10 +49,10 @@ export class DkgSession extends SessionHandle {
 
 		checkStatus(
 			lib.tss_dkg_new(
-				config.suite,
-				selfId,
-				config.maxSigners,
-				config.minSigners,
+				u8(config.suite, "suite"),
+				u16(selfId, "selfId"),
+				u16(config.maxSigners, "maxSigners"),
+				u16(config.minSigners, "minSigners"),
 				sessionId ?? null,
 				sessionId?.length ?? 0,
 				outSession,
@@ -116,7 +117,7 @@ export class SignSession extends SessionHandle {
 
 		const cpBuf =
 			counterparties && counterparties.length > 0
-				? new Uint16Array(counterparties)
+				? u16Array(counterparties, "counterparty")
 				: null;
 
 		checkStatus(
@@ -207,7 +208,7 @@ export class RefreshSession extends SessionHandle {
 
 		const pBuf =
 			participants && participants.length > 0
-				? new Uint16Array(participants)
+				? u16Array(participants, "participant")
 				: null;
 
 		checkStatus(

@@ -11,6 +11,7 @@ from libtss._ffi import (
     buffer_to_bytes,
     get_lib,
     make_slice,
+    u16_array,
     wipe_ctypes_array,
 )
 from libtss.errors import check_status
@@ -136,9 +137,9 @@ def split_key(
         if (
             not isinstance(min_signers, int)
             or not isinstance(max_signers, int)
-            or not 1 <= min_signers <= max_signers <= 0xFFFF
+            or not 2 <= min_signers <= max_signers <= 0xFFFF
         ):
-            raise ValueError("requires 1 <= min_signers <= max_signers <= 65535")
+            raise ValueError("requires 2 <= min_signers <= max_signers <= 65535")
         handles_arr = (ctypes.c_uint64 * max_signers)()
         handle_count = ctypes.c_size_t()
         out_pkg = TssBuffer()
@@ -196,7 +197,7 @@ def refresh_dealer(
 
     Returns (refresh_shares_by_participant_id, updated_public_key_package).
     """
-    p_arr = (ctypes.c_uint16 * len(participants))(*participants)
+    p_arr = u16_array(participants)
     out_shares = TssBuffer()
     share_count = ctypes.c_size_t()
     out_pkg = TssBuffer()
@@ -241,7 +242,7 @@ def repair_part1(
 
     Returns per-helper delta blobs keyed by helper ID.
     """
-    h_arr = (ctypes.c_uint16 * len(helpers))(*helpers)
+    h_arr = u16_array(helpers)
     out_deltas = TssBuffer()
     delta_count = ctypes.c_size_t()
 

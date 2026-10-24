@@ -1,3 +1,4 @@
+import { u8, u16, u16Array } from "./checks";
 import { checkStatus } from "./error";
 import { TSS_INIT_MLOCK, allocBuffer, lib, makeSlice, readBuffer } from "./ffi";
 import { KeyShareHandle } from "./handle";
@@ -32,7 +33,7 @@ export function verify(
 	publicKey: Uint8Array,
 ): boolean {
 	return lib.tss_verify(
-		suite,
+		u8(suite, "suite"),
 		makeSlice(message),
 		makeSlice(signature),
 		makeSlice(publicKey),
@@ -45,7 +46,7 @@ export function importKeyShare(
 ): KeyShareHandle {
 	const outHandle: [bigint] = [0n];
 	checkStatus(
-		lib.tss_handle_import(data, data.length, suite, outHandle),
+		lib.tss_handle_import(data, data.length, u8(suite, "suite"), outHandle),
 	);
 	return new KeyShareHandle(outHandle[0]);
 }
@@ -67,12 +68,12 @@ export function frostSplitKey(
 		if (
 			!Number.isInteger(minSigners) ||
 			!Number.isInteger(maxSigners) ||
-			minSigners < 1 ||
+			minSigners < 2 ||
 			maxSigners < minSigners ||
 			maxSigners > 0xffff
 		) {
 			throw new RangeError(
-				"requires integers with 1 <= minSigners <= maxSigners <= 65535",
+				"requires integers with 2 <= minSigners <= maxSigners <= 65535",
 			);
 		}
 		const outHandles = new BigUint64Array(maxSigners);
@@ -80,7 +81,7 @@ export function frostSplitKey(
 		const outPkg = allocBuffer();
 		checkStatus(
 			lib.tss_frost_split_key(
-				suite,
+				u8(suite, "suite"),
 				makeSlice(secretKey),
 				maxSigners,
 				minSigners,
@@ -134,7 +135,7 @@ export function dklsSplitKey(
 		const outPkg = allocBuffer();
 		checkStatus(
 			lib.tss_dkls_split_key(
-				suite,
+				u8(suite, "suite"),
 				makeSlice(secretKey),
 				makeSlice(chainCode ?? new Uint8Array(0)),
 				maxSigners,
@@ -249,14 +250,15 @@ export function dklsRepairHelperTerm(
 	target: number,
 	repairId: Uint8Array,
 ): Message[] {
+	const helperIds = u16Array(helpers, "helper");
+	const targetId = u16(target, "target");
 	const out = allocBuffer();
-	const helperIds = new Uint16Array(helpers);
 	checkStatus(
 		lib.tss_repair_helper_term(
 			keyShare.handle,
 			helperIds,
 			helperIds.length,
-			target,
+			targetId,
 			makeSlice(repairId),
 			out,
 		),
@@ -278,9 +280,9 @@ export function dklsRepairAssemble(
 	const outHandle: [bigint] = [0n];
 	checkStatus(
 		lib.tss_repair_assemble(
-			suite,
+			u8(suite, "suite"),
 			makeSlice(publicKeys),
-			target,
+			u16(target, "target"),
 			makeSlice(encodeMessages(messages)),
 			outHandle,
 		),
@@ -298,7 +300,7 @@ export function frostAggregate(
 	const outSig = allocBuffer();
 	checkStatus(
 		lib.tss_frost_aggregate(
-			suite,
+			u8(suite, "suite"),
 			makeSlice(message),
 			makeSlice(commitments),
 			makeSlice(shares),

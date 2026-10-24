@@ -8,10 +8,10 @@ import threading
 from libtss import message as _msg
 from libtss._ffi import (
     TssBuffer,
-    TssSlice,
     buffer_to_bytes,
     get_lib,
     make_slice,
+    u16_array,
     wipe_ctypes_array,
 )
 from libtss.errors import check_status
@@ -23,7 +23,6 @@ from libtss.types import (
     RefreshResult,
     SignResult,
 )
-
 
 # ── DKG Session ──────────────────────────────────────────────────────────────
 
@@ -198,7 +197,7 @@ class SignSession:
         msg_sl = make_slice(msg)
 
         if counterparties:
-            cp_arr = (ctypes.c_uint16 * len(counterparties))(*counterparties)
+            cp_arr = u16_array(counterparties)
             cp_ptr = cp_arr
             cp_len = len(counterparties)
         else:
@@ -319,7 +318,7 @@ class RefreshSession:
             A tuple of (session, p2p_messages).
         """
         lib = get_lib()
-        p_arr = (ctypes.c_uint16 * len(participants))(*participants)
+        p_arr = u16_array(participants)
 
         out_session = ctypes.c_uint64()
         out_messages = TssBuffer()

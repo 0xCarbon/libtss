@@ -9,6 +9,7 @@ from libtss._ffi import (
     buffer_to_bytes,
     get_lib,
     make_slice,
+    u16_array,
     wipe_ctypes_array,
 )
 from libtss.errors import check_status
@@ -143,7 +144,7 @@ def repair_helper_term(
 
     if not helpers:
         raise ValueError("helpers must not be empty")
-    arr = (ctypes.c_uint16 * len(helpers))(*helpers)
+    arr = u16_array(helpers)
     out = TssBuffer()
     check_status(get_lib().tss_repair_helper_term(
         key_share.raw, arr, len(helpers), target, make_slice(repair_id),

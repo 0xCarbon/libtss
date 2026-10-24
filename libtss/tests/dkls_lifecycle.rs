@@ -692,3 +692,123 @@ fn repair_rejects_forged_and_invalid_input() {
         Err(TssError::InvalidConfig(_))
     ));
 }
+
+#[test]
+fn repair_rejects_unusable_shares_and_ignores_other_messages() {
+    use libtss::dkls_repair::{repair_assemble, repair_helper_term};
+
+    let suite = Ciphersuite::Secp256k1ECDSA;
+    let shares = import(suite, &[0x42u8; 32], Some(&[7u8; 32]));
+    let public_keys = shares[&id(1)].public_key_package().clone();
+    let helpers = [id(1), id(2)];
+    let messages: Vec<Message> = helpers
+        .iter()
+        .map(|h| repair_helper_term(&shares[h], &helpers, id(3), b"r").unwrap())
+        .collect();
+
+    // Messages to another party are ignored.
+    let mut mixed = messages.clone();
+    mixed.push(Message {
+        from: id(1),
+        to: Some(id(2)),
+        data: vec![0xff; 8],
+    });
+    let repaired = repair_assemble(suite, &public_keys, id(3), &mixed).unwrap();
+
+    // A repaired share cannot help before a refresh.
+    assert!(matches!(
+        repair_helper_term(&repaired, &[id(1), id(3)], id(2), b"r"),
+        Err(TssError::InvalidConfig(_))
+    ));
+
+    // A BIP-32-derived share cannot help.
+    let derived = libtss::derive::derive_child(&shares[&id(1)], 0).unwrap();
+    assert!(matches!(
+        repair_helper_term(&derived, &helpers, id(3), b"r"),
+        Err(TssError::InvalidConfig(_))
+    ));
+
+    // Two terms from one helper.
+    let doubled = [messages[0].clone(), messages[0].clone()];
+    let result = repair_assemble(suite, &public_keys, id(3), &doubled);
+    assert!(matches!(result, Err(TssError::InvalidShare)), "{result:?}");
+
+    // A target outside the group or among the helpers.
+    assert!(matches!(
+        repair_helper_term(&shares[&id(1)], &helpers, id(4), b"r"),
+        Err(TssError::InvalidConfig(_))
+    ));
+    assert!(matches!(
+        repair_helper_term(&shares[&id(1)], &helpers, id(2), b"r"),
+        Err(TssError::InvalidConfig(_))
+    ));
+    assert!(matches!(
+        repair_assemble(suite, &public_keys, id(4), &messages),
+        Err(TssError::InvalidConfig(_))
+    ));
+
+    // Terms for this target do not match another target's verifying share.
+    let mut retargeted = messages.clone();
+    for message in &mut retargeted {
+        message.to = Some(id(2));
+    }
+    assert!(repair_assemble(suite, &public_keys, id(2), &retargeted).is_err());
+}
+
+#[test]
+#[cfg_attr(tarpaulin, ignore)]
+fn repair_rejects_a_stale_or_inconsistent_package() {
+    use libtss::dkls_repair::{repair_assemble, repair_helper_term};
+
+    let suite = Ciphersuite::Secp256k1ECDSA;
+    let shares = import(suite, &[0x42u8; 32], None);
+    let stale = shares[&id(1)].public_key_package().clone();
+    let parties: Vec<_> = shares.keys().copied().collect();
+    let refreshed = refresh(&shares, &same_id(&parties, b"before-repair")).unwrap();
+    let helpers = [id(1), id(2)];
+    let messages: Vec<Message> = helpers
+        .iter()
+        .map(|h| repair_helper_term(&refreshed[h], &helpers, id(3), b"r").unwrap())
+        .collect();
+    let current = refreshed[&id(1)].public_key_package().clone();
+    assert!(repair_assemble(suite, &current, id(3), &messages).is_ok());
+
+    // The package from before the refresh.
+    assert!(matches!(
+        repair_assemble(suite, &stale, id(3), &messages),
+        Err(TssError::InvalidShare)
+    ));
+
+    let with = |shares: BTreeMap<Identifier, Vec<u8>>, min_signers: u16| {
+        libtss::PublicKeyPackage::new(suite, current.verifying_key().to_vec(), shares, min_signers)
+    };
+    let mut swapped = current.verifying_shares().clone();
+    let first = swapped[&id(1)].clone();
+    swapped.insert(id(1), swapped[&id(2)].clone());
+    swapped.insert(id(2), first);
+    let mut identity = current.verifying_shares().clone();
+    identity.insert(id(2), vec![0u8; 33]);
+
+    // A threshold above the helper count.
+    assert!(matches!(
+        repair_assemble(
+            suite,
+            &with(current.verifying_shares().clone(), 3),
+            id(3),
+            &messages
+        ),
+        Err(TssError::InvalidConfig(_))
+    ));
+
+    // Swapped or identity verifying shares.
+    for (package, expected) in [(with(swapped, 2), "share"), (with(identity, 2), "point")] {
+        let result = repair_assemble(suite, &package, id(3), &messages);
+        match expected {
+            "share" => assert!(matches!(result, Err(TssError::InvalidShare)), "{result:?}"),
+            _ => assert!(
+                matches!(result, Err(TssError::DeserializeFailed(_))),
+                "{result:?}"
+            ),
+        }
+    }
+}
