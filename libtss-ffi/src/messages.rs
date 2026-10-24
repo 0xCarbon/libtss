@@ -39,6 +39,11 @@ fn next_message<'a>(
     ]) as usize;
     *offset += 8;
 
+    if len > libtss::message::MAX_MESSAGE_SIZE {
+        return Err(libtss::TssError::DeserializeFailed(
+            "message exceeds maximum size".into(),
+        ));
+    }
     if from == 0 {
         return Err(libtss::TssError::DeserializeFailed(
             "invalid sender identifier".into(),
@@ -66,6 +71,8 @@ pub(crate) fn serialize_messages(messages: &[libtss::Message]) -> Vec<u8> {
                 .unwrap_or(0)
                 .to_le_bytes(),
         );
+        // Payloads come from libtss and stay far below MAX_MESSAGE_SIZE.
+        debug_assert!(msg.data.len() <= libtss::message::MAX_MESSAGE_SIZE);
         out.extend_from_slice(&(msg.data.len() as u32).to_le_bytes());
         out.extend_from_slice(&msg.data);
     }
@@ -165,15 +172,20 @@ pub extern "C" fn tss_message_build(
             Some(libtss::Identifier::new(to)?)
         };
         let payload = raw_slice(data, data_len)?;
-        let existing = unsafe { buf.take_vec() };
-        let existing = zeroize::Zeroizing::new(existing);
-        let total = existing
-            .len()
+        // Validate before taking the caller's buffer, so it is kept on error.
+        if payload.len() > libtss::message::MAX_MESSAGE_SIZE {
+            return Err(libtss::TssError::InvalidConfig(
+                "message exceeds maximum size".into(),
+            ));
+        }
+        let payload_len = u32::try_from(payload.len())
+            .map_err(|_| libtss::TssError::InvalidConfig("message data exceeds u32".into()))?;
+        let total = buf
+            .len
             .checked_add(8)
             .and_then(|n| n.checked_add(payload.len()))
             .ok_or_else(|| libtss::TssError::InvalidConfig("message too large".into()))?;
-        let payload_len = u32::try_from(payload.len())
-            .map_err(|_| libtss::TssError::InvalidConfig("message data exceeds u32".into()))?;
+        let existing = zeroize::Zeroizing::new(unsafe { buf.take_vec() });
         // Build in a fresh exact-size buffer; the previous one is zeroized.
         let mut bytes = Vec::with_capacity(total);
         bytes.extend_from_slice(&existing);

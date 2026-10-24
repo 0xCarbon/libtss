@@ -419,6 +419,48 @@ fn message_parsers_reject_max_length() {
 }
 
 #[test]
+fn message_size_limit_enforced() {
+    let max = libtss::message::MAX_MESSAGE_SIZE;
+
+    // Building: a payload over the limit is rejected and the buffer kept.
+    let mut buf = TssBuffer::empty();
+    let small = [1u8, 2];
+    assert_eq!(
+        libtss_ffi::messages::tss_message_build(&mut buf, 1, 0, small.as_ptr(), small.len()),
+        TSS_OK
+    );
+    let big = vec![0u8; max + 1];
+    assert_eq!(
+        libtss_ffi::messages::tss_message_build(&mut buf, 1, 0, big.as_ptr(), big.len()),
+        TSS_ERR_INVALID_CONFIG
+    );
+    assert_eq!(buf.len, 8 + small.len());
+    libtss_ffi::memory::tss_buffer_free(&mut buf);
+
+    // Parsing: a frame declaring more than the limit is rejected even when
+    // the data is present.
+    let mut frame = vec![1u8, 0, 0, 0];
+    frame.extend_from_slice(&((max + 1) as u32).to_le_bytes());
+    frame.resize(8 + max + 1, 0);
+    assert_eq!(libtss_ffi::messages::tss_message_count(ts(&frame)), 0);
+    let (mut from, mut to) = (0u16, 0u16);
+    let mut data = TssSlice {
+        data: core::ptr::null(),
+        len: 0,
+    };
+    assert_eq!(
+        libtss_ffi::messages::tss_message_at(ts(&frame), 0, &mut from, &mut to, &mut data),
+        TSS_ERR_DESERIALIZE
+    );
+
+    // Exactly at the limit is accepted.
+    let mut frame = vec![1u8, 0, 0, 0];
+    frame.extend_from_slice(&(max as u32).to_le_bytes());
+    frame.resize(8 + max, 0);
+    assert_eq!(libtss_ffi::messages::tss_message_count(ts(&frame)), 1);
+}
+
+#[test]
 fn buffer_from_vec_with_spare_capacity() {
     let mut data = Vec::with_capacity(64);
     data.extend_from_slice(&[9u8, 8, 7]);

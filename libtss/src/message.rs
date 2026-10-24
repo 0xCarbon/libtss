@@ -3,7 +3,8 @@ use zeroize::Zeroize;
 use crate::error::TssError;
 use crate::types::Identifier;
 
-const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024; // 16 MiB
+/// Largest message payload accepted by the TLV wire format (16 MiB).
+pub const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
 
 /// Protocol message — opaque to the client.
 ///
@@ -103,6 +104,11 @@ pub fn filter_for_participant(messages: &[Message], id: Identifier) -> Vec<&Mess
 }
 
 fn tlv_length(len: usize) -> Result<u32, TssError> {
+    if len > MAX_MESSAGE_SIZE {
+        return Err(TssError::InvalidConfig(
+            "message exceeds maximum size".into(),
+        ));
+    }
     u32::try_from(len).map_err(|_| TssError::DeserializeFailed("message data exceeds u32".into()))
 }
 
@@ -275,6 +281,24 @@ mod tests {
 
         let err = deserialize_messages(&bytes).unwrap_err();
         assert!(matches!(err, TssError::DeserializeFailed(_)));
+    }
+
+    #[test]
+    fn oversized_payload_rejected_both_ways() {
+        let message = Message {
+            from: Identifier::new(1).unwrap(),
+            to: None,
+            data: vec![0; super::MAX_MESSAGE_SIZE + 1],
+        };
+        assert!(serialize_messages(std::slice::from_ref(&message)).is_err());
+
+        let mut bytes = vec![1, 0, 0, 0];
+        bytes.extend_from_slice(&((super::MAX_MESSAGE_SIZE + 1) as u32).to_le_bytes());
+        bytes.resize(8 + super::MAX_MESSAGE_SIZE + 1, 0);
+        assert!(matches!(
+            deserialize_messages(&bytes),
+            Err(TssError::DeserializeFailed(_))
+        ));
     }
 
     #[test]
