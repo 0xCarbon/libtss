@@ -320,8 +320,8 @@ mod tests {
         let (nonce1, comm1) = frost_commit(&frost_key1)?;
         let commitments = vec![comm0, comm1];
 
-        let share0 = frost_sign(&frost_key0, &nonce0, &commitments, message)?;
-        let share1 = frost_sign(&frost_key1, &nonce1, &commitments, message)?;
+        let share0 = frost_sign(&frost_key0, nonce0, &commitments, message)?;
+        let share1 = frost_sign(&frost_key1, nonce1, &commitments, message)?;
 
         let sig = frost_aggregate(message, &commitments, &[share0, share1], &refreshed[0].1)?;
         assert_eq!(sig.protocol(), Protocol::Frost);

@@ -840,7 +840,9 @@ while (true) {
 1. **Sessions complete via `next()`**: The final `next()` call returns `Complete` and
    marks the session as finished. Subsequent calls return `TssError::SessionComplete`.
 2. **Nonces are single-use**: FROST signing nonces are generated in `new()` and consumed
-   internally during `next()`. They cannot be reused.
+   internally during `next()`. They cannot be reused. The low-level
+   `frost::frost_commit` / `frost::frost_sign` pair uses the opaque, non-`Clone`
+   `frost::SigningNonces` type, which `frost_sign` consumes.
 3. **Secrets never leave Rust**: `KeyShareHandle.export()` is the only way to get
    secret bytes out, and it documents the encryption requirement.
 4. **One error type**: All public functions return `Result<T, TssError>`. The FFI layer

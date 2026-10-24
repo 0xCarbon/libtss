@@ -467,11 +467,11 @@ fn dealer_keygen_and_sign_ed25519() {
 
     let mut sig_shares = Vec::new();
     for ks in shares.iter().take(2) {
-        let nonce = nonces
+        let position = nonces
             .iter()
-            .find(|(i, _)| *i == ks.identifier())
-            .map(|(_, n)| n.as_slice())
+            .position(|(i, _)| *i == ks.identifier())
             .unwrap();
+        let (_, nonce) = nonces.swap_remove(position);
         sig_shares.push(frost_sign(ks, nonce, &commitments, message).unwrap());
     }
 
@@ -523,11 +523,11 @@ fn split_key_and_sign() {
 
     let mut sig_shares = Vec::new();
     for ks in shares.iter().take(2) {
-        let nonce = nonces
+        let position = nonces
             .iter()
-            .find(|(i, _)| *i == ks.identifier())
-            .map(|(_, n)| n.as_slice())
+            .position(|(i, _)| *i == ks.identifier())
             .unwrap();
+        let (_, nonce) = nonces.swap_remove(position);
         sig_shares.push(frost_sign(ks, nonce, &commitments, message).unwrap());
     }
 

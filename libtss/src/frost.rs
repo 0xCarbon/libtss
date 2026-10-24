@@ -88,6 +88,36 @@ impl Drop for KeyShareHandle {
     }
 }
 
+/// Single-use FROST signing nonces returned by [`frost_commit`].
+///
+/// The type is neither `Clone` nor serializable, and [`frost_sign`] takes it
+/// by value, so one nonce pair produces at most one signature share. The
+/// nonce bytes are zeroized on drop.
+pub struct SigningNonces {
+    suite: Ciphersuite,
+    identifier: Identifier,
+    bytes: Zeroizing<Vec<u8>>,
+}
+
+impl SigningNonces {
+    pub fn identifier(&self) -> Identifier {
+        self.identifier
+    }
+
+    pub fn ciphersuite(&self) -> Ciphersuite {
+        self.suite
+    }
+}
+
+impl std::fmt::Debug for SigningNonces {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SigningNonces")
+            .field("suite", &self.suite)
+            .field("identifier", &self.identifier)
+            .finish_non_exhaustive()
+    }
+}
+
 fn validate_frost_config(config: &ThresholdConfig) -> Result<(), TssError> {
     config.validate()?;
     if config.suite.protocol() != Protocol::Frost {
@@ -639,22 +669,44 @@ pub fn frost_dkg_part3(
     ))
 }
 
-pub fn frost_commit(key_share: &KeyShareHandle) -> Result<(Zeroizing<Vec<u8>>, Message), TssError> {
-    dispatch_frost!(key_share.suite, |C| {
+/// FROST round 1: generate fresh signing nonces and the commitment message.
+///
+/// The returned [`SigningNonces`] must be passed to [`frost_sign`], which
+/// consumes them.
+pub fn frost_commit(key_share: &KeyShareHandle) -> Result<(SigningNonces, Message), TssError> {
+    let (bytes, commitment) = dispatch_frost!(key_share.suite, |C| {
         commit_inner::<C>(key_share.suite, &key_share.key_package_bytes)
-    })
+    })?;
+    Ok((
+        SigningNonces {
+            suite: key_share.suite,
+            identifier: key_share.identifier,
+            bytes,
+        },
+        commitment,
+    ))
 }
 
+/// FROST round 2: produce this signer's signature share.
+///
+/// Consumes `nonces`; they cannot be used for another share. The nonces must
+/// come from [`frost_commit`] on the same key share.
 pub fn frost_sign(
     key_share: &KeyShareHandle,
-    nonces: &[u8],
+    nonces: SigningNonces,
     commitments: &[Message],
     msg: &[u8],
 ) -> Result<Message, TssError> {
+    if nonces.suite != key_share.suite {
+        return Err(TssError::ProtocolMismatch);
+    }
+    if nonces.identifier != key_share.identifier {
+        return Err(TssError::InvalidIdentifier);
+    }
     dispatch_frost!(key_share.suite, |C| sign_inner::<C>(
         key_share.suite,
         &key_share.key_package_bytes,
-        nonces,
+        &nonces.bytes,
         commitments,
         msg,
     ))
@@ -926,11 +978,11 @@ mod tests {
                 .find(|(id, _)| *id == signer_id)
                 .map(|(_, key)| key)
                 .expect("missing key package");
-            let nonce = nonces
+            let position = nonces
                 .iter()
-                .find(|(id, _)| *id == signer_id)
-                .map(|(_, nonce)| nonce.as_slice())
+                .position(|(id, _)| *id == signer_id)
                 .expect("missing nonce");
+            let (_, nonce) = nonces.swap_remove(position);
             shares.push(frost_sign(key_package, nonce, &commitments, message)?);
         }
 
@@ -964,11 +1016,11 @@ mod tests {
 
         let mut signature_shares = Vec::new();
         for key_package in shares.iter().take(2) {
-            let nonce = nonces
+            let position = nonces
                 .iter()
-                .find(|(candidate, _)| *candidate == key_package.identifier())
-                .map(|(_, nonce)| nonce.as_slice())
+                .position(|(candidate, _)| *candidate == key_package.identifier())
                 .expect("missing nonce");
+            let (_, nonce) = nonces.swap_remove(position);
             signature_shares.push(frost_sign(key_package, nonce, &commitments, message)?);
         }
 
@@ -1081,8 +1133,8 @@ mod tests {
         let (nonce1, commitment1) = frost_commit(&refreshed_one)?;
         let (nonce3, commitment3) = frost_commit(&refreshed_three)?;
         let commitments = vec![commitment1, commitment3];
-        let share1 = frost_sign(&refreshed_one, &nonce1, &commitments, message)?;
-        let share3 = frost_sign(&refreshed_three, &nonce3, &commitments, message)?;
+        let share1 = frost_sign(&refreshed_one, nonce1, &commitments, message)?;
+        let share3 = frost_sign(&refreshed_three, nonce3, &commitments, message)?;
         let signature =
             frost_aggregate(message, &commitments, &[share1, share3], &refreshed_pubkey)?;
         let signature =
@@ -1113,8 +1165,8 @@ mod tests {
         let (nonce_one, commitment_one) = frost_commit(&tweaked_one)?;
         let (nonce_two, commitment_two) = frost_commit(&tweaked_two)?;
         let commitments = vec![commitment_one, commitment_two];
-        let share_one = frost_sign(&tweaked_one, &nonce_one, &commitments, message)?;
-        let share_two = frost_sign(&tweaked_two, &nonce_two, &commitments, message)?;
+        let share_one = frost_sign(&tweaked_one, nonce_one, &commitments, message)?;
+        let share_two = frost_sign(&tweaked_two, nonce_two, &commitments, message)?;
         let signature = frost_aggregate(
             message,
             &commitments,
@@ -1132,6 +1184,30 @@ mod tests {
             .expect("signature should verify");
         assert_eq!(parity, if verifying_key.has_even_y() { 0 } else { 1 });
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_nonces_bound_to_committing_share() -> Result<(), TssError> {
+        let (shares, _) = frost_generate_with_dealer(&config(Ciphersuite::Ed25519))?;
+        let (nonces, commitment) = frost_commit(&shares[0])?;
+        assert_eq!(nonces.identifier(), shares[0].identifier());
+        let rendered = format!("{nonces:?}");
+        assert!(rendered.starts_with("SigningNonces"));
+        assert!(!rendered.contains("bytes"));
+
+        let (_, other_commitment) = frost_commit(&shares[1])?;
+        let commitments = vec![commitment, other_commitment];
+        let err = frost_sign(&shares[1], nonces, &commitments, b"msg")
+            .expect_err("nonces from another share must be rejected");
+        assert_eq!(err, TssError::InvalidIdentifier);
+
+        let (other_suite_shares, _) =
+            frost_generate_with_dealer(&config(Ciphersuite::Ristretto255))?;
+        let (nonces, _) = frost_commit(&other_suite_shares[0])?;
+        let err = frost_sign(&shares[0], nonces, &commitments, b"msg")
+            .expect_err("nonces from another suite must be rejected");
+        assert_eq!(err, TssError::ProtocolMismatch);
         Ok(())
     }
 
@@ -1168,11 +1244,11 @@ mod tests {
 
         let mut signature_shares = Vec::new();
         for key_package in shares.iter().take(2) {
-            let nonce = nonces
+            let position = nonces
                 .iter()
-                .find(|(id, _)| *id == key_package.identifier())
-                .map(|(_, nonce)| nonce.as_slice())
+                .position(|(id, _)| *id == key_package.identifier())
                 .expect("missing nonce");
+            let (_, nonce) = nonces.swap_remove(position);
             signature_shares.push(frost_sign(key_package, nonce, &commitments, message)?);
         }
 
