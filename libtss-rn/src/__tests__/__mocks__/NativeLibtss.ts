@@ -50,6 +50,7 @@ const refreshNewQueue: Array<{
 	messages: string;
 }> = [];
 const refreshReceiverQueue: string[] = [];
+const stringQueue: string[] = [];
 const refreshNextQueue: SessionResult[] = [];
 let versionValue = "0.0.0-test";
 
@@ -109,6 +110,28 @@ const NativeLibtss = {
 	refreshNew: jest.fn(async () => {
 		const entry = nextQueued(refreshNewQueue, "refreshNew");
 		return { handle: entry.handle, messages: entry.messages };
+	}),
+	refreshNewDkls: jest.fn(async () => {
+		const entry = nextQueued(refreshNewQueue, "refreshNewDkls");
+		return { handle: entry.handle, messages: entry.messages };
+	}),
+	repairHelperTerm: jest.fn(async () => {
+		return nextQueued(stringQueue, "repairHelperTerm");
+	}),
+	repairAssemble: jest.fn(async () => {
+		return nextQueued(stringQueue, "repairAssemble");
+	}),
+	bolt3Derive: jest.fn(async () => {
+		return nextQueued(stringQueue, "bolt3Derive");
+	}),
+	bolt3DeriveRevocation: jest.fn(async () => {
+		return nextQueued(stringQueue, "bolt3DeriveRevocation");
+	}),
+	bolt3DerivePubkeyPackage: jest.fn(async () => {
+		return nextQueued(stringQueue, "bolt3DerivePubkeyPackage");
+	}),
+	bolt3DeriveRevocationPubkeyPackage: jest.fn(async () => {
+		return nextQueued(stringQueue, "bolt3DeriveRevocationPubkeyPackage");
 	}),
 	refreshReceiver: jest.fn(async () => {
 		return nextQueued(refreshReceiverQueue, "refreshReceiver");
@@ -236,6 +259,9 @@ export const __mock = {
 	pushRefreshNew(entry: { handle: string; messages: string }): void {
 		refreshNewQueue.push(entry);
 	},
+	pushString(value: string): void {
+		stringQueue.push(value);
+	},
 	pushRefreshReceiver(handle: string): void {
 		refreshReceiverQueue.push(handle);
 	},
@@ -268,6 +294,7 @@ export const __mock = {
 		refreshNewQueue.length = 0;
 		refreshReceiverQueue.length = 0;
 		refreshNextQueue.length = 0;
+		stringQueue.length = 0;
 		versionValue = "0.0.0-test";
 
 		for (const fn of Object.values(NativeLibtss)) {

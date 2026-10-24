@@ -82,6 +82,33 @@ TssStatus tss_refresh_new(
     TssHandle *out_session,
     TssBuffer *out_messages);
 TssStatus tss_refresh_receiver(TssHandle key_share, TssHandle *out_session);
+TssStatus tss_refresh_new_dkls(TssHandle key_share,
+                               const uint8_t *session_id,
+                               size_t session_id_len,
+                               TssHandle *out_session,
+                               TssBuffer *out_messages);
+TssStatus tss_repair_helper_term(TssHandle key_share,
+                                 const uint16_t *helpers,
+                                 size_t helpers_len,
+                                 uint16_t target,
+                                 TssSlice repair_id,
+                                 TssBuffer *out_messages);
+TssStatus tss_repair_assemble(uint8_t suite,
+                              TssSlice pubkey_package,
+                              uint16_t target,
+                              TssSlice messages,
+                              TssHandle *out_handle);
+TssStatus tss_bolt3_derive(TssHandle key_share, TssSlice per_commitment_point, TssHandle *out_handle);
+TssStatus tss_bolt3_derive_revocation(TssHandle key_share,
+                                      TssSlice per_commitment_point,
+                                      TssSlice per_commitment_secret,
+                                      TssHandle *out_handle);
+TssStatus tss_bolt3_derive_pubkey_package(TssSlice pubkey_package,
+                                          TssSlice per_commitment_point,
+                                          TssBuffer *out_pubkey_package);
+TssStatus tss_bolt3_derive_revocation_pubkey_package(TssSlice pubkey_package,
+                                                     TssSlice per_commitment_point,
+                                                     TssBuffer *out_pubkey_package);
 TssStatus tss_refresh_next(
     TssHandle session,
     TssSlice messages,
@@ -450,6 +477,214 @@ RCT_EXPORT_METHOD(refreshNew:(NSString *)keyShareHandle
   }
 
   resolve(SessionInitResult(session, TakeBase64(messages)));
+}
+
+RCT_EXPORT_METHOD(refreshNewDkls:(NSString *)keyShareHandle
+                  sessionId:(NSString *)sessionId
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
+{
+  TssHandle keyShare = 0;
+  if (!ParseHandle(keyShareHandle, &keyShare, reject)) {
+    return;
+  }
+  NSData *sid = DecodeBase64(sessionId, reject);
+  if (sid == nil) {
+    return;
+  }
+
+  TssHandle session = 0;
+  TssBuffer messages{nullptr, 0};
+  TssStatus status = tss_refresh_new_dkls(
+      keyShare,
+      sid.length > 0 ? static_cast<const uint8_t *>(sid.bytes) : nullptr,
+      static_cast<size_t>(sid.length),
+      &session,
+      &messages);
+  if (status != TSS_OK) {
+    RejectStatus(reject, status);
+    return;
+  }
+
+  resolve(SessionInitResult(session, TakeBase64(messages)));
+}
+
+RCT_EXPORT_METHOD(repairHelperTerm:(NSString *)keyShareHandle
+                  helpers:(NSArray<NSNumber *> *)helpers
+                  target:(nonnull NSNumber *)target
+                  repairId:(NSString *)repairId
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
+{
+  TssHandle keyShare = 0;
+  if (!ParseHandle(keyShareHandle, &keyShare, reject)) {
+    return;
+  }
+  std::vector<uint16_t> ids;
+  ids.reserve(helpers.count);
+  for (NSNumber *n in helpers) {
+    long value = n.longValue;
+    if (value < 1 || value > 0xFFFF) {
+      RejectBridgeError(reject, @"helper identifier out of range");
+      return;
+    }
+    ids.push_back(static_cast<uint16_t>(value));
+  }
+  if (target.longValue < 1 || target.longValue > 0xFFFF) {
+    RejectBridgeError(reject, @"target out of range");
+    return;
+  }
+  NSData *idData = DecodeBase64(repairId, reject);
+  if (idData == nil) {
+    return;
+  }
+
+  TssBuffer out{nullptr, 0};
+  TssStatus status = tss_repair_helper_term(
+      keyShare, ids.data(), ids.size(), target.unsignedShortValue, MakeSlice(idData), &out);
+  if (status != TSS_OK) {
+    RejectStatus(reject, status);
+    return;
+  }
+
+  resolve(TakeBase64(out));
+}
+
+RCT_EXPORT_METHOD(repairAssemble:(nonnull NSNumber *)suite
+                  pubkeyPackage:(NSString *)pubkeyPackage
+                  target:(nonnull NSNumber *)target
+                  messages:(NSString *)messages
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
+{
+  if (target.longValue < 1 || target.longValue > 0xFFFF) {
+    RejectBridgeError(reject, @"target out of range");
+    return;
+  }
+  NSData *package = DecodeBase64(pubkeyPackage, reject);
+  if (package == nil) {
+    return;
+  }
+  NSData *blob = DecodeBase64(messages, reject);
+  if (blob == nil) {
+    return;
+  }
+
+  TssHandle out = 0;
+  TssStatus status = tss_repair_assemble(
+      suite.unsignedCharValue, MakeSlice(package), target.unsignedShortValue, MakeSlice(blob), &out);
+  if (status != TSS_OK) {
+    RejectStatus(reject, status);
+    return;
+  }
+
+  resolve(HandleString(out));
+}
+
+RCT_EXPORT_METHOD(bolt3Derive:(NSString *)keyShareHandle
+                  perCommitmentPoint:(NSString *)perCommitmentPoint
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
+{
+  TssHandle keyShare = 0;
+  if (!ParseHandle(keyShareHandle, &keyShare, reject)) {
+    return;
+  }
+  NSData *point = DecodeBase64(perCommitmentPoint, reject);
+  if (point == nil) {
+    return;
+  }
+
+  TssHandle out = 0;
+  TssStatus status = tss_bolt3_derive(keyShare, MakeSlice(point), &out);
+  if (status != TSS_OK) {
+    RejectStatus(reject, status);
+    return;
+  }
+
+  resolve(HandleString(out));
+}
+
+RCT_EXPORT_METHOD(bolt3DeriveRevocation:(NSString *)keyShareHandle
+                  perCommitmentPoint:(NSString *)perCommitmentPoint
+                  perCommitmentSecret:(NSString *)perCommitmentSecret
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
+{
+  TssHandle keyShare = 0;
+  if (!ParseHandle(keyShareHandle, &keyShare, reject)) {
+    return;
+  }
+  NSData *point = DecodeBase64(perCommitmentPoint, reject);
+  if (point == nil) {
+    return;
+  }
+  NSData *decodedSecret = DecodeBase64(perCommitmentSecret, reject);
+  if (decodedSecret == nil) {
+    return;
+  }
+  NSMutableData *secret = [decodedSecret mutableCopy];
+
+  TssHandle out = 0;
+  TssStatus status = tss_bolt3_derive_revocation(keyShare, MakeSlice(point), MakeSlice(secret), &out);
+  volatile uint8_t *bytes = static_cast<volatile uint8_t *>(secret.mutableBytes);
+  for (NSUInteger i = 0; i < secret.length; ++i) {
+    bytes[i] = 0;
+  }
+  if (status != TSS_OK) {
+    RejectStatus(reject, status);
+    return;
+  }
+
+  resolve(HandleString(out));
+}
+
+RCT_EXPORT_METHOD(bolt3DerivePubkeyPackage:(NSString *)pubkeyPackage
+                  perCommitmentPoint:(NSString *)perCommitmentPoint
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
+{
+  NSData *package = DecodeBase64(pubkeyPackage, reject);
+  if (package == nil) {
+    return;
+  }
+  NSData *point = DecodeBase64(perCommitmentPoint, reject);
+  if (point == nil) {
+    return;
+  }
+
+  TssBuffer out{nullptr, 0};
+  TssStatus status = tss_bolt3_derive_pubkey_package(MakeSlice(package), MakeSlice(point), &out);
+  if (status != TSS_OK) {
+    RejectStatus(reject, status);
+    return;
+  }
+
+  resolve(TakeBase64(out));
+}
+
+RCT_EXPORT_METHOD(bolt3DeriveRevocationPubkeyPackage:(NSString *)pubkeyPackage
+                  perCommitmentPoint:(NSString *)perCommitmentPoint
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
+{
+  NSData *package = DecodeBase64(pubkeyPackage, reject);
+  if (package == nil) {
+    return;
+  }
+  NSData *point = DecodeBase64(perCommitmentPoint, reject);
+  if (point == nil) {
+    return;
+  }
+
+  TssBuffer out{nullptr, 0};
+  TssStatus status = tss_bolt3_derive_revocation_pubkey_package(MakeSlice(package), MakeSlice(point), &out);
+  if (status != TSS_OK) {
+    RejectStatus(reject, status);
+    return;
+  }
+
+  resolve(TakeBase64(out));
 }
 
 RCT_EXPORT_METHOD(refreshReceiver:(NSString *)keyShareHandle

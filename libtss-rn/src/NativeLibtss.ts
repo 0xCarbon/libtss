@@ -33,6 +33,10 @@ export interface NativeLibtssModule {
 		keyShareHandle: string,
 		participants: number[] | null,
 	): Promise<{ handle: string; messages: string }>;
+	refreshNewDkls(
+		keyShareHandle: string,
+		sessionId: string,
+	): Promise<{ handle: string; messages: string }>;
 	refreshReceiver(keyShareHandle: string): Promise<string>;
 	refreshNext(
 		handle: string,
@@ -43,6 +47,32 @@ export interface NativeLibtssModule {
 		keyShareHandle?: string;
 		pubkeyPackage?: string;
 	}>;
+	repairHelperTerm(
+		keyShareHandle: string,
+		helpers: number[],
+		target: number,
+		repairId: string,
+	): Promise<string>;
+	repairAssemble(
+		suite: number,
+		pubkeyPackage: string,
+		target: number,
+		messages: string,
+	): Promise<string>;
+	bolt3Derive(keyShareHandle: string, perCommitmentPoint: string): Promise<string>;
+	bolt3DeriveRevocation(
+		keyShareHandle: string,
+		perCommitmentPoint: string,
+		perCommitmentSecret: string,
+	): Promise<string>;
+	bolt3DerivePubkeyPackage(
+		pubkeyPackage: string,
+		perCommitmentPoint: string,
+	): Promise<string>;
+	bolt3DeriveRevocationPubkeyPackage(
+		pubkeyPackage: string,
+		perCommitmentPoint: string,
+	): Promise<string>;
 	handleFree(handle: string): Promise<void>;
 	handleIdentifier(handle: string): Promise<number>;
 	handleVerifyingShare(handle: string): Promise<string>;

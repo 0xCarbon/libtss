@@ -83,6 +83,39 @@ TssStatus tss_refresh_new(
     TssHandle* out_session,
     TssBuffer* out_messages);
 TssStatus tss_refresh_receiver(TssHandle key_share, TssHandle* out_session);
+TssStatus tss_refresh_new_dkls(
+    TssHandle key_share,
+    const uint8_t* session_id,
+    size_t session_id_len,
+    TssHandle* out_session,
+    TssBuffer* out_messages);
+TssStatus tss_repair_helper_term(
+    TssHandle key_share,
+    const uint16_t* helpers,
+    size_t helpers_len,
+    uint16_t target,
+    TssSlice repair_id,
+    TssBuffer* out_messages);
+TssStatus tss_repair_assemble(
+    uint8_t suite,
+    TssSlice pubkey_package,
+    uint16_t target,
+    TssSlice messages,
+    TssHandle* out_handle);
+TssStatus tss_bolt3_derive(TssHandle key_share, TssSlice per_commitment_point, TssHandle* out_handle);
+TssStatus tss_bolt3_derive_revocation(
+    TssHandle key_share,
+    TssSlice per_commitment_point,
+    TssSlice per_commitment_secret,
+    TssHandle* out_handle);
+TssStatus tss_bolt3_derive_pubkey_package(
+    TssSlice pubkey_package,
+    TssSlice per_commitment_point,
+    TssBuffer* out_pubkey_package);
+TssStatus tss_bolt3_derive_revocation_pubkey_package(
+    TssSlice pubkey_package,
+    TssSlice per_commitment_point,
+    TssBuffer* out_pubkey_package);
 TssStatus tss_refresh_next(
     TssHandle session,
     TssSlice messages,
@@ -610,6 +643,163 @@ Java_com_libtss_LibtssModule_nativeRefreshNew(JNIEnv* env, jclass, jstring keySh
         return nullptr;
     }
     return make_session_init_result(env, session, encoded_messages);
+}
+
+namespace {
+
+TssSlice slice_of(const std::vector<uint8_t>& bytes) {
+    return TssSlice{bytes.empty() ? nullptr : bytes.data(), bytes.size()};
+}
+
+void wipe(std::vector<uint8_t>& bytes) {
+    volatile uint8_t* p = bytes.data();
+    for (size_t i = 0; i < bytes.size(); ++i) {
+        p[i] = 0;
+    }
+}
+
+}  // namespace
+
+extern "C" JNIEXPORT jobjectArray JNICALL
+Java_com_libtss_LibtssModule_nativeRefreshNewDkls(JNIEnv* env, jclass, jstring keyShareHandle, jstring sessionId) {
+    TssHandle key_share = 0;
+    if (!parse_handle(env, keyShareHandle, &key_share)) {
+        return nullptr;
+    }
+    std::vector<uint8_t> sid;
+    if (!decode_base64(env, sessionId, &sid)) {
+        return nullptr;
+    }
+    TssHandle session = 0;
+    TssBuffer messages{nullptr, 0};
+    TssStatus status = tss_refresh_new_dkls(
+        key_share, sid.empty() ? nullptr : sid.data(), sid.size(), &session, &messages);
+    if (!ensure_status(env, status)) {
+        return nullptr;
+    }
+    jstring encoded_messages = take_base64(env, messages);
+    if (env->ExceptionCheck()) {
+        return nullptr;
+    }
+    return make_session_init_result(env, session, encoded_messages);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_libtss_LibtssModule_nativeRepairHelperTerm(
+    JNIEnv* env, jclass, jstring keyShareHandle, jintArray helpers, jint target, jstring repairId) {
+    TssHandle key_share = 0;
+    if (!parse_handle(env, keyShareHandle, &key_share)) {
+        return nullptr;
+    }
+    jsize n = env->GetArrayLength(helpers);
+    std::vector<jint> tmp(static_cast<size_t>(n));
+    env->GetIntArrayRegion(helpers, 0, n, tmp.data());
+    if (env->ExceptionCheck()) {
+        return nullptr;
+    }
+    std::vector<uint16_t> ids;
+    ids.reserve(static_cast<size_t>(n));
+    for (jint value : tmp) {
+        if (value < 1 || value > 0xFFFF) {
+            throw_with_message(env, "java/lang/IllegalArgumentException", "helper identifier out of range");
+            return nullptr;
+        }
+        ids.push_back(static_cast<uint16_t>(value));
+    }
+    if (target < 1 || target > 0xFFFF) {
+        throw_with_message(env, "java/lang/IllegalArgumentException", "target out of range");
+        return nullptr;
+    }
+    std::vector<uint8_t> repair_id;
+    if (!decode_base64(env, repairId, &repair_id)) {
+        return nullptr;
+    }
+    TssBuffer out{nullptr, 0};
+    TssStatus status = tss_repair_helper_term(
+        key_share, ids.data(), ids.size(), static_cast<uint16_t>(target), slice_of(repair_id), &out);
+    if (!ensure_status(env, status)) {
+        return nullptr;
+    }
+    return take_base64(env, out);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_libtss_LibtssModule_nativeRepairAssemble(
+    JNIEnv* env, jclass, jint suite, jstring pubkeyPackage, jint target, jstring messages) {
+    if (target < 1 || target > 0xFFFF) {
+        throw_with_message(env, "java/lang/IllegalArgumentException", "target out of range");
+        return nullptr;
+    }
+    std::vector<uint8_t> package;
+    std::vector<uint8_t> blob;
+    if (!decode_base64(env, pubkeyPackage, &package) || !decode_base64(env, messages, &blob)) {
+        return nullptr;
+    }
+    TssHandle out = 0;
+    TssStatus status = tss_repair_assemble(
+        static_cast<uint8_t>(suite), slice_of(package), static_cast<uint16_t>(target), slice_of(blob), &out);
+    if (!ensure_status(env, status)) {
+        return nullptr;
+    }
+    return handle_to_jstring(env, out);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_libtss_LibtssModule_nativeBolt3Derive(JNIEnv* env, jclass, jstring keyShareHandle, jstring perCommitmentPoint) {
+    TssHandle key_share = 0;
+    if (!parse_handle(env, keyShareHandle, &key_share)) {
+        return nullptr;
+    }
+    std::vector<uint8_t> point;
+    if (!decode_base64(env, perCommitmentPoint, &point)) {
+        return nullptr;
+    }
+    TssHandle out = 0;
+    TssStatus status = tss_bolt3_derive(key_share, slice_of(point), &out);
+    if (!ensure_status(env, status)) {
+        return nullptr;
+    }
+    return handle_to_jstring(env, out);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_libtss_LibtssModule_nativeBolt3DeriveRevocation(
+    JNIEnv* env, jclass, jstring keyShareHandle, jstring perCommitmentPoint, jstring perCommitmentSecret) {
+    TssHandle key_share = 0;
+    if (!parse_handle(env, keyShareHandle, &key_share)) {
+        return nullptr;
+    }
+    std::vector<uint8_t> point;
+    std::vector<uint8_t> secret;
+    if (!decode_base64(env, perCommitmentPoint, &point) || !decode_base64(env, perCommitmentSecret, &secret)) {
+        wipe(secret);
+        return nullptr;
+    }
+    TssHandle out = 0;
+    TssStatus status = tss_bolt3_derive_revocation(key_share, slice_of(point), slice_of(secret), &out);
+    wipe(secret);
+    if (!ensure_status(env, status)) {
+        return nullptr;
+    }
+    return handle_to_jstring(env, out);
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_libtss_LibtssModule_nativeBolt3DerivePubkeyPackage(
+    JNIEnv* env, jclass, jstring pubkeyPackage, jstring perCommitmentPoint, jboolean revocation) {
+    std::vector<uint8_t> package;
+    std::vector<uint8_t> point;
+    if (!decode_base64(env, pubkeyPackage, &package) || !decode_base64(env, perCommitmentPoint, &point)) {
+        return nullptr;
+    }
+    TssBuffer out{nullptr, 0};
+    TssStatus status = revocation
+        ? tss_bolt3_derive_revocation_pubkey_package(slice_of(package), slice_of(point), &out)
+        : tss_bolt3_derive_pubkey_package(slice_of(package), slice_of(point), &out);
+    if (!ensure_status(env, status)) {
+        return nullptr;
+    }
+    return take_base64(env, out);
 }
 
 extern "C" JNIEXPORT jstring JNICALL

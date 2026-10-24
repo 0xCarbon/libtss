@@ -1,9 +1,10 @@
-import { fromByteArray } from "base64-js";
+import { fromByteArray, toByteArray } from "base64-js";
 import { TssError } from "./error";
 import { KeyShareHandle } from "./handle";
+import { decodeMessages, encodeMessages } from "./message";
 import NativeLibtss from "./NativeLibtss";
 import { DkgSession, RefreshSession, SignSession } from "./session";
-import type { Ciphersuite } from "./types";
+import type { Ciphersuite, Message } from "./types";
 
 export * from "./error";
 export * from "./handle";
@@ -60,9 +61,7 @@ export function newRefreshReceiver(
 	return RefreshSession.createReceiver(...args);
 }
 
-export async function init(
-	options?: { mlock?: boolean },
-): Promise<void> {
+export async function init(options?: { mlock?: boolean }): Promise<void> {
 	try {
 		await NativeLibtss.initialize({ mlock: options?.mlock ?? false });
 	} catch (error) {
@@ -109,4 +108,134 @@ export async function verify(
 	} catch (error) {
 		throw TssError.fromNative(error);
 	}
+}
+
+async function native<T>(fn: () => Promise<T>): Promise<T> {
+	try {
+		return await fn();
+	} catch (error) {
+		throw TssError.fromNative(error);
+	}
+}
+
+/**
+ * This helper's DKLs23 repair term for `target`, as messages to send to the
+ * target only, over a confidential, authenticated channel. `helpers` lists the
+ * helper identifiers (no duplicates, at least `minSigners`, including this
+ * party, not the target); every helper uses the same list and `repairId`. The
+ * helpers must authenticate the target: repair hands index `target`'s share
+ * to whoever receives the terms.
+ */
+export async function dklsRepairHelperTerm(
+	keyShare: KeyShareHandle,
+	helpers: number[],
+	target: number,
+	repairId: Uint8Array,
+): Promise<Message[]> {
+	const encoded = await native(() =>
+		NativeLibtss.repairHelperTerm(
+			keyShare.handle,
+			helpers,
+			target,
+			encodeBase64(repairId),
+		),
+	);
+	return decodeMessages(toByteArray(encoded));
+}
+
+/**
+ * Assembles the helpers' repair messages into the target's repaired DKLs23
+ * share. Each message's `from` must be its authenticated sender. The share
+ * cannot sign until all parties run `RefreshSession.createDkls`.
+ */
+export async function dklsRepairAssemble(
+	suite: Ciphersuite,
+	publicKeys: Uint8Array,
+	target: number,
+	messages: Message[],
+): Promise<KeyShareHandle> {
+	return new KeyShareHandle(
+		await native(() =>
+			NativeLibtss.repairAssemble(
+				suite,
+				encodeBase64(publicKeys),
+				target,
+				encodeBase64(encodeMessages(messages)),
+			),
+		),
+	);
+}
+
+/**
+ * BOLT 3 derivation of a DKLs23 secp256k1 key share for a commitment
+ * (`basepoint + SHA256(perCommitmentPoint || basepoint)·G`). A derived share
+ * keeps the base share's OT state, so a counterparty banned under a derived
+ * key is banned for the base key too.
+ */
+export async function bolt3Derive(
+	keyShare: KeyShareHandle,
+	perCommitmentPoint: Uint8Array,
+): Promise<KeyShareHandle> {
+	return new KeyShareHandle(
+		await native(() =>
+			NativeLibtss.bolt3Derive(
+				keyShare.handle,
+				encodeBase64(perCommitmentPoint),
+			),
+		),
+	);
+}
+
+/**
+ * BOLT 3 revocation derivation for a commitment whose 32-byte
+ * `perCommitmentSecret` was revealed; the secret must match the point. The
+ * `perCommitmentSecret` array is zeroed after the call (the base64 copy sent
+ * across the bridge cannot be).
+ */
+export async function bolt3DeriveRevocation(
+	keyShare: KeyShareHandle,
+	perCommitmentPoint: Uint8Array,
+	perCommitmentSecret: Uint8Array,
+): Promise<KeyShareHandle> {
+	const secret = encodeBase64(perCommitmentSecret);
+	perCommitmentSecret.fill(0);
+	return new KeyShareHandle(
+		await native(() =>
+			NativeLibtss.bolt3DeriveRevocation(
+				keyShare.handle,
+				encodeBase64(perCommitmentPoint),
+				secret,
+			),
+		),
+	);
+}
+
+/** `bolt3Derive` on a serialized secp256k1 ECDSA public key package. */
+export async function bolt3DerivePublicKeys(
+	publicKeys: Uint8Array,
+	perCommitmentPoint: Uint8Array,
+): Promise<Uint8Array> {
+	return toByteArray(
+		await native(() =>
+			NativeLibtss.bolt3DerivePubkeyPackage(
+				encodeBase64(publicKeys),
+				encodeBase64(perCommitmentPoint),
+			),
+		),
+	);
+}
+
+/** `bolt3DeriveRevocation` on a public key package (no secret needed). */
+export async function bolt3DeriveRevocationPublicKeys(
+	publicKeys: Uint8Array,
+	perCommitmentPoint: Uint8Array,
+): Promise<Uint8Array> {
+	return toByteArray(
+		await native(() =>
+			NativeLibtss.bolt3DeriveRevocationPubkeyPackage(
+				encodeBase64(publicKeys),
+				encodeBase64(perCommitmentPoint),
+			),
+		),
+	);
 }

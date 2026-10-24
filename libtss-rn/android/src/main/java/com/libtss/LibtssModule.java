@@ -146,6 +146,45 @@ public final class LibtssModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
+    public void refreshNewDkls(String keyShareHandle, String sessionId, Promise promise) {
+        resolve(promise, () -> sessionInitResult(nativeRefreshNewDkls(keyShareHandle, sessionId)));
+    }
+
+    @ReactMethod
+    public void repairHelperTerm(String keyShareHandle, ReadableArray helpers, int target, String repairId, Promise promise) {
+        int[] h = new int[helpers.size()];
+        for (int i = 0; i < helpers.size(); i++) {
+            h[i] = helpers.getInt(i);
+        }
+        resolve(promise, () -> nativeRepairHelperTerm(keyShareHandle, h, target, repairId));
+    }
+
+    @ReactMethod
+    public void repairAssemble(int suite, String pubkeyPackage, int target, String messages, Promise promise) {
+        resolve(promise, () -> nativeRepairAssemble(suite, pubkeyPackage, target, messages));
+    }
+
+    @ReactMethod
+    public void bolt3Derive(String keyShareHandle, String perCommitmentPoint, Promise promise) {
+        resolve(promise, () -> nativeBolt3Derive(keyShareHandle, perCommitmentPoint));
+    }
+
+    @ReactMethod
+    public void bolt3DeriveRevocation(String keyShareHandle, String perCommitmentPoint, String perCommitmentSecret, Promise promise) {
+        resolve(promise, () -> nativeBolt3DeriveRevocation(keyShareHandle, perCommitmentPoint, perCommitmentSecret));
+    }
+
+    @ReactMethod
+    public void bolt3DerivePubkeyPackage(String pubkeyPackage, String perCommitmentPoint, Promise promise) {
+        resolve(promise, () -> nativeBolt3DerivePubkeyPackage(pubkeyPackage, perCommitmentPoint, false));
+    }
+
+    @ReactMethod
+    public void bolt3DeriveRevocationPubkeyPackage(String pubkeyPackage, String perCommitmentPoint, Promise promise) {
+        resolve(promise, () -> nativeBolt3DerivePubkeyPackage(pubkeyPackage, perCommitmentPoint, true));
+    }
+
+    @ReactMethod
     public void refreshReceiver(String keyShareHandle, Promise promise) {
         resolve(promise, () -> nativeRefreshReceiver(keyShareHandle));
     }
@@ -310,6 +349,12 @@ public final class LibtssModule extends ReactContextBaseJavaModule {
     private static native Object[] nativeSignNext(String handle, String messages);
     private static native String[] nativeRefreshNew(String keyShareHandle, @Nullable int[] participants);
     private static native String nativeRefreshReceiver(String keyShareHandle);
+    private static native String[] nativeRefreshNewDkls(String keyShareHandle, String sessionId);
+    private static native String nativeRepairHelperTerm(String keyShareHandle, int[] helpers, int target, String repairId);
+    private static native String nativeRepairAssemble(int suite, String pubkeyPackage, int target, String messages);
+    private static native String nativeBolt3Derive(String keyShareHandle, String perCommitmentPoint);
+    private static native String nativeBolt3DeriveRevocation(String keyShareHandle, String perCommitmentPoint, String perCommitmentSecret);
+    private static native String nativeBolt3DerivePubkeyPackage(String pubkeyPackage, String perCommitmentPoint, boolean revocation);
     private static native Object[] nativeRefreshNext(String handle, String messages);
     private static native void nativeHandleFree(String handle);
     private static native double nativeHandleIdentifier(String handle);
