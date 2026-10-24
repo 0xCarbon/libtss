@@ -337,6 +337,16 @@ pub extern "C" fn tss_frost_repair_part1(
     })
 }
 
+/// Copies each slice into a buffer that is wiped on drop, including the copies
+/// made before a later slice fails to validate.
+fn copy_secret_slices(raw: &[TssSlice]) -> Result<Zeroizing<Vec<Vec<u8>>>, libtss::TssError> {
+    let mut copies = Zeroizing::new(Vec::with_capacity(raw.len()));
+    for slice in raw {
+        copies.push(checked_slice(*slice)?.to_vec());
+    }
+    Ok(copies)
+}
+
 #[no_mangle]
 pub extern "C" fn tss_frost_repair_part2(
     suite: u8,
@@ -356,14 +366,11 @@ pub extern "C" fn tss_frost_repair_part2(
                 "null pointer with non-zero delta count".into(),
             ));
         }
-        let delta_vec: Zeroizing<Vec<Vec<u8>>> = Zeroizing::new(if delta_count == 0 {
-            Vec::new()
+        let delta_vec = if delta_count == 0 {
+            Zeroizing::new(Vec::new())
         } else {
-            let raw = unsafe { core::slice::from_raw_parts(deltas, delta_count) };
-            raw.iter()
-                .map(|s| checked_slice(*s).map(|b| b.to_vec()))
-                .collect::<Result<Vec<_>, _>>()?
-        });
+            copy_secret_slices(unsafe { core::slice::from_raw_parts(deltas, delta_count) })?
+        };
 
         let sigma = libtss::frost::frost_repair_part2(suite, &delta_vec)?;
         *out = TssBuffer::from_vec(sigma);
@@ -389,14 +396,11 @@ pub extern "C" fn tss_frost_repair_part3(
                 "null pointer with non-zero sigma count".into(),
             ));
         }
-        let sigma_vec: Zeroizing<Vec<Vec<u8>>> = Zeroizing::new(if sigma_count == 0 {
-            Vec::new()
+        let sigma_vec = if sigma_count == 0 {
+            Zeroizing::new(Vec::new())
         } else {
-            let raw = unsafe { core::slice::from_raw_parts(sigmas, sigma_count) };
-            raw.iter()
-                .map(|s| checked_slice(*s).map(|b| b.to_vec()))
-                .collect::<Result<Vec<_>, _>>()?
-        });
+            copy_secret_slices(unsafe { core::slice::from_raw_parts(sigmas, sigma_count) })?
+        };
 
         let participant_id = libtss::Identifier::new(participant)?;
         let pubkey = libtss::PublicKeyPackage::deserialize(checked_slice(pubkey_package)?)?;
