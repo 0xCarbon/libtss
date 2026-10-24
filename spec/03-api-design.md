@@ -528,6 +528,17 @@ pub fn derive_path(
 ) -> Result<KeyShareHandle, TssError>;
 ```
 
+### DKLs23 Share Repair
+
+```rust
+pub fn repair_helper_term(key_share: &KeyShareHandle, helpers: &[Identifier],
+    target: Identifier, repair_id: &[u8]) -> Result<Message, TssError>;
+pub fn repair_assemble(suite: Ciphersuite, public_keys: &PublicKeyPackage,
+    target: Identifier, received: &[Message]) -> Result<KeyShareHandle, TssError>;
+```
+
+See [07-key-management.md](07-key-management.md#dkls23-share-repair).
+
 ### BOLT 3 Key Derivation (DKLs23 secp256k1)
 
 ```rust

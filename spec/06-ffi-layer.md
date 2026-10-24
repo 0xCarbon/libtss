@@ -403,6 +403,13 @@ TssStatus tss_frost_split_key(
     TssBuffer *out_pubkey_package
 );
 
+// --- DKLs23 Share Repair ---
+
+TssStatus tss_repair_helper_term(TssHandle key_share, const uint16_t *helpers, size_t helpers_len,
+                                 uint16_t target, TssSlice repair_id, TssBuffer *out_messages);
+TssStatus tss_repair_assemble(uint8_t suite, TssSlice pubkey_package, uint16_t target,
+                              TssSlice messages, TssHandle *out_handle);
+
 // --- DKLs23 Key Import (trusted dealer) ---
 
 // suite: Secp256k1ECDSA (6) or Secp256r1ECDSA (7). chain_code: empty, or the
@@ -489,11 +496,11 @@ const char* tss_version(void);
 | Unified sessions | 9 | dkg (2) + sign (2) + refresh (2) + refresh_new_dkls (1) + refresh_receiver (1) + session_free (1) |
 | Message helpers | 3 | count, at, build |
 | FROST-specific | 9 | aggregate, tweak (2), dealer (2), refresh (2), repair (3) |
-| DKLs23-specific | 5 | dkls_split_key, bolt3 (4) |
+| DKLs23-specific | 7 | dkls_split_key, bolt3 (4), repair (2) |
 | Verification + key mgmt | 5 | verify, derive (2), export, import |
 | Handle + memory | 10 | handle queries (6, incl. chain_code) + handle_free + buffer_free + session_free + version |
 | Error | 6 | last_error, last_error_len, last_error_copy, culprit_count, culprit, banned_party |
-| **Total** | **~48** | **Core unified path: 11 functions (sessions + messages)** |
+| **Total** | **~50** | **Core unified path: 11 functions (sessions + messages)** |
 
 The core DKG + signing workflow uses only 7 functions: `tss_dkg_new`, `tss_dkg_next`,
 `tss_sign_new`, `tss_sign_next`, `tss_message_count`, `tss_message_at`, `tss_message_build`.

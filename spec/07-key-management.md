@@ -345,14 +345,37 @@ pub fn frost_repair_part3(
 
 ### DKLs23 Share Repair
 
-DKLs23 does not have a built-in repair mechanism equivalent to FROST's RTS. For DKLs23,
-share recovery requires:
+`libtss::dkls_repair` wraps DKLs23 `protocols::repair` (DKLs23 >= 0.6.2) for
+Secp256k1ECDSA and Secp256r1ECDSA. C ABI: `tss_repair_helper_term`,
+`tss_repair_assemble`.
 
-1. Re-running the complete DKG with the recovering party
-2. Or using the re-key function with the reconstructed secret (requires trusted entity)
+```rust
+/// Helper: this party's masked term for `target`, as a message to the target.
+pub fn repair_helper_term(key_share: &KeyShareHandle, helpers: &[Identifier],
+    target: Identifier, repair_id: &[u8]) -> Result<Message, TssError>;
 
-This is a limitation of the OT-based approach where the Party state includes OT
-correlations that cannot be independently reconstructed.
+/// Target: assemble the helpers' messages into the repaired share.
+pub fn repair_assemble(suite: Ciphersuite, public_keys: &PublicKeyPackage,
+    target: Identifier, received: &[Message]) -> Result<KeyShareHandle, TssError>;
+```
+
+- At least `min_signers` helpers each send one message to the target only,
+  over a confidential, authenticated channel. Each term names its helper, and
+  `repair_assemble` requires it to equal the message's `from`.
+- The masks are zero-sum shares from the helpers' pairwise zero-share seeds,
+  bound to the session, the public key, the repair id, the target and the
+  helper set; a coalition below the threshold (counting the target) learns no
+  honest share. Assembly also requires the helpers to agree on the session id,
+  chain code and group key, and checks the result against the target's
+  verifying share.
+- **The application authenticates the target.** Repair hands index `target`'s
+  share to whoever receives the terms; an impostor while the real party
+  exists lowers the effective threshold by one.
+- The repaired share holds no OT state, so it cannot sign until all `n`
+  parties run a complete refresh (`RefreshSession::new_dkls`), which rebuilds
+  it. After the refresh, every party erases its pre-repair share and backups;
+  use the refreshed public key package for later repairs.
+- Root shares only: BIP-32-derived shares are refused.
 
 ## Key Share Persistence
 
