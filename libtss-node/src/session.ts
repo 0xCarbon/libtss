@@ -246,10 +246,20 @@ export class RefreshSession extends SessionHandle {
 		return [session, messages];
 	}
 
-	static createReceiver(keyShare: KeyShareHandle): RefreshSession {
+	/**
+	 * Create a FROST refresh session for a non-dealer participant. `dealer` is
+	 * the identifier of the trusted party that called `create`; `next` accepts
+	 * only the dealer's message addressed to this party and checks the
+	 * refreshed public key package against the current one.
+	 */
+	static createReceiver(
+		keyShare: KeyShareHandle,
+		dealer: number,
+	): RefreshSession {
+		const dealerId = u16(dealer, "dealer");
 		const outSession: [bigint] = [0n];
 		checkStatus(
-			lib.tss_refresh_receiver(keyShare.handle, outSession),
+			lib.tss_refresh_receiver(keyShare.handle, dealerId, outSession),
 		);
 		return new RefreshSession(outSession[0]);
 	}

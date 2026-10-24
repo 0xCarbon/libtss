@@ -792,6 +792,98 @@ pub fn frost_apply_refresh(
     key_share_handle_from_bytes(key_share.suite, key_package)
 }
 
+fn group_element<C: frost_core::Ciphersuite>(
+    bytes: &[u8],
+) -> Result<frost_core::Element<C>, TssError> {
+    use frost_core::Group;
+    let serialization =
+        <C::Group as Group>::Serialization::try_from(bytes).map_err(|_| TssError::InvalidShare)?;
+    <C::Group as Group>::deserialize(&serialization).map_err(|_| TssError::InvalidShare)
+}
+
+fn verify_refreshed_package_inner<C: frost_core::Ciphersuite>(
+    self_id: Identifier,
+    old: &PublicKeyPackage,
+    new: &PublicKeyPackage,
+    refresh_data: &[u8],
+) -> Result<(), TssError> {
+    use frost_core::{Field, Group};
+
+    let share =
+        frost_core::keys::SecretShare::<C>::deserialize(refresh_data).map_err(TssError::from)?;
+    if *share.identifier() != to_frost_id::<C>(self_id)? {
+        return Err(TssError::InvalidShare);
+    }
+    // The share carries the commitments c_1..c_{t-1} of a polynomial with
+    // zero constant term; c_0 (the identity) is omitted.
+    let coefficients = share
+        .commitment()
+        .serialize()
+        .map_err(TssError::from)?
+        .iter()
+        .map(|bytes| group_element::<C>(bytes))
+        .collect::<Result<Vec<_>, _>>()?;
+    if coefficients.len() + 1 != usize::from(old.min_signers()) {
+        return Err(TssError::InvalidShare);
+    }
+
+    for (id, refreshed) in new.verifying_shares() {
+        let previous = old.verifying_share(*id).ok_or(TssError::InvalidShare)?;
+        let x_bytes = to_frost_id::<C>(*id)?.serialize();
+        let x_serialization =
+            <<C::Group as Group>::Field as Field>::Serialization::try_from(x_bytes.as_slice())
+                .map_err(|_| TssError::InvalidShare)?;
+        let x = <<C::Group as Group>::Field as Field>::deserialize(&x_serialization)
+            .map_err(|_| TssError::InvalidShare)?;
+        // C(x) = sum_{k>=1} c_k * x^k
+        let mut power = x;
+        let mut delta = <C::Group as Group>::identity();
+        for coefficient in &coefficients {
+            delta = delta + *coefficient * power;
+            power = power * x;
+        }
+        let expected = group_element::<C>(previous)? + delta;
+        if group_element::<C>(refreshed)? != expected {
+            return Err(TssError::InvalidShare);
+        }
+    }
+    Ok(())
+}
+
+/// Check a refreshed public key package received from a refresh dealer
+/// against the previous package and this party's refresh share.
+///
+/// The group key and `min_signers` must be unchanged, the refreshed
+/// identifiers must be a subset of the previous ones that includes `self_id`
+/// and has at least `min_signers` members, the share must be addressed to
+/// `self_id`, and every refreshed verifying share must equal the previous one
+/// plus the dealer's zero-constant polynomial commitment evaluated at that
+/// identifier. The dealer is trusted to keep the polynomial secret and to
+/// send every party a share of the same polynomial.
+pub fn frost_verify_refreshed_package(
+    self_id: Identifier,
+    old: &PublicKeyPackage,
+    new: &PublicKeyPackage,
+    refresh_data: &[u8],
+) -> Result<(), TssError> {
+    if old.suite() != new.suite() {
+        return Err(TssError::ProtocolMismatch);
+    }
+    if new.verifying_key() != old.verifying_key()
+        || new.min_signers() != old.min_signers()
+        || new.verifying_shares().len() < usize::from(old.min_signers())
+        || new.verifying_share(self_id).is_none()
+    {
+        return Err(TssError::InvalidShare);
+    }
+    dispatch_frost!(old.suite(), |C| verify_refreshed_package_inner::<C>(
+        self_id,
+        old,
+        new,
+        refresh_data
+    ))
+}
+
 pub fn frost_tweak_key_share(
     key_share: &KeyShareHandle,
     merkle_root: Option<&[u8]>,

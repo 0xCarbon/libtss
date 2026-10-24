@@ -110,20 +110,23 @@ public sealed class RefreshSession : IDisposable
     }
 
     /// <summary>
-    /// Creates a receiver-only refresh session (does not produce first-round messages).
+    /// Creates a FROST receiver-only refresh session (does not produce first-round messages).
     /// </summary>
     /// <remarks>
-    /// Used by participants who are receiving a refresh initiated by others.
-    /// Call <see cref="Next"/> with the received messages to advance the protocol.
+    /// Used by participants who are receiving a refresh from a trusted dealer.
+    /// Call <see cref="Next"/> with the dealer's messages: only the message from
+    /// <paramref name="dealer"/> addressed to this party is accepted, and the refreshed
+    /// public key package is checked against the current one.
     /// </remarks>
     /// <param name="keyShare">The existing key share to refresh.</param>
+    /// <param name="dealer">Identifier of the party that called <see cref="Create"/>.</param>
     /// <returns>A new receiver refresh session.</returns>
-    public static unsafe RefreshSession CreateReceiver(KeyShareHandle keyShare)
+    public static unsafe RefreshSession CreateReceiver(KeyShareHandle keyShare, ushort dealer)
     {
         ArgumentNullException.ThrowIfNull(keyShare);
 
         ulong sessionHandle;
-        int status = Native.tss_refresh_receiver(keyShare.Handle, &sessionHandle);
+        int status = Native.tss_refresh_receiver(keyShare.Handle, dealer, &sessionHandle);
         GC.KeepAlive(keyShare);
         TssException.ThrowIfError(status);
 

@@ -84,7 +84,7 @@ TssStatus tss_refresh_new(
     size_t participants_len,
     TssHandle* out_session,
     TssBuffer* out_messages);
-TssStatus tss_refresh_receiver(TssHandle key_share, TssHandle* out_session);
+TssStatus tss_refresh_receiver(TssHandle key_share, uint16_t dealer, TssHandle* out_session);
 TssStatus tss_refresh_new_dkls(
     TssHandle key_share,
     const uint8_t* session_id,
@@ -887,14 +887,15 @@ Java_com_libtss_LibtssModule_nativeBolt3DerivePubkeyPackage(
 }
 
 extern "C" JNIEXPORT jstring JNICALL
-Java_com_libtss_LibtssModule_nativeRefreshReceiver(JNIEnv* env, jclass, jstring keyShareHandle) {
+Java_com_libtss_LibtssModule_nativeRefreshReceiver(
+    JNIEnv* env, jclass, jstring keyShareHandle, jint dealer) {
     TssHandle key_share = 0;
-    if (!parse_handle(env, keyShareHandle, &key_share)) {
+    if (!parse_handle(env, keyShareHandle, &key_share) || !check_range(env, dealer, 1, 0xFFFF, "dealer")) {
         return nullptr;
     }
 
     TssHandle session = 0;
-    TssStatus status = tss_refresh_receiver(key_share, &session);
+    TssStatus status = tss_refresh_receiver(key_share, static_cast<uint16_t>(dealer), &session);
     if (!ensure_status(env, status)) {
         return nullptr;
     }

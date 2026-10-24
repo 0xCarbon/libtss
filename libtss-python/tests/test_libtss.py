@@ -25,6 +25,7 @@ from libtss import (
     Protocol,
     RefreshSession,
     SignSession,
+    TssAbortError,
     TssError,
     verify,
     version,
@@ -377,7 +378,7 @@ class TestRefresh:
         # ALL participants (including dealer) create receiver sessions
         sessions: dict[int, RefreshSession] = {}
         for ks in shares:
-            sessions[ks.identifier] = RefreshSession.create_receiver(ks)
+            sessions[ks.identifier] = RefreshSession.create_receiver(ks, 1)
 
         # Each participant applies refresh with their P2P message from the dealer
         new_shares: list[KeyShareHandle] = []
@@ -403,6 +404,24 @@ class TestRefresh:
         for ks in shares:
             ks.close()
         for ks in new_shares:
+            ks.close()
+
+    def test_frost_refresh_receiver_checks_dealer(self):
+        shares, _ = run_dkg(Ciphersuite.ED25519, 3, 2)
+        dealer_session, dealer_msgs = RefreshSession.create_dealer(shares[0], [1, 2, 3])
+        dealer_session.close()
+
+        with pytest.raises(TssError) as excinfo:
+            RefreshSession.create_receiver(shares[1], 9)
+        assert excinfo.value.code == 2  # TSS_ERR_INVALID_ID
+
+        session = RefreshSession.create_receiver(shares[1], 3)
+        with pytest.raises(TssAbortError) as excinfo:
+            session.next([m for m in dealer_msgs if m.to == 2])
+        assert excinfo.value.culprits == [1]
+        session.close()
+
+        for ks in shares:
             ks.close()
 
 

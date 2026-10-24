@@ -314,7 +314,7 @@ def _declare_signatures(lib: ctypes.CDLL) -> None:
     ]
 
     lib.tss_refresh_receiver.restype = TssStatus
-    lib.tss_refresh_receiver.argtypes = [c_uint64, POINTER(c_uint64)]
+    lib.tss_refresh_receiver.argtypes = [c_uint64, CheckedU16, POINTER(c_uint64)]
 
     lib.tss_refresh_next.restype = TssStatus
     lib.tss_refresh_next.argtypes = [

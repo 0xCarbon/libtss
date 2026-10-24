@@ -595,7 +595,7 @@ fn frost_refresh_preserves_signing() {
     // Each participant applies refresh
     let mut refreshed = BTreeMap::new();
     for (&pid, ks) in &shares {
-        let mut session = RefreshSession::new_frost_receiver(ks).unwrap();
+        let mut session = RefreshSession::new_frost_receiver(ks, id(1)).unwrap();
         let my_msgs: Vec<_> = dealer_messages
             .iter()
             .filter(|m| m.to == Some(pid))
@@ -636,21 +636,21 @@ fn frost_refresh_receiver_uses_only_its_own_consistent_message() {
         .clone();
 
     // The whole bundle: messages to other parties are ignored.
-    let mut session = RefreshSession::new_frost_receiver(party).unwrap();
+    let mut session = RefreshSession::new_frost_receiver(party, id(1)).unwrap();
     assert!(matches!(
         session.next(&dealer_messages).unwrap(),
         RefreshOutput::Complete { .. }
     ));
 
     // Two messages addressed to this party.
-    let mut session = RefreshSession::new_frost_receiver(party).unwrap();
+    let mut session = RefreshSession::new_frost_receiver(party, id(1)).unwrap();
     assert!(matches!(
         session.next(&[own.clone(), own.clone()]),
         Err(TssError::InvalidConfig(_))
     ));
 
     // No message addressed to this party.
-    let mut session = RefreshSession::new_frost_receiver(party).unwrap();
+    let mut session = RefreshSession::new_frost_receiver(party, id(1)).unwrap();
     let others: Vec<_> = dealer_messages
         .iter()
         .filter(|m| m.to != Some(id(2)))
@@ -673,7 +673,7 @@ fn frost_refresh_receiver_uses_only_its_own_consistent_message() {
     data.extend_from_slice(&own.data[4 + len..]);
     let mut tampered = own.clone();
     tampered.data = data;
-    let mut session = RefreshSession::new_frost_receiver(party).unwrap();
+    let mut session = RefreshSession::new_frost_receiver(party, id(1)).unwrap();
     assert!(matches!(
         session.next(&[tampered]),
         Err(TssError::InvalidShare)
@@ -692,7 +692,7 @@ fn frost_old_shares_cannot_sign_after_refresh() {
 
     let mut refreshed = BTreeMap::new();
     for (&pid, ks) in &shares {
-        let mut session = RefreshSession::new_frost_receiver(ks).unwrap();
+        let mut session = RefreshSession::new_frost_receiver(ks, id(1)).unwrap();
         let my_msgs: Vec<_> = dealer_messages
             .iter()
             .filter(|m| m.to == Some(pid))

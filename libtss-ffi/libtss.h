@@ -389,7 +389,18 @@ TssStatus tss_refresh_new_dkls(TssHandle key_share,
                                TssHandle *out_session,
                                struct TssBuffer *out_messages);
 
-TssStatus tss_refresh_receiver(TssHandle key_share, TssHandle *out_session);
+// Create a receive-only FROST refresh session for a non-dealer participant.
+//
+// `dealer` is the identifier of the party that ran `tss_refresh_new`; the
+// dealer is trusted with that role. Advance with `tss_refresh_next` once,
+// passing the dealer's messages: exactly one must be addressed to this party
+// and its `from` must equal `dealer` (`TSS_ERR_ABORT` otherwise). The bundled
+// public key package is checked against this party's current one (same group
+// key and `min_signers`, identifiers a subset, every verifying share moved by
+// the dealer's committed refresh polynomial); a mismatch returns
+// `TSS_ERR_INVALID_SHARE`. A `dealer` outside the group returns
+// `TSS_ERR_INVALID_IDENTIFIER`.
+TssStatus tss_refresh_receiver(TssHandle key_share, uint16_t dealer, TssHandle *out_session);
 
 TssStatus tss_refresh_next(TssHandle session,
                            struct TssSlice messages,

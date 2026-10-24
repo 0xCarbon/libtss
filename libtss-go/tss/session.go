@@ -321,14 +321,19 @@ func NewRefreshSessionDKLs(keyShare *KeyShareHandle, sessionID []byte) (*Refresh
 	return newRefreshSession(native), msgs, nil
 }
 
-func NewRefreshReceiver(keyShare *KeyShareHandle) (*RefreshSession, error) {
+// NewRefreshReceiver creates a FROST refresh session for a non-dealer
+// participant. dealer is the identifier of the trusted party that called
+// NewRefreshSession; Next accepts only the message from dealer addressed to
+// this party and checks the refreshed public key package against the current
+// one.
+func NewRefreshReceiver(keyShare *KeyShareHandle, dealer Identifier) (*RefreshSession, error) {
 	if err := checkNonNil("keyShare", keyShare); err != nil {
 		return nil, err
 	}
 	var native C.TssHandle
 	if err := keyShare.use(func(handle C.TssHandle) error {
 		return callStatus(func() C.TssStatus {
-			return C.tss_refresh_receiver(handle, &native)
+			return C.tss_refresh_receiver(handle, C.uint16_t(dealer), &native)
 		})
 	}); err != nil {
 		return nil, err

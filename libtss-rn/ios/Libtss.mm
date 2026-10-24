@@ -85,7 +85,7 @@ TssStatus tss_refresh_new(
     size_t participants_len,
     TssHandle *out_session,
     TssBuffer *out_messages);
-TssStatus tss_refresh_receiver(TssHandle key_share, TssHandle *out_session);
+TssStatus tss_refresh_receiver(TssHandle key_share, uint16_t dealer, TssHandle *out_session);
 TssStatus tss_refresh_new_dkls(TssHandle key_share,
                                const uint8_t *session_id,
                                size_t session_id_len,
@@ -806,16 +806,19 @@ RCT_EXPORT_METHOD(bolt3DeriveRevocationPubkeyPackage:(NSString *)pubkeyPackage
 }
 
 RCT_EXPORT_METHOD(refreshReceiver:(NSString *)keyShareHandle
+                  dealer:(nonnull NSNumber *)dealer
                   resolve:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject)
 {
   TssHandle keyShare = 0;
-  if (!ParseHandle(keyShareHandle, &keyShare, reject)) {
+  long dealerValue = 0;
+  if (!ParseHandle(keyShareHandle, &keyShare, reject) ||
+      !CheckedInteger(dealer, 1, 0xFFFF, @"dealer", &dealerValue, reject)) {
     return;
   }
 
   TssHandle session = 0;
-  TssStatus status = tss_refresh_receiver(keyShare, &session);
+  TssStatus status = tss_refresh_receiver(keyShare, (uint16_t)dealerValue, &session);
   if (status != TSS_OK) {
     RejectStatus(reject, status);
     return;

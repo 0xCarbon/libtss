@@ -541,11 +541,18 @@ impl WasmRefreshSession {
 
     /// Create a receiver (non-dealer) refresh session.
     ///
-    /// `keyShare` is the participant's current FROST key share.
-    /// Call `next()` with the refresh-share message received from the dealer.
+    /// `keyShare` is the participant's current FROST key share and `dealer`
+    /// the identifier of the trusted party that called `createDealer()`.
+    /// Call `next()` with the dealer's messages: only the message from `dealer`
+    /// addressed to this party is accepted, and the refreshed public key
+    /// package is checked against the current one.
     #[wasm_bindgen(static_method_of = WasmRefreshSession, js_name = "createReceiver")]
-    pub fn create_receiver(key_share: &WasmKeyShareHandle) -> Result<WasmRefreshSession, JsValue> {
-        let session = map_err(RefreshSession::new_frost_receiver(&key_share.inner))?;
+    pub fn create_receiver(
+        key_share: &WasmKeyShareHandle,
+        dealer: u16,
+    ) -> Result<WasmRefreshSession, JsValue> {
+        let dealer = map_err(Identifier::new(dealer))?;
+        let session = map_err(RefreshSession::new_frost_receiver(&key_share.inner, dealer))?;
         Ok(WasmRefreshSession {
             inner: Some(session),
         })

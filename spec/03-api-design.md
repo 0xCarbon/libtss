@@ -472,10 +472,12 @@ impl RefreshSession {
     pub fn new(key_share: &KeyShareHandle) -> Result<(Self, Vec<Message>), TssError>;
 
     /// Create a FROST refresh receiver session (non-dealer participant).
-    /// The receiver waits for messages from the dealer refresh and does
-    /// not produce initial messages. Use with `frost_refresh_with_dealer`.
-    /// Returns `TssError::ProtocolMismatch` for DKLs23 key shares.
-    pub fn new_frost_receiver(key_share: &KeyShareHandle) -> Result<Self, TssError>;
+    /// The receiver waits for the message from the trusted `dealer` and does
+    /// not produce initial messages; see 07-key-management.md for the checks.
+    /// Returns `TssError::ProtocolMismatch` for DKLs23 key shares and
+    /// `TssError::InvalidIdentifier` for a dealer outside the group.
+    pub fn new_frost_receiver(key_share: &KeyShareHandle, dealer: Identifier)
+        -> Result<Self, TssError>;
 
     pub fn next(&mut self, received: &[Message]) -> Result<RefreshOutput, TssError>;
     pub fn round(&self) -> u8;

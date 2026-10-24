@@ -228,11 +228,19 @@ export class RefreshSession extends SessionHandle {
 		];
 	}
 
+	/**
+	 * Create a FROST refresh session for a non-dealer participant. `dealer` is
+	 * the identifier of the trusted party that called `create`; `next` accepts
+	 * only the dealer's message addressed to this party and checks the
+	 * refreshed public key package against the current one.
+	 */
 	static async createReceiver(
 		keyShare: KeyShareHandle,
+		dealer: number,
 	): Promise<RefreshSession> {
+		const dealerId = identifier(dealer, "dealer");
 		const handle = await callNative(() =>
-			NativeLibtss.refreshReceiver(keyShare.handle),
+			NativeLibtss.refreshReceiver(keyShare.handle, dealerId),
 		);
 		return new RefreshSession(handle);
 	}

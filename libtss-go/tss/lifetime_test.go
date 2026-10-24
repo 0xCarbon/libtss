@@ -37,7 +37,7 @@ func TestNilArgumentsReturnErrors(t *testing.T) {
 			_, _, err := NewRefreshSessionDKLs(share, []byte("s"))
 			return err
 		},
-		"NewRefreshReceiver": func() error { _, err := NewRefreshReceiver(share); return err },
+		"NewRefreshReceiver": func() error { _, err := NewRefreshReceiver(share, 1); return err },
 		"FrostTweakKeyShare": func() error { _, err := FrostTweakKeyShare(share, nil); return err },
 		"FrostApplyRefresh": func() error {
 			_, err := FrostApplyRefresh(share, []byte{1}, []byte{1})
