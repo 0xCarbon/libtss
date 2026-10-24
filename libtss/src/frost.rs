@@ -202,54 +202,6 @@ fn identifier_from_frost_bytes(suite: Ciphersuite, bytes: &[u8]) -> Result<Ident
     }
 }
 
-fn parse_libtss_pubkey_shares(
-    pkg: &PublicKeyPackage,
-) -> Result<Vec<(Identifier, Vec<u8>)>, TssError> {
-    let bytes = pkg.serialize()?;
-    if bytes.len() < 9 {
-        return Err(TssError::DeserializeFailed(
-            "public key package too short".into(),
-        ));
-    }
-
-    let vk_len = u32::from_le_bytes([bytes[3], bytes[4], bytes[5], bytes[6]]) as usize;
-    let mut pos = 7 + vk_len;
-    if pos + 2 > bytes.len() {
-        return Err(TssError::DeserializeFailed(
-            "truncated public key package".into(),
-        ));
-    }
-
-    let share_count = u16::from_le_bytes([bytes[pos], bytes[pos + 1]]) as usize;
-    pos += 2;
-
-    let mut shares = Vec::with_capacity(share_count);
-    for _ in 0..share_count {
-        if pos + 6 > bytes.len() {
-            return Err(TssError::DeserializeFailed(
-                "truncated public key share header".into(),
-            ));
-        }
-        let id = Identifier::new(u16::from_le_bytes([bytes[pos], bytes[pos + 1]]))?;
-        let len = u32::from_le_bytes([
-            bytes[pos + 2],
-            bytes[pos + 3],
-            bytes[pos + 4],
-            bytes[pos + 5],
-        ]) as usize;
-        pos += 6;
-        if pos + len > bytes.len() {
-            return Err(TssError::DeserializeFailed(
-                "truncated public key share".into(),
-            ));
-        }
-        shares.push((id, bytes[pos..pos + len].to_vec()));
-        pos += len;
-    }
-
-    Ok(shares)
-}
-
 fn message_map<C, T, F>(
     messages: &[Message],
     mut deserialize: F,
@@ -285,7 +237,7 @@ fn to_frost_id<C: frost_core::Ciphersuite>(
     frost_core::Identifier::<C>::try_from(id.as_u16()).map_err(TssError::from)
 }
 
-fn from_frost_id<C: frost_core::Ciphersuite>(
+pub(crate) fn from_frost_id<C: frost_core::Ciphersuite>(
     suite: Ciphersuite,
     id: frost_core::Identifier<C>,
 ) -> Result<Identifier, TssError> {
@@ -326,10 +278,10 @@ pub(crate) fn libtss_pubkey_to_frost<C: frost_core::Ciphersuite>(
     let verifying_key =
         frost_core::VerifyingKey::<C>::deserialize(pkg.verifying_key()).map_err(TssError::from)?;
     let mut verifying_shares = BTreeMap::new();
-    for (id, share) in parse_libtss_pubkey_shares(pkg)? {
+    for (id, share) in pkg.verifying_shares() {
         verifying_shares.insert(
-            to_frost_id::<C>(id)?,
-            frost_core::keys::VerifyingShare::<C>::deserialize(&share).map_err(TssError::from)?,
+            to_frost_id::<C>(*id)?,
+            frost_core::keys::VerifyingShare::<C>::deserialize(share).map_err(TssError::from)?,
         );
     }
 

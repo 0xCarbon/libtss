@@ -532,8 +532,7 @@ fn describe_frost_key_share<C>(
 where
     C: frost::Ciphersuite,
 {
-    let max_signers = public_keys.max_signers();
-    let identifier = frost_identifier_to_identifier(key_package.identifier(), max_signers)?;
+    let identifier = crate::frost::from_frost_id(suite, *key_package.identifier())?;
     // Derive the verifying share from the signing share (always authoritative).
     // Note: frost-core's refresh_share() updates signing_share but not the cached
     // verifying_share in KeyPackage, so we cannot rely on key_package.verifying_share().
@@ -579,7 +578,7 @@ where
 
     let mut verifying_shares = BTreeMap::new();
     for (frost_identifier, verifying_share) in public_keys.verifying_shares() {
-        let identifier = frost_identifier_to_identifier(frost_identifier, max_signers)?;
+        let identifier = crate::frost::from_frost_id(suite, *frost_identifier)?;
         verifying_shares.insert(
             identifier,
             verifying_share.serialize().map_err(frost_error)?,
@@ -719,22 +718,6 @@ fn describe_dkls_pubkey_r1(
         verifying_shares,
         u16::from(public_keys.threshold()),
     ))
-}
-
-fn frost_identifier_to_identifier<C>(
-    identifier: &frost::Identifier<C>,
-    max_signers: u16,
-) -> Result<Identifier, TssError>
-where
-    C: frost::Ciphersuite,
-{
-    for candidate in 1..=max_signers {
-        let frost_identifier = frost::Identifier::<C>::try_from(candidate).map_err(frost_error)?;
-        if &frost_identifier == identifier {
-            return Identifier::new(candidate);
-        }
-    }
-    Err(TssError::InvalidIdentifier)
 }
 
 /// Serializes secret-bearing `value` with postcard into a buffer allocated

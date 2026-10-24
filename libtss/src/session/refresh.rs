@@ -1,3 +1,5 @@
+use zeroize::Zeroize;
+
 use crate::dkls_refresh::{self, DklsRefreshState};
 use crate::frost::{frost_apply_refresh, frost_refresh_with_dealer};
 use crate::keyshare::{self, KeyShareHandle};
@@ -46,7 +48,7 @@ impl RefreshSession {
         let pubkey_package = key_share.public_key_package().clone();
         let self_id = key_share.identifier();
 
-        let (refresh_data, refreshed_pubkey) =
+        let (mut refresh_data, refreshed_pubkey) =
             frost_refresh_with_dealer(&pubkey_package, participants)?;
 
         // Serialize refreshed pubkey once for bundling into messages
@@ -54,11 +56,12 @@ impl RefreshSession {
 
         // Package refresh data as P2P messages: [pubkey_len:u32 LE][pubkey][refresh_data]
         let mut messages = Vec::with_capacity(refresh_data.len());
-        for (recipient, data) in &refresh_data {
+        for (recipient, data) in refresh_data.iter_mut() {
             let mut msg_data = Vec::with_capacity(4 + pubkey_bytes.len() + data.len());
             msg_data.extend_from_slice(&(pubkey_bytes.len() as u32).to_le_bytes());
             msg_data.extend_from_slice(&pubkey_bytes);
             msg_data.extend_from_slice(data);
+            data.zeroize();
             messages.push(Message {
                 from: self_id,
                 to: Some(*recipient),
@@ -189,14 +192,15 @@ impl RefreshSession {
                         "refresh message too short for length prefix".into(),
                     )
                 })?;
-                let pubkey_len = u32::from_le_bytes(len_bytes) as usize;
-                if msg.data.len() < 4 + pubkey_len {
-                    return Err(TssError::DeserializeFailed(
-                        "refresh message truncated".into(),
-                    ));
-                }
-                let pubkey_package = PublicKeyPackage::deserialize(&msg.data[4..4 + pubkey_len])?;
-                let refresh_data = &msg.data[4 + pubkey_len..];
+                let body = &msg.data[4..];
+                let pubkey_len = usize::try_from(u32::from_le_bytes(len_bytes))
+                    .ok()
+                    .filter(|&len| len <= body.len())
+                    .ok_or_else(|| {
+                        TssError::DeserializeFailed("refresh message truncated".into())
+                    })?;
+                let (pubkey_bytes, refresh_data) = body.split_at(pubkey_len);
+                let pubkey_package = PublicKeyPackage::deserialize(pubkey_bytes)?;
 
                 let refreshed = frost_apply_refresh(&key_share, refresh_data)?;
                 let registry_handle = keyshare::from_frost_dkg(refreshed, &pubkey_package)?;
@@ -326,6 +330,89 @@ mod tests {
         let sig = frost_aggregate(message, &commitments, &[share0, share1], &refreshed[0].1)?;
         assert_eq!(sig.protocol(), Protocol::Frost);
 
+        Ok(())
+    }
+
+    #[test]
+    fn frost_subset_refresh_then_sign() -> Result<(), TssError> {
+        let config = ThresholdConfig {
+            min_signers: 2,
+            max_signers: 3,
+            suite: Ciphersuite::Ed25519,
+        };
+        let (frost_shares, pubkey) = frost_generate_with_dealer(&config)?;
+        let key_shares = frost_shares
+            .into_iter()
+            .map(|share| keyshare::from_frost_dkg(share, &pubkey))
+            .collect::<Result<Vec<_>, _>>()?;
+
+        // Refresh only parties 1 and 3 (a sparse identifier set).
+        let subset = [id(1), id(3)];
+        let (_dealer, dealer_messages) = RefreshSession::new_frost(&key_shares[0], &subset)?;
+        assert_eq!(dealer_messages.len(), 2);
+
+        let mut refreshed = Vec::new();
+        for ks in key_shares.iter().filter(|ks| subset.contains(&ks.identifier())) {
+            let mut session = RefreshSession::new_frost_receiver(ks)?;
+            let mine: Vec<_> = dealer_messages
+                .iter()
+                .filter(|m| m.to == Some(ks.identifier()))
+                .cloned()
+                .collect();
+            match session.next(&mine)? {
+                RefreshOutput::Complete {
+                    key_share,
+                    public_keys,
+                } => {
+                    assert_eq!(key_share.identifier(), ks.identifier());
+                    assert!(public_keys.verifying_share(id(3)).is_some());
+                    refreshed.push((key_share, public_keys));
+                }
+                _ => panic!("expected Complete"),
+            }
+        }
+
+        let message = b"subset-refresh-sign";
+        let key1 = keyshare::to_frost_handle(&refreshed[0].0)?;
+        let key3 = keyshare::to_frost_handle(&refreshed[1].0)?;
+        let (nonce1, comm1) = frost_commit(&key1)?;
+        let (nonce3, comm3) = frost_commit(&key3)?;
+        let commitments = vec![comm1, comm3];
+        let share1 = frost_sign(&key1, nonce1, &commitments, message)?;
+        let share3 = frost_sign(&key3, nonce3, &commitments, message)?;
+        let sig = frost_aggregate(message, &commitments, &[share1, share3], &refreshed[0].1)?;
+        assert!(crate::verify(
+            Ciphersuite::Ed25519,
+            message,
+            sig.as_bytes(),
+            pubkey.verifying_key()
+        )?);
+        Ok(())
+    }
+
+    #[test]
+    fn frost_refresh_rejects_max_length_prefix() -> Result<(), TssError> {
+        let config = ThresholdConfig {
+            min_signers: 2,
+            max_signers: 3,
+            suite: Ciphersuite::Ed25519,
+        };
+        let (frost_shares, pubkey) = frost_generate_with_dealer(&config)?;
+        let ks = keyshare::from_frost_dkg(frost_shares.into_iter().next().unwrap(), &pubkey)?;
+        for prefix in [u32::MAX, u32::MAX - 3, 5] {
+            let mut session = RefreshSession::new_frost_receiver(&ks)?;
+            let mut data = prefix.to_le_bytes().to_vec();
+            data.extend_from_slice(&[0u8; 4]);
+            let message = Message {
+                from: id(2),
+                to: Some(ks.identifier()),
+                data,
+            };
+            assert!(matches!(
+                session.next(&[message]),
+                Err(TssError::DeserializeFailed(_))
+            ));
+        }
         Ok(())
     }
 }
