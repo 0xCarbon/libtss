@@ -25,6 +25,8 @@ public sealed class KeyShareHandle : IDisposable
 
     /// <summary>
     /// The raw native handle value. For internal use by session constructors.
+    /// Callers must call <c>GC.KeepAlive</c> on this object after the native
+    /// call that uses the value, or the finalizer may free the handle first.
     /// </summary>
     internal ulong Handle
     {
@@ -45,6 +47,7 @@ public sealed class KeyShareHandle : IDisposable
             ThrowIfDisposed();
             ushort id;
             int status = Native.tss_handle_identifier(_handle, &id);
+            GC.KeepAlive(this);
             TssException.ThrowIfError(status);
             return id;
         }
@@ -59,6 +62,7 @@ public sealed class KeyShareHandle : IDisposable
         {
             ThrowIfDisposed();
             byte raw = Native.tss_handle_ciphersuite(_handle);
+            GC.KeepAlive(this);
             return (Ciphersuite)raw;
         }
     }
@@ -76,12 +80,13 @@ public sealed class KeyShareHandle : IDisposable
         get
         {
             ThrowIfDisposed();
-            var buf = new NativeTssBuffer();
+            using var buf = new NativeTssBuffer();
             int status;
             fixed (TssBuffer* p = &buf.Raw)
             {
                 status = Native.tss_handle_group_key(_handle, p);
             }
+            GC.KeepAlive(this);
             TssException.ThrowIfError(status);
             return buf.ToArray();
         }
@@ -109,12 +114,13 @@ public sealed class KeyShareHandle : IDisposable
         get
         {
             ThrowIfDisposed();
-            var buf = new NativeTssBuffer();
+            using var buf = new NativeTssBuffer();
             int status;
             fixed (TssBuffer* p = &buf.Raw)
             {
                 status = Native.tss_handle_chain_code(_handle, p);
             }
+            GC.KeepAlive(this);
             TssException.ThrowIfError(status);
             return buf.ToArray();
         }
@@ -128,12 +134,13 @@ public sealed class KeyShareHandle : IDisposable
         get
         {
             ThrowIfDisposed();
-            var buf = new NativeTssBuffer();
+            using var buf = new NativeTssBuffer();
             int status;
             fixed (TssBuffer* p = &buf.Raw)
             {
                 status = Native.tss_handle_verifying_share(_handle, p);
             }
+            GC.KeepAlive(this);
             TssException.ThrowIfError(status);
             return buf.ToArray();
         }
@@ -147,12 +154,13 @@ public sealed class KeyShareHandle : IDisposable
         get
         {
             ThrowIfDisposed();
-            var buf = new NativeTssBuffer();
+            using var buf = new NativeTssBuffer();
             int status;
             fixed (TssBuffer* p = &buf.Raw)
             {
                 status = Native.tss_handle_pubkey_package(_handle, p);
             }
+            GC.KeepAlive(this);
             TssException.ThrowIfError(status);
             return buf.ToArray();
         }
@@ -170,12 +178,13 @@ public sealed class KeyShareHandle : IDisposable
     public unsafe byte[] Export()
     {
         ThrowIfDisposed();
-        var buf = new NativeTssBuffer();
+        using var buf = new NativeTssBuffer();
         int status;
         fixed (TssBuffer* p = &buf.Raw)
         {
             status = Native.tss_handle_export(_handle, p);
         }
+        GC.KeepAlive(this);
         TssException.ThrowIfError(status);
         return buf.ToArray();
     }
@@ -189,6 +198,7 @@ public sealed class KeyShareHandle : IDisposable
         ThrowIfDisposed();
         TssBuffer buf = default;
         int status = Native.tss_handle_export(_handle, &buf);
+        GC.KeepAlive(this);
         TssException.ThrowIfError(status);
 
         if (buf.Data == null || buf.Len == 0)
@@ -226,6 +236,9 @@ public sealed class KeyShareHandle : IDisposable
         ulong handle;
         int status = Native.tss_handle_import(
             (byte*)data.DangerousGetPtr(), (nuint)data.Length, (byte)suite, &handle);
+        // data's finalizer wipes and frees the pointer; keep it reachable
+        // until the native call has returned.
+        GC.KeepAlive(data);
         TssException.ThrowIfError(status);
         return new KeyShareHandle(handle);
     }

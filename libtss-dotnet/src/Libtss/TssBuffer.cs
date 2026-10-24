@@ -91,7 +91,20 @@ internal sealed class NativeTssBuffer : IDisposable
         return result;
     }
 
-    public unsafe void Dispose()
+    public void Dispose()
+    {
+        Free();
+        GC.SuppressFinalize(this);
+    }
+
+    // tss_buffer_free zeroes the contents before freeing, so a buffer that is
+    // never disposed (for example when a call throws) is still wiped.
+    ~NativeTssBuffer()
+    {
+        Free();
+    }
+
+    private unsafe void Free()
     {
         if (_disposed)
             return;

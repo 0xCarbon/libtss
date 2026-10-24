@@ -22,6 +22,7 @@ public static class DeriveOperations
 
         ulong outHandle;
         int status = Native.tss_derive_child(keyShare.Handle, childNumber, &outHandle);
+        GC.KeepAlive(keyShare);
         TssException.ThrowIfError(status);
         return new KeyShareHandle(outHandle);
     }
@@ -43,6 +44,7 @@ public static class DeriveOperations
 
         ulong outHandle;
         int status = Native.tss_derive_path(keyShare.Handle, path, &outHandle);
+        GC.KeepAlive(keyShare);
         TssException.ThrowIfError(status);
         return new KeyShareHandle(outHandle);
     }

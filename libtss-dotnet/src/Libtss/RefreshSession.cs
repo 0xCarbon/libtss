@@ -45,7 +45,7 @@ public sealed class RefreshSession : IDisposable
         ArgumentNullException.ThrowIfNull(participants);
 
         ulong sessionHandle;
-        var outMessages = new NativeTssBuffer();
+        using var outMessages = new NativeTssBuffer();
         int status;
 
         fixed (ushort* pParticipants = participants)
@@ -58,6 +58,7 @@ public sealed class RefreshSession : IDisposable
                 &sessionHandle,
                 pOutMessages);
         }
+        GC.KeepAlive(keyShare);
         TssException.ThrowIfError(status);
 
         byte[] msgBytes = outMessages.ToArray();
@@ -88,7 +89,7 @@ public sealed class RefreshSession : IDisposable
             throw new ArgumentException("sessionId must not be empty", nameof(sessionId));
 
         ulong sessionHandle;
-        var outMessages = new NativeTssBuffer();
+        using var outMessages = new NativeTssBuffer();
         int status;
 
         fixed (byte* pSessionId = sessionId)
@@ -101,6 +102,7 @@ public sealed class RefreshSession : IDisposable
                 &sessionHandle,
                 pOutMessages);
         }
+        GC.KeepAlive(keyShare);
         TssException.ThrowIfError(status);
 
         var messages = MessageCodec.Decode(outMessages.ToArray());
@@ -122,6 +124,7 @@ public sealed class RefreshSession : IDisposable
 
         ulong sessionHandle;
         int status = Native.tss_refresh_receiver(keyShare.Handle, &sessionHandle);
+        GC.KeepAlive(keyShare);
         TssException.ThrowIfError(status);
 
         return new RefreshSession(sessionHandle);
@@ -142,8 +145,8 @@ public sealed class RefreshSession : IDisposable
 
         byte[] encodedInput = MessageCodec.Encode(received);
         ulong outKeyShare;
-        var outPubKeyPkg = new NativeTssBuffer();
-        var outMessages = new NativeTssBuffer();
+        using var outPubKeyPkg = new NativeTssBuffer();
+        using var outMessages = new NativeTssBuffer();
         byte complete;
         int status;
 
@@ -164,6 +167,7 @@ public sealed class RefreshSession : IDisposable
                 pOutMessages,
                 &complete);
         }
+        GC.KeepAlive(this);
         TssException.ThrowIfError(status);
 
         if (complete != 0)

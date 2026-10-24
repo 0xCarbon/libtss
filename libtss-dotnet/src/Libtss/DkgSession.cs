@@ -50,7 +50,7 @@ public sealed class DkgSession : IDisposable
         byte[]? sessionId = null)
     {
         ulong sessionHandle;
-        var outMessages = new NativeTssBuffer();
+        using var outMessages = new NativeTssBuffer();
         int status;
 
         fixed (byte* pSessionId = sessionId)
@@ -89,8 +89,8 @@ public sealed class DkgSession : IDisposable
 
         byte[] encodedInput = MessageCodec.Encode(received);
         ulong outKeyShare;
-        var outPubKeyPkg = new NativeTssBuffer();
-        var outMessages = new NativeTssBuffer();
+        using var outPubKeyPkg = new NativeTssBuffer();
+        using var outMessages = new NativeTssBuffer();
         byte complete;
         int status;
 
@@ -111,6 +111,7 @@ public sealed class DkgSession : IDisposable
                 pOutMessages,
                 &complete);
         }
+        GC.KeepAlive(this);
         TssException.ThrowIfError(status);
 
         if (complete != 0)

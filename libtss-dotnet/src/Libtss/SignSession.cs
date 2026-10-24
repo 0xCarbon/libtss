@@ -59,7 +59,7 @@ public sealed class SignSession : IDisposable
         ArgumentNullException.ThrowIfNull(message);
 
         ulong sessionHandle;
-        var outMessages = new NativeTssBuffer();
+        using var outMessages = new NativeTssBuffer();
         int status;
 
         fixed (byte* pMessage = message)
@@ -83,6 +83,7 @@ public sealed class SignSession : IDisposable
                 &sessionHandle,
                 pOutMessages);
         }
+        GC.KeepAlive(keyShare);
         TssException.ThrowIfError(status);
 
         byte[] msgBytes = outMessages.ToArray();
@@ -105,8 +106,8 @@ public sealed class SignSession : IDisposable
         ArgumentNullException.ThrowIfNull(received);
 
         byte[] encodedInput = MessageCodec.Encode(received);
-        var outSignature = new NativeTssBuffer();
-        var outMessages = new NativeTssBuffer();
+        using var outSignature = new NativeTssBuffer();
+        using var outMessages = new NativeTssBuffer();
         byte complete;
         int status;
 
@@ -126,6 +127,7 @@ public sealed class SignSession : IDisposable
                 pOutMessages,
                 &complete);
         }
+        GC.KeepAlive(this);
         TssException.ThrowIfError(status);
 
         if (complete != 0)
