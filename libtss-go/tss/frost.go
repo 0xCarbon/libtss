@@ -34,10 +34,6 @@ func FrostTweakKeyShare(keyShare *KeyShareHandle, merkleRoot []byte) (*KeyShareH
 	if err := checkNonNil("keyShare", keyShare); err != nil {
 		return nil, err
 	}
-	handle, err := keyShare.native.value()
-	if err != nil {
-		return nil, err
-	}
 	var mrPtr *C.uint8_t
 	var mrLen C.uintptr_t
 	if len(merkleRoot) > 0 {
@@ -45,8 +41,10 @@ func FrostTweakKeyShare(keyShare *KeyShareHandle, merkleRoot []byte) (*KeyShareH
 		mrLen = C.uintptr_t(len(merkleRoot))
 	}
 	var out C.TssHandle
-	if err := callStatus(func() C.TssStatus {
-		return C.tss_frost_tweak_key_share(handle, mrPtr, mrLen, &out)
+	if err := keyShare.use(func(handle C.TssHandle) error {
+		return callStatus(func() C.TssStatus {
+			return C.tss_frost_tweak_key_share(handle, mrPtr, mrLen, &out)
+		})
 	}); err != nil {
 		return nil, err
 	}
@@ -157,17 +155,20 @@ func FrostRefreshDealer(pubkeyPackage []byte, participants []Identifier) (map[Id
 	return shareMap, bufferToBytes(&outPkg), nil
 }
 
+// FrostApplyRefresh applies a trusted-dealer refresh share to keyShare. The
+// refreshed public key package must keep the group key and min_signers, list a
+// subset of the share's current identifiers including this party, and match
+// the refresh share's commitment for every verifying share; otherwise it
+// returns a TssError with code TSS_ERR_INVALID_SHARE.
 func FrostApplyRefresh(keyShare *KeyShareHandle, refreshData, pubkeyPackage []byte) (*KeyShareHandle, error) {
 	if err := checkNonNil("keyShare", keyShare); err != nil {
 		return nil, err
 	}
-	handle, err := keyShare.native.value()
-	if err != nil {
-		return nil, err
-	}
 	var out C.TssHandle
-	if err := callStatus(func() C.TssStatus {
-		return C.tss_frost_apply_refresh(handle, bytesToSlice(refreshData), bytesToSlice(pubkeyPackage), &out)
+	if err := keyShare.use(func(handle C.TssHandle) error {
+		return callStatus(func() C.TssStatus {
+			return C.tss_frost_apply_refresh(handle, bytesToSlice(refreshData), bytesToSlice(pubkeyPackage), &out)
+		})
 	}); err != nil {
 		return nil, err
 	}
@@ -178,29 +179,28 @@ func FrostRepairPart1(keyShare *KeyShareHandle, helpers []Identifier, participan
 	if err := checkNonNil("keyShare", keyShare); err != nil {
 		return nil, err
 	}
-	handle, err := keyShare.native.value()
-	if err != nil {
-		return nil, err
-	}
 	var hPtr *C.uint16_t
 	if len(helpers) > 0 {
 		hPtr = (*C.uint16_t)(unsafe.Pointer(&helpers[0]))
 	}
 	var outDeltas C.struct_TssBuffer
 	var deltaCount C.uintptr_t
-	if err := callStatus(func() C.TssStatus {
-		return C.tss_frost_repair_part1(
-			handle,
-			hPtr,
-			C.uintptr_t(len(helpers)),
-			C.uint16_t(participant),
-			&outDeltas,
-			&deltaCount,
-		)
+	if err := keyShare.use(func(handle C.TssHandle) error {
+		return callStatus(func() C.TssStatus {
+			return C.tss_frost_repair_part1(
+				handle,
+				hPtr,
+				C.uintptr_t(len(helpers)),
+				C.uint16_t(participant),
+				&outDeltas,
+				&deltaCount,
+			)
+		})
 	}); err != nil {
 		return nil, err
 	}
 	blob := bufferToBytes(&outDeltas)
+	defer WipeBytes(blob)
 	return parseTLVBlobs(blob, int(deltaCount))
 }
 

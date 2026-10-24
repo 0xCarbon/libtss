@@ -25,6 +25,7 @@ from libtss import (
     Protocol,
     RefreshSession,
     SignSession,
+    TssAbortError,
     TssError,
     verify,
     version,
@@ -353,6 +354,16 @@ class TestDealerKeygen:
             h.close()
 
 
+    @pytest.mark.parametrize("min_signers", [65538, -65534, 0, 4])
+    def test_split_key_rejects_out_of_range_thresholds_and_wipes_the_secret(
+        self, min_signers
+    ):
+        secret = bytearray(b"\x07" * 32)
+        with pytest.raises(ValueError):
+            frost.split_key(Ciphersuite.ED25519, secret, 3, min_signers)
+        assert secret == bytearray(32)
+
+
 class TestRefresh:
     def test_frost_refresh_preserves_signing(self):
         shares, pkg = run_dkg(Ciphersuite.ED25519, 3, 2)
@@ -367,7 +378,7 @@ class TestRefresh:
         # ALL participants (including dealer) create receiver sessions
         sessions: dict[int, RefreshSession] = {}
         for ks in shares:
-            sessions[ks.identifier] = RefreshSession.create_receiver(ks)
+            sessions[ks.identifier] = RefreshSession.create_receiver(ks, 1)
 
         # Each participant applies refresh with their P2P message from the dealer
         new_shares: list[KeyShareHandle] = []
@@ -394,6 +405,66 @@ class TestRefresh:
             ks.close()
         for ks in new_shares:
             ks.close()
+
+    def test_frost_refresh_receiver_checks_dealer(self):
+        shares, _ = run_dkg(Ciphersuite.ED25519, 3, 2)
+        dealer_session, dealer_msgs = RefreshSession.create_dealer(shares[0], [1, 2, 3])
+        dealer_session.close()
+
+        with pytest.raises(TssError) as excinfo:
+            RefreshSession.create_receiver(shares[1], 9)
+        assert excinfo.value.code == 2  # TSS_ERR_INVALID_ID
+        for bad, error in [(0, ValueError), (-1, ValueError), (65536, ValueError),
+                           (True, TypeError), (1.5, TypeError), ("1", TypeError)]:
+            with pytest.raises(error):
+                RefreshSession.create_receiver(shares[1], bad)
+
+        session = RefreshSession.create_receiver(shares[1], 3)
+        with pytest.raises(TssAbortError) as excinfo:
+            session.next([m for m in dealer_msgs if m.to == 2])
+        assert excinfo.value.culprits == [1]
+        session.close()
+
+        for ks in shares:
+            ks.close()
+
+
+def _swap_verifying_shares(package: bytes, a: int, b: int) -> bytes:
+    """Swap two verifying shares in a serialized public key package."""
+    import struct
+
+    pos = 3
+    (vk_len,) = struct.unpack_from("<I", package, pos)
+    pos += 4 + vk_len
+    (count,) = struct.unpack_from("<H", package, pos)
+    head = package[: pos + 2]
+    pos += 2
+    shares = []
+    for _ in range(count):
+        ident, length = struct.unpack_from("<HI", package, pos)
+        pos += 6
+        shares.append([ident, package[pos : pos + length]])
+        pos += length
+    index = {ident: i for i, (ident, _) in enumerate(shares)}
+    shares[index[a]][1], shares[index[b]][1] = shares[index[b]][1], shares[index[a]][1]
+    body = b"".join(struct.pack("<HI", i, len(v)) + v for i, v in shares)
+    return head + body
+
+
+class TestDealerRefresh:
+    def test_apply_refresh_checks_the_whole_package(self):
+        handles, pkg = frost.generate_dealer(Ciphersuite.ED25519, 3, 2)
+        shares, new_pkg = frost.refresh_dealer(pkg, [1, 2, 3])
+        tampered = _swap_verifying_shares(new_pkg, 2, 3)
+        assert tampered != new_pkg
+        with pytest.raises(TssError) as excinfo:
+            frost.apply_refresh(handles[0], shares[1], tampered)
+        assert excinfo.value.code == 3  # TSS_ERR_INVALID_SHARE
+        refreshed = frost.apply_refresh(handles[0], shares[1], new_pkg)
+        assert refreshed.group_verifying_key == handles[0].group_verifying_key
+        refreshed.close()
+        for h in handles:
+            h.close()
 
 
 class TestErrors:

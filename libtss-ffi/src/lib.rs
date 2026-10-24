@@ -11,6 +11,7 @@ pub mod memory;
 pub mod messages;
 pub mod registry;
 pub mod session;
+pub mod sign_recoverable;
 pub mod types;
 
 #[macro_export]
@@ -38,6 +39,9 @@ pub extern "C" fn tss_version() -> *const libc::c_char {
     concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr().cast()
 }
 
+/// Verify a signature. Works for both FROST (Schnorr) and DKLs23 (ECDSA).
+///
+/// Returns `false` if any slice has a null pointer with a non-zero length.
 #[no_mangle]
 pub extern "C" fn tss_verify(
     suite: u8,
@@ -51,22 +55,13 @@ pub extern "C" fn tss_verify(
             Err(_) => return false,
         };
 
-        let message_slice = if message.data.is_null() || message.len == 0 {
-            &[]
-        } else {
-            unsafe { std::slice::from_raw_parts(message.data, message.len) }
-        };
-
-        let signature_slice = if signature.data.is_null() || signature.len == 0 {
-            &[]
-        } else {
-            unsafe { std::slice::from_raw_parts(signature.data, signature.len) }
-        };
-
-        let public_key_slice = if public_key.data.is_null() || public_key.len == 0 {
-            &[]
-        } else {
-            unsafe { std::slice::from_raw_parts(public_key.data, public_key.len) }
+        // A null pointer with a non-zero length is rejected, never read as empty.
+        let (Ok(message_slice), Ok(signature_slice), Ok(public_key_slice)) = (
+            messages::checked_slice(message),
+            messages::checked_slice(signature),
+            messages::checked_slice(public_key),
+        ) else {
+            return false;
         };
 
         libtss::verify(suite, message_slice, signature_slice, public_key_slice).unwrap_or(false)

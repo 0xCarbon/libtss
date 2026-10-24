@@ -155,7 +155,7 @@ fn derive_frost_taproot_child(
     let tweak_point = frost_tr::Secp256K1Group::generator() * tweak;
 
     // Tweak signing share
-    let signing_share_bytes = key_package.signing_share().serialize();
+    let signing_share_bytes = zeroize::Zeroizing::new(key_package.signing_share().serialize());
     let signing_share_scalar = frost_tr::Secp256K1ScalarField::deserialize(
         &<[u8; 32]>::try_from(signing_share_bytes.as_slice()).unwrap(),
     )

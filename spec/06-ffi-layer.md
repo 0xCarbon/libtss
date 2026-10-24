@@ -249,7 +249,7 @@ uint16_t tss_abort_banned_party(void);
 // --- Memory ---
 void tss_buffer_free(TssBuffer *buf);
 void tss_handle_free(TssHandle handle);
-void tss_session_free(TssHandle session);
+void tss_session_free(TssHandle session);  // honored after a concurrent *_next returns
 
 // --- Handle Queries ---
 TssStatus tss_handle_identifier(TssHandle handle, uint16_t *out_id);
@@ -342,10 +342,11 @@ TssStatus tss_refresh_new_dkls(
 );
 
 /// Create a FROST refresh receiver session (non-dealer participant).
-/// The receiver waits for messages from the dealer refresh and does
-/// not produce initial messages. Use with tss_frost_refresh_dealer.
+/// The receiver waits for the message from the trusted `dealer` (the party
+/// that called tss_refresh_new) and does not produce initial messages.
 TssStatus tss_refresh_receiver(
     TssHandle key_share,
+    uint16_t dealer,
     TssHandle *out_session
 );
 
@@ -367,6 +368,8 @@ TssStatus tss_refresh_next(
 
 /// Aggregate FROST signature shares into a final Schnorr signature.
 /// commitments/shares: concatenated Message buffers from signers' rounds 1/2.
+/// `suite` must be a FROST suite equal to the package's suite; otherwise
+/// TSS_ERR_PROTO_MISMATCH is returned.
 TssStatus tss_frost_aggregate(
     uint8_t suite, TssSlice message,
     TssSlice commitments,
@@ -402,6 +405,13 @@ TssStatus tss_frost_split_key(
     TssHandle *out_handles, size_t *out_handle_count,
     TssBuffer *out_pubkey_package
 );
+
+// --- DKLs23 Share Repair ---
+
+TssStatus tss_repair_helper_term(TssHandle key_share, const uint16_t *helpers, size_t helpers_len,
+                                 uint16_t target, TssSlice repair_id, TssBuffer *out_messages);
+TssStatus tss_repair_assemble(uint8_t suite, TssSlice pubkey_package, uint16_t target,
+                              TssSlice messages, TssHandle *out_handle);
 
 // --- DKLs23 Key Import (trusted dealer) ---
 
@@ -456,6 +466,7 @@ TssStatus tss_frost_repair_part3(
 // ============================================================
 
 /// Verify a signature. Works for both FROST (Schnorr) and DKLs23 (ECDSA).
+/// Returns false if any slice has a null pointer with a non-zero length.
 bool tss_verify(uint8_t suite, TssSlice message, TssSlice signature, TssSlice public_key);
 
 TssStatus tss_derive_child(TssHandle key_share, uint32_t child_number, TssHandle *out);
@@ -489,11 +500,11 @@ const char* tss_version(void);
 | Unified sessions | 9 | dkg (2) + sign (2) + refresh (2) + refresh_new_dkls (1) + refresh_receiver (1) + session_free (1) |
 | Message helpers | 3 | count, at, build |
 | FROST-specific | 9 | aggregate, tweak (2), dealer (2), refresh (2), repair (3) |
-| DKLs23-specific | 5 | dkls_split_key, bolt3 (4) |
+| DKLs23-specific | 7 | dkls_split_key, bolt3 (4), repair (2) |
 | Verification + key mgmt | 5 | verify, derive (2), export, import |
 | Handle + memory | 10 | handle queries (6, incl. chain_code) + handle_free + buffer_free + session_free + version |
 | Error | 6 | last_error, last_error_len, last_error_copy, culprit_count, culprit, banned_party |
-| **Total** | **~48** | **Core unified path: 11 functions (sessions + messages)** |
+| **Total** | **~50** | **Core unified path: 11 functions (sessions + messages)** |
 
 The core DKG + signing workflow uses only 7 functions: `tss_dkg_new`, `tss_dkg_next`,
 `tss_sign_new`, `tss_sign_next`, `tss_message_count`, `tss_message_at`, `tss_message_build`.
@@ -660,15 +671,21 @@ pub struct TssSlice {
 }
 
 impl TssSlice {
-    pub unsafe fn as_slice(&self) -> &[u8] {
-        if self.data.is_null() || self.len == 0 {
-            &[]
+    /// `None` for a null pointer with a non-zero length.
+    pub unsafe fn as_slice(&self) -> Option<&[u8]> {
+        if self.data.is_null() {
+            (self.len == 0).then_some(&[][..])
         } else {
-            std::slice::from_raw_parts(self.data, self.len)
+            Some(std::slice::from_raw_parts(self.data, self.len))
         }
     }
 }
 ```
+
+Every C API entry point treats `{data = NULL, len = 0}` as empty input and
+rejects `{data = NULL, len > 0}` (and the same for pointer/count array pairs)
+with `TSS_ERR_INVALID_CONFIG`, or `false` from `tss_verify`. A null pointer is
+never read as an empty input when its length is non-zero.
 
 ### Thread-Local Error Storage
 
@@ -797,8 +814,8 @@ frost-ed25519 = "3.0.0"
 frost-p256 = "3.0.0"
 frost-ristretto255 = "3.0.0"
 frost-ed448 = "3.0.0"
-dkls23-secp256k1 = { version = "0.6.1", features = ["serde"] }
-dkls23-secp256r1 = { version = "0.6.1", features = ["serde"] }
+dkls23-secp256k1 = { version = "0.6.2", features = ["serde"] }
+dkls23-secp256r1 = { version = "0.6.2", features = ["serde"] }
 zeroize = { version = "1", features = ["derive"] }
 ```
 

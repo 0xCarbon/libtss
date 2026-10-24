@@ -8,6 +8,10 @@ from libtss._ffi import (
     TssBuffer,
     buffer_to_bytes,
     get_lib,
+    check_identifier,
+    check_u8,
+    check_u16,
+    identifier_array,
     make_slice,
     wipe_ctypes_array,
 )
@@ -39,18 +43,17 @@ def split_key(
     """
     sl = None
     try:
-        if (
-            not isinstance(min_signers, int)
-            or not isinstance(max_signers, int)
-            or not 2 <= min_signers <= max_signers <= 255
-        ):
+        suite = check_u8(suite, "suite")
+        max_signers = check_u16(max_signers, "max_signers")
+        min_signers = check_u16(min_signers, "min_signers")
+        if not 2 <= min_signers <= max_signers <= 255:
             raise ValueError("DKLs23 requires 2 <= min_signers <= max_signers <= 255")
         handles_arr = (ctypes.c_uint64 * max_signers)()
         handle_count = ctypes.c_size_t()
         out_pkg = TssBuffer()
         sl = make_slice(secret_key)
         status = get_lib().tss_dkls_split_key(
-            int(suite), sl, make_slice(chain_code), max_signers, min_signers,
+            suite, sl, make_slice(chain_code), max_signers, min_signers,
             handles_arr, ctypes.byref(handle_count), ctypes.byref(out_pkg),
         )
         check_status(status)
@@ -123,3 +126,56 @@ def bolt3_derive_revocation_public_keys(
         make_slice(public_keys), make_slice(per_commitment_point), ctypes.byref(out),
     ))
     return buffer_to_bytes(out)
+
+
+def repair_helper_term(
+    key_share: KeyShareHandle,
+    helpers: list[int],
+    target: int,
+    repair_id: bytes,
+) -> list:
+    """This helper's DKLs23 repair term for ``target``, as messages to send to
+    the target only, over a confidential, authenticated channel.
+
+    ``helpers`` lists the helper identifiers (no duplicates, at least
+    ``min_signers``, including this party, not the target); every helper uses
+    the same list and ``repair_id``. The helpers must authenticate the target:
+    repair hands index ``target``'s share to whoever receives the terms.
+    """
+    from libtss import message as _msg
+
+    if not helpers:
+        raise ValueError("helpers must not be empty")
+    arr = identifier_array(helpers, "helper")
+    target = check_identifier(target, "target")
+    out = TssBuffer()
+    check_status(get_lib().tss_repair_helper_term(
+        key_share.raw, arr, len(helpers), target, make_slice(repair_id),
+        ctypes.byref(out),
+    ))
+    return _msg.decode(buffer_to_bytes(out))
+
+
+def repair_assemble(
+    suite: Ciphersuite,
+    public_keys: bytes,
+    target: int,
+    messages: list,
+) -> KeyShareHandle:
+    """Assembles the helpers' repair messages into the target's repaired
+    DKLs23 share. Each message's ``sender`` must be its authenticated sender.
+    The share cannot sign until all parties run
+    :meth:`RefreshSession.create_dkls`."""
+    from libtss import message as _msg
+
+    suite = check_u8(suite, "suite")
+    target = check_identifier(target, "target")
+    out = ctypes.c_uint64()
+    blob = make_slice(_msg.encode(messages))
+    try:
+        check_status(get_lib().tss_repair_assemble(
+            suite, make_slice(public_keys), target, blob, ctypes.byref(out),
+        ))
+    finally:
+        wipe_ctypes_array(getattr(blob, "_backing", None))
+    return KeyShareHandle(out.value)

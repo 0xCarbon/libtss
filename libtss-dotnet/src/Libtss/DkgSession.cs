@@ -22,12 +22,13 @@ public sealed record DkgResult(
 /// </remarks>
 public sealed class DkgSession : IDisposable
 {
-    private ulong _handle;
-    private int _disposed;
+    private static readonly Action<ulong> FreeSession = Native.tss_session_free;
+
+    private readonly NativeRef _native;
 
     private DkgSession(ulong handle)
     {
-        _handle = handle;
+        _native = new NativeRef(handle, FreeSession);
     }
 
     /// <summary>
@@ -50,7 +51,7 @@ public sealed class DkgSession : IDisposable
         byte[]? sessionId = null)
     {
         ulong sessionHandle;
-        var outMessages = new NativeTssBuffer();
+        using var outMessages = new NativeTssBuffer();
         int status;
 
         fixed (byte* pSessionId = sessionId)
@@ -68,10 +69,16 @@ public sealed class DkgSession : IDisposable
         }
         TssException.ThrowIfError(status);
 
-        byte[] msgBytes = outMessages.ToArray();
-        var messages = MessageCodec.Decode(msgBytes);
-
-        return (new DkgSession(sessionHandle), messages);
+        var session = new DkgSession(sessionHandle);
+        try
+        {
+            return (session, MessageCodec.DecodeAndWipe(outMessages.ToArray()));
+        }
+        catch
+        {
+            session.Dispose();
+            throw;
+        }
     }
 
     /// <summary>
@@ -84,56 +91,72 @@ public sealed class DkgSession : IDisposable
     /// </returns>
     public unsafe DkgResult Next(Message[] received)
     {
-        ThrowIfDisposed();
+        ObjectDisposedException.ThrowIf(_native.IsDisposed, this);
         ArgumentNullException.ThrowIfNull(received);
 
         byte[] encodedInput = MessageCodec.Encode(received);
         ulong outKeyShare;
-        var outPubKeyPkg = new NativeTssBuffer();
-        var outMessages = new NativeTssBuffer();
+        using var outPubKeyPkg = new NativeTssBuffer();
+        using var outMessages = new NativeTssBuffer();
         byte complete;
         int status;
 
-        fixed (byte* pInput = encodedInput)
-        fixed (TssBuffer* pPubKeyPkg = &outPubKeyPkg.Raw)
-        fixed (TssBuffer* pOutMessages = &outMessages.Raw)
+        try
         {
-            var inputSlice = new TssSlice
+            using var lease = _native.Acquire(nameof(DkgSession));
+            fixed (byte* pInput = encodedInput)
+            fixed (TssBuffer* pPubKeyPkg = &outPubKeyPkg.Raw)
+            fixed (TssBuffer* pOutMessages = &outMessages.Raw)
             {
-                Data = pInput,
-                Len = (nuint)encodedInput.Length
-            };
-            status = Native.tss_dkg_next(
-                _handle,
-                inputSlice,
-                &outKeyShare,
-                pPubKeyPkg,
-                pOutMessages,
-                &complete);
+                var inputSlice = new TssSlice
+                {
+                    Data = pInput,
+                    Len = (nuint)encodedInput.Length
+                };
+                status = Native.tss_dkg_next(
+                    lease.Value,
+                    inputSlice,
+                    &outKeyShare,
+                    pPubKeyPkg,
+                    pOutMessages,
+                    &complete);
+            }
+            TssException.ThrowIfError(status);
         }
-        TssException.ThrowIfError(status);
+        finally
+        {
+            Tss.WipeBytes(encodedInput);
+        }
 
         if (complete != 0)
         {
-            byte[] pubKeyPkgBytes = outPubKeyPkg.ToArray();
-            outMessages.Dispose();
-
-            // Session is consumed on completion; prevent double-free.
-            Interlocked.Exchange(ref _disposed, 1);
-            _handle = 0;
+            // The native session is consumed on completion; take ownership of
+            // the new key share before anything else can throw.
+            _native.MarkConsumed();
             GC.SuppressFinalize(this);
+            var keyShare = new KeyShareHandle(outKeyShare);
+            byte[] pubKeyPkgBytes;
+            try
+            {
+                pubKeyPkgBytes = outPubKeyPkg.ToArray();
+                outMessages.Dispose();
+            }
+            catch
+            {
+                keyShare.Dispose();
+                throw;
+            }
 
             return new DkgResult(
                 Complete: true,
                 Messages: null,
-                KeyShare: new KeyShareHandle(outKeyShare),
+                KeyShare: keyShare,
                 PublicKeyPackage: pubKeyPkgBytes);
         }
         else
         {
             outPubKeyPkg.Dispose();
-            byte[] msgBytes = outMessages.ToArray();
-            var messages = MessageCodec.Decode(msgBytes);
+            var messages = MessageCodec.DecodeAndWipe(outMessages.ToArray());
 
             return new DkgResult(
                 Complete: false,
@@ -143,30 +166,19 @@ public sealed class DkgSession : IDisposable
         }
     }
 
-    private void ThrowIfDisposed()
-    {
-        ObjectDisposedException.ThrowIf(_disposed != 0, this);
-    }
-
     /// <summary>
-    /// Frees the native session handle.
+    /// Frees the native session handle. Idempotent; when <see cref="Next"/> is
+    /// in flight on another thread, the session is freed as soon as that call
+    /// returns.
     /// </summary>
     public void Dispose()
     {
-        if (Interlocked.CompareExchange(ref _disposed, 1, 0) != 0)
-            return;
-
-        Native.tss_session_free(_handle);
-        _handle = 0;
+        _native.Dispose();
         GC.SuppressFinalize(this);
     }
 
     ~DkgSession()
     {
-        if (Interlocked.CompareExchange(ref _disposed, 1, 0) == 0)
-        {
-            Native.tss_session_free(_handle);
-            _handle = 0;
-        }
+        _native.Dispose();
     }
 }

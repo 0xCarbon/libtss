@@ -12,16 +12,18 @@ use dkls23_secp256k1::protocols::dkg::{
     KeepInitMulPhase3to4, KeepInitZeroSharePhase2to3, KeepInitZeroSharePhase3to4, ProofCommitment,
     TransmitInitMulPhase3to4, TransmitInitZeroSharePhase2to4, TransmitInitZeroSharePhase3to4,
 };
-use dkls23_secp256k1::protocols::messages::{PhaseInput, PhaseOutput};
 use dkls23_secp256k1::protocols::{Party, PartyIndex, PublicKeyPackage};
-use k256::elliptic_curve::ff::{Field, PrimeField};
+use k256::elliptic_curve::ff::Field;
 use k256::elliptic_curve::group::{Curve, Group};
 use zeroize::Zeroize;
 
 use crate::dkls::{
-    abort_to_error, identifier_to_party_index, identifier_to_session_party_index, message_error,
-    messages_to_phase_input, party_index_to_identifier, phase_input_broadcast, phase_input_p2p,
-    phase_output_to_messages,
+    abort_to_error, check_parties, check_sender_index, identifier_to_party_index,
+    identifier_to_session_party_index, message_error, messages_to_phase_input, other_parties,
+    party_index_to_identifier, phase_input_broadcast, phase_input_p2p,
+};
+use crate::dkls_messages::{
+    scalar_from_message, scalar_to_message, Outgoing, SecretInput, SecretScalars,
 };
 use crate::error::TssError;
 use crate::message::Message;
@@ -59,7 +61,7 @@ pub struct DklsRefreshState<C: RefreshCurve> {
     zero_kept_2to3: Option<BTreeMap<PartyIndex, KeepInitZeroSharePhase2to3>>,
     zero_kept_3to4: Option<BTreeMap<PartyIndex, KeepInitZeroSharePhase3to4>>,
     mul_kept_3to4: Option<BTreeMap<PartyIndex, KeepInitMulPhase3to4<C>>>,
-    phase2_input: Option<PhaseInput>,
+    phase2_input: Option<SecretInput>,
 }
 
 impl<C: RefreshCurve> Drop for DklsRefreshState<C> {
@@ -90,40 +92,11 @@ impl<C: RefreshCurve> Drop for DklsRefreshState<C> {
     }
 }
 
-/// Secret scalars wiped on every exit path.
-struct SecretScalars<S: Zeroize>(Vec<S>);
-
-impl<S: Zeroize> Drop for SecretScalars<S> {
-    fn drop(&mut self) {
-        self.0.iter_mut().for_each(Zeroize::zeroize);
-    }
-}
-
 fn zeroize_zero_kept_2to3(kept: &mut BTreeMap<PartyIndex, KeepInitZeroSharePhase2to3>) {
     for value in kept.values_mut() {
         value.seed.zeroize();
         value.salt.zeroize();
     }
-}
-
-fn scalar_to_message<C: DklsCurve>(scalar: &C::Scalar) -> Vec<u8> {
-    let repr = scalar.to_repr();
-    let bytes: &[u8] = repr.as_ref();
-    bytes.to_vec()
-}
-
-fn scalar_from_message<C: DklsCurve>(data: &[u8]) -> Result<C::Scalar, TssError> {
-    let mut repr = <C::Scalar as PrimeField>::Repr::default();
-    let expected_len = AsRef::<[u8]>::as_ref(&repr).len();
-    if data.len() != expected_len {
-        return Err(TssError::DeserializeFailed(
-            "invalid scalar fragment length".into(),
-        ));
-    }
-    AsMut::<[u8]>::as_mut(&mut repr).copy_from_slice(data);
-    let scalar = Option::<C::Scalar>::from(C::Scalar::from_repr(repr));
-    AsMut::<[u8]>::as_mut(&mut repr).zeroize();
-    scalar.ok_or_else(|| TssError::DeserializeFailed("invalid scalar fragment encoding".into()))
 }
 
 /// Start a complete refresh of `party`, producing the round-1 fragments.
@@ -204,12 +177,10 @@ pub fn phase2<C: RefreshCurve>(
     let mut seen = vec![false; usize::from(state.share_count)];
     seen[self_position] = true;
     for message in received {
-        if message.to != Some(state.self_id) {
+        let Some(sender) = crate::dkls::fragment_sender(message, state.self_id, state.share_count)?
+        else {
             continue;
-        }
-        let sender = usize::from(
-            identifier_to_session_party_index(message.from, state.share_count)?.as_u8() - 1,
-        );
+        };
         if seen[sender] {
             return Err(TssError::DeserializeFailed(
                 "duplicate refresh fragment from sender".into(),
@@ -229,7 +200,7 @@ pub fn phase2<C: RefreshCurve>(
         .refresh_complete_phase2(&state.refresh_sid, &fragments.0);
     drop(fragments);
 
-    let mut output = PhaseOutput::new();
+    let mut output = Outgoing::new();
     output
         .add_broadcast(&proof_commitment)
         .map_err(message_error)?;
@@ -243,14 +214,19 @@ pub fn phase2<C: RefreshCurve>(
     state.self_proof_commitment = Some(proof_commitment);
     state.zero_kept_2to3 = Some(zero_kept);
 
-    phase_output_to_messages(&output, state.self_id)
+    output.into_messages(state.self_id)
 }
 
 pub fn phase3<C: RefreshCurve>(
     state: &mut DklsRefreshState<C>,
     received: &[Message],
 ) -> Result<Vec<Message>, TssError> {
-    let phase2_input = messages_to_phase_input(received, state.self_id)?;
+    let self_index = identifier_to_session_party_index(state.self_id, state.share_count)?;
+    let phase2_input = messages_to_phase_input(
+        received,
+        state.self_id,
+        &other_parties(state.share_count, self_index),
+    )?;
     let mut zero_kept_2to3 = state
         .zero_kept_2to3
         .take()
@@ -260,7 +236,7 @@ pub fn phase3<C: RefreshCurve>(
         .refresh_complete_phase3(&state.refresh_sid, &zero_kept_2to3);
     zeroize_zero_kept_2to3(&mut zero_kept_2to3);
 
-    let mut output = PhaseOutput::new();
+    let mut output = Outgoing::new();
     for message in &zero_transmit {
         output
             .add_p2p(message.parties.receiver.as_u8(), message)
@@ -276,7 +252,7 @@ pub fn phase3<C: RefreshCurve>(
     state.zero_kept_3to4 = Some(zero_kept_3to4);
     state.mul_kept_3to4 = Some(mul_kept);
 
-    phase_output_to_messages(&output, state.self_id)
+    output.into_messages(state.self_id)
 }
 
 /// Finish the refresh: verify every party's commitment, rebuild the OT and
@@ -291,8 +267,12 @@ pub fn phase4<C: RefreshCurve>(
     received: &[Message],
 ) -> Result<(Party<C>, PublicKeyPackage<C>), TssError> {
     let phase2_input = state.phase2_input.take().ok_or(TssError::SessionComplete)?;
-    let phase3_input = messages_to_phase_input(received, state.self_id)?;
     let self_index = identifier_to_party_index(state.self_id)?;
+    let phase3_input = messages_to_phase_input(
+        received,
+        state.self_id,
+        &other_parties(state.share_count, self_index),
+    )?;
 
     let mut proofs_commitments = vec![state
         .self_proof_commitment
@@ -305,22 +285,18 @@ pub fn phase4<C: RefreshCurve>(
         if sender == self_index.as_u8() {
             continue;
         }
-        proofs_commitments.push(phase_input_broadcast::<ProofCommitment<C>>(
-            &phase2_input,
-            sender,
-        )?);
-        zero_received_phase2.push(phase_input_p2p::<TransmitInitZeroSharePhase2to4>(
-            &phase2_input,
-            sender,
-        )?);
-        zero_received_phase3.push(phase_input_p2p::<TransmitInitZeroSharePhase3to4>(
-            &phase3_input,
-            sender,
-        )?);
-        mul_received.push(phase_input_p2p::<TransmitInitMulPhase3to4<C>>(
-            &phase3_input,
-            sender,
-        )?);
+        let proof = phase_input_broadcast::<ProofCommitment<C>>(&phase2_input, sender)?;
+        check_sender_index(proof.index, sender)?;
+        proofs_commitments.push(proof);
+        let zero2 = phase_input_p2p::<TransmitInitZeroSharePhase2to4>(&phase2_input, sender)?;
+        check_parties(&zero2.parties, sender, self_index)?;
+        zero_received_phase2.push(zero2);
+        let zero3 = phase_input_p2p::<TransmitInitZeroSharePhase3to4>(&phase3_input, sender)?;
+        check_parties(&zero3.parties, sender, self_index)?;
+        zero_received_phase3.push(zero3);
+        let mul = phase_input_p2p::<TransmitInitMulPhase3to4<C>>(&phase3_input, sender)?;
+        check_parties(&mul.parties, sender, self_index)?;
+        mul_received.push(mul);
     }
 
     let correction_value = state

@@ -255,15 +255,19 @@ pub extern "C" fn tss_refresh_new(
 
         let handle = borrow_key_share(key_share)?;
 
-        let participant_ids: Vec<libtss::Identifier> =
-            if participants.is_null() || participants_len == 0 {
-                Vec::new()
-            } else {
-                let raw = unsafe { core::slice::from_raw_parts(participants, participants_len) };
-                raw.iter()
-                    .map(|&id| libtss::Identifier::new(id))
-                    .collect::<Result<Vec<_>, _>>()?
-            };
+        if participants.is_null() && participants_len > 0 {
+            return Err(libtss::TssError::InvalidConfig(
+                "null pointer with non-zero participant count".into(),
+            ));
+        }
+        let participant_ids: Vec<libtss::Identifier> = if participants_len == 0 {
+            Vec::new()
+        } else {
+            let raw = unsafe { core::slice::from_raw_parts(participants, participants_len) };
+            raw.iter()
+                .map(|&id| libtss::Identifier::new(id))
+                .collect::<Result<Vec<_>, _>>()?
+        };
 
         let (session, messages) = match handle.ciphersuite().protocol() {
             libtss::Protocol::Frost => {
@@ -319,9 +323,21 @@ pub extern "C" fn tss_refresh_new_dkls(
     })
 }
 
+/// Create a receive-only FROST refresh session for a non-dealer participant.
+///
+/// `dealer` is the identifier of the party that ran `tss_refresh_new`; the
+/// dealer is trusted with that role. Advance with `tss_refresh_next` once,
+/// passing the dealer's messages: exactly one must be addressed to this party
+/// and its `from` must equal `dealer` (`TSS_ERR_ABORT` otherwise). The bundled
+/// public key package is checked against this party's current one (same group
+/// key and `min_signers`, identifiers a subset, every verifying share moved by
+/// the dealer's committed refresh polynomial); a mismatch returns
+/// `TSS_ERR_INVALID_SHARE`. A `dealer` outside the group returns
+/// `TSS_ERR_INVALID_IDENTIFIER`.
 #[no_mangle]
 pub extern "C" fn tss_refresh_receiver(
     key_share: TssHandle,
+    dealer: u16,
     out_session: *mut TssHandle,
 ) -> TssStatus {
     ffi_entry!({
@@ -330,7 +346,8 @@ pub extern "C" fn tss_refresh_receiver(
         *out_session = 0;
 
         let handle = borrow_key_share(key_share)?;
-        let session = libtss::RefreshSession::new_frost_receiver(&handle)?;
+        let dealer = libtss::Identifier::new(dealer)?;
+        let session = libtss::RefreshSession::new_frost_receiver(&handle, dealer)?;
 
         *out_session = insert_session(SessionEntry::Refresh(session));
         Ok(())
@@ -389,6 +406,11 @@ pub extern "C" fn tss_refresh_next(
     })
 }
 
+/// Free a session handle. Idempotent. If another thread is inside a
+/// `*_next` call on the same session, the session is dropped when that call
+/// returns; further calls on the handle return `TSS_ERR_HANDLE_INVALID`. A
+/// second `*_next` on a session that is already in use also returns
+/// `TSS_ERR_HANDLE_INVALID`.
 #[no_mangle]
 pub extern "C" fn tss_session_free(session: TssHandle) {
     crate::error::clear_last_error();

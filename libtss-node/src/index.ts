@@ -1,9 +1,11 @@
+import { identifier, identifierArray, u8 } from "./checks";
 import { checkStatus } from "./error";
 import { TSS_INIT_MLOCK, allocBuffer, lib, makeSlice, readBuffer } from "./ffi";
 import { KeyShareHandle } from "./handle";
 import { SecureBuffer, wipeBytes } from "./secure";
 import { DkgSession, RefreshSession, SignSession } from "./session";
-import type { Ciphersuite } from "./types";
+import { decodeMessages, encodeMessages } from "./message";
+import type { Ciphersuite, Message } from "./types";
 
 export * from "./error";
 export * from "./handle";
@@ -31,7 +33,7 @@ export function verify(
 	publicKey: Uint8Array,
 ): boolean {
 	return lib.tss_verify(
-		suite,
+		u8(suite, "suite"),
 		makeSlice(message),
 		makeSlice(signature),
 		makeSlice(publicKey),
@@ -44,7 +46,7 @@ export function importKeyShare(
 ): KeyShareHandle {
 	const outHandle: [bigint] = [0n];
 	checkStatus(
-		lib.tss_handle_import(data, data.length, suite, outHandle),
+		lib.tss_handle_import(data, data.length, u8(suite, "suite"), outHandle),
 	);
 	return new KeyShareHandle(outHandle[0]);
 }
@@ -63,12 +65,23 @@ export function frostSplitKey(
 	minSigners: number,
 ): { keyShares: KeyShareHandle[]; publicKeys: Uint8Array } {
 	try {
+		if (
+			!Number.isInteger(minSigners) ||
+			!Number.isInteger(maxSigners) ||
+			minSigners < 2 ||
+			maxSigners < minSigners ||
+			maxSigners > 0xffff
+		) {
+			throw new RangeError(
+				"requires integers with 2 <= minSigners <= maxSigners <= 65535",
+			);
+		}
 		const outHandles = new BigUint64Array(maxSigners);
 		const outCount: [number | bigint] = [0n];
 		const outPkg = allocBuffer();
 		checkStatus(
 			lib.tss_frost_split_key(
-				suite,
+				u8(suite, "suite"),
 				makeSlice(secretKey),
 				maxSigners,
 				minSigners,
@@ -122,7 +135,7 @@ export function dklsSplitKey(
 		const outPkg = allocBuffer();
 		checkStatus(
 			lib.tss_dkls_split_key(
-				suite,
+				u8(suite, "suite"),
 				makeSlice(secretKey),
 				makeSlice(chainCode ?? new Uint8Array(0)),
 				maxSigners,
@@ -223,6 +236,60 @@ export function bolt3DeriveRevocationPublicKeys(
 	return readBuffer(out);
 }
 
+/**
+ * This helper's DKLs23 repair term for `target`, as messages to send to the
+ * target only, over a confidential, authenticated channel. `helpers` lists
+ * the helper identifiers (no duplicates, at least `minSigners`, including this
+ * party, not the target); every helper uses the same list and `repairId`. The
+ * helpers must authenticate the target: repair hands index `target`'s share
+ * to whoever receives the terms.
+ */
+export function dklsRepairHelperTerm(
+	keyShare: KeyShareHandle,
+	helpers: number[],
+	target: number,
+	repairId: Uint8Array,
+): Message[] {
+	const helperIds = identifierArray(helpers, "helper");
+	const targetId = identifier(target, "target");
+	const out = allocBuffer();
+	checkStatus(
+		lib.tss_repair_helper_term(
+			keyShare.handle,
+			helperIds,
+			helperIds.length,
+			targetId,
+			makeSlice(repairId),
+			out,
+		),
+	);
+	return decodeMessages(readBuffer(out));
+}
+
+/**
+ * Assembles the helpers' repair messages into the target's repaired DKLs23
+ * share. Each message's `from` must be its authenticated sender. The share
+ * cannot sign until all parties run `RefreshSession.createDkls`.
+ */
+export function dklsRepairAssemble(
+	suite: Ciphersuite,
+	publicKeys: Uint8Array,
+	target: number,
+	messages: Message[],
+): KeyShareHandle {
+	const outHandle: [bigint] = [0n];
+	checkStatus(
+		lib.tss_repair_assemble(
+			u8(suite, "suite"),
+			makeSlice(publicKeys),
+			identifier(target, "target"),
+			makeSlice(encodeMessages(messages)),
+			outHandle,
+		),
+	);
+	return new KeyShareHandle(outHandle[0]);
+}
+
 export function frostAggregate(
 	suite: Ciphersuite,
 	message: Uint8Array,
@@ -233,7 +300,7 @@ export function frostAggregate(
 	const outSig = allocBuffer();
 	checkStatus(
 		lib.tss_frost_aggregate(
-			suite,
+			u8(suite, "suite"),
 			makeSlice(message),
 			makeSlice(commitments),
 			makeSlice(shares),

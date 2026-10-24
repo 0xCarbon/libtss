@@ -433,7 +433,7 @@ fn bench_frost_aggregate(c: &mut Criterion) {
     let msg = b"bench aggregate";
 
     // Run round 1 (commit) for first 2 signers
-    // frost_commit returns (nonce_bytes, commitment_message)
+    // frost_commit returns (single-use nonces, commitment_message)
     let (nonces, commitments): (Vec<_>, Vec<_>) = handles[..2]
         .iter()
         .map(|h| libtss::frost::frost_commit(h).unwrap())
@@ -442,7 +442,7 @@ fn bench_frost_aggregate(c: &mut Criterion) {
     // Run round 2 (sign) for first 2 signers
     let shares: Vec<_> = handles[..2]
         .iter()
-        .zip(nonces.iter())
+        .zip(nonces)
         .map(|(h, nonce)| libtss::frost::frost_sign(h, nonce, &commitments, msg).unwrap())
         .collect();
 

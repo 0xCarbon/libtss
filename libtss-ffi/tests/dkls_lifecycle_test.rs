@@ -272,3 +272,67 @@ fn handle_getters_reset_the_out_buffer_on_error() {
         assert_eq!(out.len, 0);
     }
 }
+
+#[test]
+#[cfg_attr(tarpaulin, ignore)]
+fn dkls_repair_through_the_c_api() {
+    use libtss_ffi::dkls_ops::{tss_repair_assemble, tss_repair_helper_term};
+    use libtss_ffi::handles::tss_handle_pubkey_package;
+
+    let keys = split(SUITE_SECP256K1_ECDSA, &[0x42; 32], &[]).unwrap();
+    let mut package = TssBuffer::empty();
+    assert_eq!(tss_handle_pubkey_package(keys[0], &mut package), TSS_OK);
+    let package = take_buffer(&mut package);
+
+    // Party 2 lost its share; parties 1 and 3 help.
+    let helpers = [1u16, 3];
+    let mut blob = Vec::new();
+    for key in [keys[0], keys[2]].iter() {
+        let mut out = TssBuffer::empty();
+        assert_eq!(
+            tss_repair_helper_term(
+                *key,
+                helpers.as_ptr(),
+                helpers.len(),
+                2,
+                slice(b"r"),
+                &mut out
+            ),
+            TSS_OK
+        );
+        blob.extend(take_buffer(&mut out));
+    }
+    let mut repaired = 0;
+    assert_eq!(
+        tss_repair_assemble(
+            SUITE_SECP256K1_ECDSA,
+            slice(&package),
+            2,
+            slice(&blob),
+            &mut repaired
+        ),
+        TSS_OK
+    );
+    assert_eq!(verifying_share(repaired), verifying_share(keys[1]));
+
+    // After a complete refresh with the repaired share, it signs.
+    let refreshed = refresh(&[keys[0], repaired, keys[2]], b"after-repair");
+    assert_eq!(run_dkls_sign(&refreshed[..2], &[6u8; 32]).len(), 64);
+
+    // A truncated blob is refused.
+    let mut out = 0;
+    assert_ne!(
+        tss_repair_assemble(
+            SUITE_SECP256K1_ECDSA,
+            slice(&package),
+            2,
+            slice(&blob[..blob.len() - 1]),
+            &mut out
+        ),
+        TSS_OK
+    );
+    assert_eq!(out, 0);
+    for key in keys.into_iter().chain(refreshed).chain([repaired]) {
+        tss_handle_free(key);
+    }
+}

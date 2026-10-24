@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import ctypes
 
-from libtss._ffi import get_lib
+from libtss._ffi import checked_int, get_lib
 from libtss.errors import check_status
 from libtss.handle import KeyShareHandle
 
@@ -26,8 +26,7 @@ def derive_child(key_share: KeyShareHandle, child_number: int) -> KeyShareHandle
     Returns:
         A new :class:`~libtss.KeyShareHandle` for the derived child.
     """
-    if isinstance(child_number, bool) or not isinstance(child_number, int) or child_number < 0 or child_number >= (1 << 31):
-        raise ValueError("child_number must be an integer in range [0, 2^31)")
+    child_number = checked_int(child_number, "child_number", 0, (1 << 31) - 1)
     out = ctypes.c_uint64()
     status = get_lib().tss_derive_child(
         key_share.raw, child_number, ctypes.byref(out),

@@ -137,3 +137,41 @@ func TestBolt3(t *testing.T) {
 		t.Fatal("expected a mismatched per-commitment secret to fail")
 	}
 }
+
+func TestDKLsRepair(t *testing.T) {
+	for _, suite := range []Ciphersuite{CiphersuiteSecp256k1ECDSA, CiphersuiteSecp256r1ECDSA} {
+		shares, pkg, err := DKLsSplitKey(suite, bytes.Repeat([]byte{0x42}, 32), nil, 3, 2)
+		if err != nil {
+			t.Fatalf("DKLsSplitKey: %v", err)
+		}
+		for _, share := range shares {
+			defer share.Free()
+		}
+		helpers := []Identifier{1, 3}
+		var received []Message
+		for _, i := range []int{0, 2} {
+			msgs, err := DKLsRepairHelperTerm(shares[i], helpers, 2, []byte("go-repair"))
+			if err != nil {
+				t.Fatalf("DKLsRepairHelperTerm(%d): %v", i+1, err)
+			}
+			received = append(received, msgs...)
+		}
+		repaired, err := DKLsRepairAssemble(suite, pkg, 2, received)
+		if err != nil {
+			t.Fatalf("DKLsRepairAssemble: %v", err)
+		}
+		defer repaired.Free()
+		want, _ := shares[1].VerifyingShare()
+		got, _ := repaired.VerifyingShare()
+		if !bytes.Equal(want, got) {
+			t.Fatalf("repaired verifying share %x, want %x", got, want)
+		}
+
+		// A term relayed under another sender is refused.
+		forged := append([]Message(nil), received...)
+		forged[1].From = 2
+		if _, err := DKLsRepairAssemble(suite, pkg, 2, forged); err == nil {
+			t.Fatal("expected a term from the wrong sender to be refused")
+		}
+	}
+}

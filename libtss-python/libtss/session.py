@@ -7,10 +7,14 @@ import threading
 
 from libtss import message as _msg
 from libtss._ffi import (
+    TSS_NO_RECOVERY_ID,
     TssBuffer,
-    TssSlice,
     buffer_to_bytes,
+    check_identifier,
+    check_u8,
+    check_u16,
     get_lib,
+    identifier_array,
     make_slice,
     wipe_ctypes_array,
 )
@@ -20,10 +24,28 @@ from libtss.types import (
     Ciphersuite,
     DkgResult,
     Message,
+    Protocol,
     RefreshResult,
     SignResult,
 )
 
+
+def _free_session(session) -> None:
+    """Free ``session``'s native handle. Idempotent.
+
+    Takes the same lock as ``next()``, so a concurrent close waits for an
+    in-flight native call instead of freeing the session underneath it.
+    """
+    with session._lock:
+        if session._closed:
+            return
+        session._closed = True
+        handle, session._handle = session._handle, 0
+        get_lib().tss_session_free(handle)
+
+
+def _wipe_slice(sl) -> None:
+    wipe_ctypes_array(getattr(sl, "_backing", None))
 
 # ── DKG Session ──────────────────────────────────────────────────────────────
 
@@ -72,6 +94,10 @@ class DkgSession:
         Returns:
             A tuple of (session, first_round_messages).
         """
+        suite = check_u8(suite, "suite")
+        self_id = check_identifier(self_id, "self_id")
+        max_signers = check_u16(max_signers, "max_signers")
+        min_signers = check_u16(min_signers, "min_signers")
         lib = get_lib()
         out_session = ctypes.c_uint64()
         out_messages = TssBuffer()
@@ -87,7 +113,7 @@ class DkgSession:
 
         try:
             status = lib.tss_dkg_new(
-                int(suite), self_id, max_signers, min_signers,
+                suite, self_id, max_signers, min_signers,
                 sid_ptr, sid_len,
                 ctypes.byref(out_session), ctypes.byref(out_messages),
             )
@@ -105,30 +131,33 @@ class DkgSession:
         Returns a :class:`DkgResult` — check ``result.complete`` to know
         if the protocol has finished.
         """
-        if self._closed:
-            raise RuntimeError("DkgSession is already complete or closed")
-
         lib = get_lib()
-        encoded = _msg.encode(messages)
-        sl = make_slice(encoded)
+        sl = make_slice(_msg.encode(messages))
 
         out_key_share = ctypes.c_uint64()
         out_pkg = TssBuffer()
         out_msgs = TssBuffer()
         out_complete = ctypes.c_bool()
 
-        status = lib.tss_dkg_next(
-            self._handle, sl,
-            ctypes.byref(out_key_share), ctypes.byref(out_pkg),
-            ctypes.byref(out_msgs), ctypes.byref(out_complete),
-        )
-        check_status(status)
+        try:
+            with self._lock:
+                if self._closed:
+                    raise RuntimeError("DkgSession is already complete or closed")
+                status = lib.tss_dkg_next(
+                    self._handle, sl,
+                    ctypes.byref(out_key_share), ctypes.byref(out_pkg),
+                    ctypes.byref(out_msgs), ctypes.byref(out_complete),
+                )
+                check_status(status)
+                if out_complete.value:
+                    self._closed = True
+                    self._handle = 0
+        finally:
+            _wipe_slice(sl)
 
         if out_complete.value:
             pkg_bytes = buffer_to_bytes(out_pkg)
             buffer_to_bytes(out_msgs)  # free empty buffer
-            self._closed = True
-            self._handle = 0
             return DkgResult(
                 complete=True,
                 key_share=KeyShareHandle(out_key_share.value),
@@ -140,13 +169,9 @@ class DkgSession:
         return DkgResult(complete=False, messages=_msg.decode(msg_bytes))
 
     def close(self) -> None:
-        """Free the native session handle. Idempotent."""
-        with self._lock:
-            if self._closed:
-                return
-            self._closed = True
-        get_lib().tss_session_free(self._handle)
-        self._handle = 0
+        """Free the native session handle. Idempotent; waits for an
+        in-flight :meth:`next` on another thread."""
+        _free_session(self)
 
 
 # ── Sign Session ─────────────────────────────────────────────────────────────
@@ -158,12 +183,13 @@ class SignSession:
     Use :meth:`create` to start, then call :meth:`next` in a loop.
     """
 
-    __slots__ = ("_handle", "_closed", "_lock")
+    __slots__ = ("_handle", "_closed", "_lock", "_suite")
 
-    def __init__(self, handle: int) -> None:
+    def __init__(self, handle: int, suite: Ciphersuite) -> None:
         self._handle = handle
         self._closed = False
         self._lock = threading.Lock()
+        self._suite = suite
 
     def __enter__(self) -> SignSession:
         return self
@@ -194,16 +220,17 @@ class SignSession:
         Returns:
             A tuple of (session, first_round_messages).
         """
-        lib = get_lib()
-        msg_sl = make_slice(msg)
-
         if counterparties:
-            cp_arr = (ctypes.c_uint16 * len(counterparties))(*counterparties)
+            cp_arr = identifier_array(counterparties, "counterparty")
             cp_ptr = cp_arr
             cp_len = len(counterparties)
         else:
             cp_ptr = None
             cp_len = 0
+
+        suite = key_share.ciphersuite
+        lib = get_lib()
+        msg_sl = make_slice(msg)
 
         sid_arr = None
         if sign_id:
@@ -231,50 +258,61 @@ class SignSession:
 
         msg_bytes = buffer_to_bytes(out_messages)
         messages = _msg.decode(msg_bytes)
-        return cls(out_session.value), messages
+        return cls(out_session.value, suite), messages
 
     def next(self, messages: list[Message]) -> SignResult:
         """Advance the protocol with received messages.
 
         Returns a :class:`SignResult` — check ``result.complete``.
         """
-        if self._closed:
-            raise RuntimeError("SignSession is already complete or closed")
-
         lib = get_lib()
-        encoded = _msg.encode(messages)
-        sl = make_slice(encoded)
+        sl = make_slice(_msg.encode(messages))
 
         out_sig = TssBuffer()
+        out_recovery_id = ctypes.c_uint8(TSS_NO_RECOVERY_ID)
         out_msgs = TssBuffer()
         out_complete = ctypes.c_bool()
 
-        status = lib.tss_sign_next(
-            self._handle, sl,
-            ctypes.byref(out_sig), ctypes.byref(out_msgs),
-            ctypes.byref(out_complete),
-        )
-        check_status(status)
+        try:
+            with self._lock:
+                if self._closed:
+                    raise RuntimeError("SignSession is already complete or closed")
+                status = lib.tss_sign_next_recoverable(
+                    self._handle, sl,
+                    ctypes.byref(out_sig), ctypes.byref(out_recovery_id),
+                    ctypes.byref(out_msgs), ctypes.byref(out_complete),
+                )
+                check_status(status)
+                if out_complete.value:
+                    self._closed = True
+                    self._handle = 0
+        finally:
+            _wipe_slice(sl)
 
         if out_complete.value:
             sig_bytes = buffer_to_bytes(out_sig)
             buffer_to_bytes(out_msgs)  # free empty buffer
-            self._closed = True
-            self._handle = 0
-            return SignResult(complete=True, signature=sig_bytes)
+            expected = self._suite.signature_length
+            if len(sig_bytes) != expected:
+                raise RuntimeError(
+                    f"invalid signature length for {self._suite.name}: "
+                    f"expected {expected} bytes, got {len(sig_bytes)}"
+                )
+            recovery_id = None
+            if self._suite.protocol == Protocol.DKLS23:
+                if out_recovery_id.value not in (0, 1):
+                    raise RuntimeError("DKLs23 signature is missing its recovery id")
+                recovery_id = out_recovery_id.value
+            return SignResult(complete=True, signature=sig_bytes, recovery_id=recovery_id)
 
         buffer_to_bytes(out_sig)  # free empty buffer
         msg_bytes = buffer_to_bytes(out_msgs)
         return SignResult(complete=False, messages=_msg.decode(msg_bytes))
 
     def close(self) -> None:
-        """Free the native session handle. Idempotent."""
-        with self._lock:
-            if self._closed:
-                return
-            self._closed = True
-        get_lib().tss_session_free(self._handle)
-        self._handle = 0
+        """Free the native session handle. Idempotent; waits for an
+        in-flight :meth:`next` on another thread."""
+        _free_session(self)
 
 
 # ── Refresh Session ──────────────────────────────────────────────────────────
@@ -319,7 +357,7 @@ class RefreshSession:
             A tuple of (session, p2p_messages).
         """
         lib = get_lib()
-        p_arr = (ctypes.c_uint16 * len(participants))(*participants)
+        p_arr = identifier_array(participants, "participant")
 
         out_session = ctypes.c_uint64()
         out_messages = TssBuffer()
@@ -366,16 +404,24 @@ class RefreshSession:
         return cls(out_session.value), messages
 
     @classmethod
-    def create_receiver(cls, key_share: KeyShareHandle) -> RefreshSession:
-        """Create a refresh receiver session (no outgoing messages).
+    def create_receiver(cls, key_share: KeyShareHandle, dealer: int) -> RefreshSession:
+        """Create a FROST refresh receiver session (no outgoing messages).
+
+        ``next`` accepts only the message from ``dealer`` addressed to this
+        party and checks the refreshed public key package against the current
+        one. The dealer is trusted with the refresh.
 
         Args:
             key_share: Current key share handle.
+            dealer: Identifier of the party that called :meth:`create_dealer`.
         """
+        dealer = check_identifier(dealer, "dealer")
         lib = get_lib()
         out_session = ctypes.c_uint64()
 
-        status = lib.tss_refresh_receiver(key_share.raw, ctypes.byref(out_session))
+        status = lib.tss_refresh_receiver(
+            key_share.raw, dealer, ctypes.byref(out_session)
+        )
         check_status(status)
 
         return cls(out_session.value)
@@ -385,30 +431,33 @@ class RefreshSession:
 
         Returns a :class:`RefreshResult` — check ``result.complete``.
         """
-        if self._closed:
-            raise RuntimeError("RefreshSession is already complete or closed")
-
         lib = get_lib()
-        encoded = _msg.encode(messages)
-        sl = make_slice(encoded)
+        sl = make_slice(_msg.encode(messages))
 
         out_key_share = ctypes.c_uint64()
         out_pkg = TssBuffer()
         out_msgs = TssBuffer()
         out_complete = ctypes.c_bool()
 
-        status = lib.tss_refresh_next(
-            self._handle, sl,
-            ctypes.byref(out_key_share), ctypes.byref(out_pkg),
-            ctypes.byref(out_msgs), ctypes.byref(out_complete),
-        )
-        check_status(status)
+        try:
+            with self._lock:
+                if self._closed:
+                    raise RuntimeError("RefreshSession is already complete or closed")
+                status = lib.tss_refresh_next(
+                    self._handle, sl,
+                    ctypes.byref(out_key_share), ctypes.byref(out_pkg),
+                    ctypes.byref(out_msgs), ctypes.byref(out_complete),
+                )
+                check_status(status)
+                if out_complete.value:
+                    self._closed = True
+                    self._handle = 0
+        finally:
+            _wipe_slice(sl)
 
         if out_complete.value:
             pkg_bytes = buffer_to_bytes(out_pkg)
             buffer_to_bytes(out_msgs)  # free empty buffer
-            self._closed = True
-            self._handle = 0
             return RefreshResult(
                 complete=True,
                 key_share=KeyShareHandle(out_key_share.value),
@@ -420,10 +469,6 @@ class RefreshSession:
         return RefreshResult(complete=False, messages=_msg.decode(msg_bytes))
 
     def close(self) -> None:
-        """Free the native session handle. Idempotent."""
-        with self._lock:
-            if self._closed:
-                return
-            self._closed = True
-        get_lib().tss_session_free(self._handle)
-        self._handle = 0
+        """Free the native session handle. Idempotent; waits for an
+        in-flight :meth:`next` on another thread."""
+        _free_session(self)

@@ -29,7 +29,7 @@
 //!   Web Crypto API. The guarantees here are best-effort defense-in-depth.
 
 use js_sys::Uint8Array;
-use libtss::{import_key_share, Ciphersuite};
+use libtss::import_key_share;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
@@ -152,8 +152,11 @@ impl SecureKeyShare {
     ///
     /// `suite` is the ciphersuite discriminant (0-7) matching the original key share.
     #[wasm_bindgen(js_name = "toHandle")]
-    pub fn to_handle(&self, suite: u8) -> Result<WasmKeyShareHandle, JsValue> {
-        let ciphersuite = map_err(Ciphersuite::try_from(suite))?;
+    pub fn to_handle(
+        &self,
+        #[wasm_bindgen(unchecked_param_type = "number")] suite: JsValue,
+    ) -> Result<WasmKeyShareHandle, JsValue> {
+        let ciphersuite = crate::args::suite_arg(&suite)?;
         let handle = map_err(import_key_share(&self.data, ciphersuite))?;
         Ok(WasmKeyShareHandle::from(handle))
     }

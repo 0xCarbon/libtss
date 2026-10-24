@@ -32,7 +32,7 @@ public static class FrostOperations
         ArgumentNullException.ThrowIfNull(shares);
         ArgumentNullException.ThrowIfNull(pubkeyPackage);
 
-        var outSig = new NativeTssBuffer();
+        using var outSig = new NativeTssBuffer();
         int status;
 
         fixed (byte* pMsg = message)
@@ -70,10 +70,11 @@ public static class FrostOperations
         ulong outHandle;
         int status;
 
+        using var share = keyShare.Lease();
         fixed (byte* pMerkle = merkleRoot)
         {
             status = Native.tss_frost_tweak_key_share(
-                keyShare.Handle,
+                share.Value,
                 merkleRoot.Length > 0 ? pMerkle : null,
                 (nuint)merkleRoot.Length,
                 &outHandle);
@@ -96,7 +97,7 @@ public static class FrostOperations
         ArgumentNullException.ThrowIfNull(pubkeyPackage);
         ArgumentNullException.ThrowIfNull(merkleRoot);
 
-        var outPkg = new NativeTssBuffer();
+        using var outPkg = new NativeTssBuffer();
         int status;
 
         fixed (byte* pPkg = pubkeyPackage)
@@ -132,7 +133,7 @@ public static class FrostOperations
         // Pre-allocate handle array sized to maxSigners.
         var handles = new ulong[maxSigners];
         nuint handleCount;
-        var outPkg = new NativeTssBuffer();
+        using var outPkg = new NativeTssBuffer();
         int status;
 
         fixed (ulong* pHandles = handles)
@@ -179,7 +180,7 @@ public static class FrostOperations
         {
             var handles = new ulong[maxSigners];
             nuint handleCount;
-            var outPkg = new NativeTssBuffer();
+            using var outPkg = new NativeTssBuffer();
             int status;
 
             fixed (byte* pKey = secretKey)
@@ -227,9 +228,9 @@ public static class FrostOperations
         ArgumentNullException.ThrowIfNull(pubkeyPackage);
         ArgumentNullException.ThrowIfNull(participants);
 
-        var outShares = new NativeTssBuffer();
+        using var outShares = new NativeTssBuffer();
         nuint shareCount;
-        var outPkg = new NativeTssBuffer();
+        using var outPkg = new NativeTssBuffer();
         int status;
 
         fixed (byte* pPkg = pubkeyPackage)
@@ -266,6 +267,11 @@ public static class FrostOperations
 
     /// <summary>
     /// Applies a trusted-dealer refreshing share to an existing key share.
+    /// The refreshed public key package must keep the group key and
+    /// <c>min_signers</c>, list a subset of the share's current identifiers
+    /// including this party, and match the refresh share's commitment for
+    /// every verifying share; otherwise a <see cref="TssException"/> with
+    /// <see cref="TssStatus.InvalidShare"/> is thrown.
     /// </summary>
     /// <param name="keyShare">The existing key share to refresh.</param>
     /// <param name="refreshData">The refresh share data for this participant.</param>
@@ -283,6 +289,7 @@ public static class FrostOperations
         ulong outHandle;
         int status;
 
+        using var share = keyShare.Lease();
         fixed (byte* pRefresh = refreshData)
         fixed (byte* pPkg = pubkeyPackage)
         {
@@ -290,7 +297,7 @@ public static class FrostOperations
             var pkgSlice = new TssSlice { Data = pPkg, Len = (nuint)pubkeyPackage.Length };
 
             status = Native.tss_frost_apply_refresh(
-                keyShare.Handle, refreshSlice, pkgSlice, &outHandle);
+                share.Value, refreshSlice, pkgSlice, &outHandle);
         }
         TssException.ThrowIfError(status);
         return new KeyShareHandle(outHandle);
@@ -314,15 +321,16 @@ public static class FrostOperations
         ArgumentNullException.ThrowIfNull(keyShare);
         ArgumentNullException.ThrowIfNull(helpers);
 
-        var outDeltas = new NativeTssBuffer();
+        using var outDeltas = new NativeTssBuffer();
         nuint deltaCount;
         int status;
 
+        using var share = keyShare.Lease();
         fixed (ushort* pHelpers = helpers)
         fixed (TssBuffer* pOutDeltas = &outDeltas.Raw)
         {
             status = Native.tss_frost_repair_part1(
-                keyShare.Handle,
+                share.Value,
                 pHelpers, (nuint)helpers.Length,
                 participant,
                 pOutDeltas, &deltaCount);
@@ -354,7 +362,7 @@ public static class FrostOperations
     {
         ArgumentNullException.ThrowIfNull(deltas);
 
-        var outSigma = new NativeTssBuffer();
+        using var outSigma = new NativeTssBuffer();
         int status;
 
         // Build an array of TssSlice, one per delta.

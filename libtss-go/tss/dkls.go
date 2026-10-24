@@ -5,7 +5,10 @@ package tss
 */
 import "C"
 
-import "fmt"
+import (
+	"fmt"
+	"unsafe"
+)
 
 // DKLsSplitKey imports an existing ECDSA key as DKLs23 shares (trusted
 // dealer). suite is CiphersuiteSecp256k1ECDSA or CiphersuiteSecp256r1ECDSA.
@@ -55,13 +58,11 @@ func Bolt3Derive(keyShare *KeyShareHandle, perCommitmentPoint []byte) (*KeyShare
 	if err := checkNonNil("keyShare", keyShare); err != nil {
 		return nil, err
 	}
-	handle, err := keyShare.native.value()
-	if err != nil {
-		return nil, err
-	}
 	var out C.TssHandle
-	if err := callStatus(func() C.TssStatus {
-		return C.tss_bolt3_derive(handle, bytesToSlice(perCommitmentPoint), &out)
+	if err := keyShare.use(func(handle C.TssHandle) error {
+		return callStatus(func() C.TssStatus {
+			return C.tss_bolt3_derive(handle, bytesToSlice(perCommitmentPoint), &out)
+		})
 	}); err != nil {
 		return nil, err
 	}
@@ -77,18 +78,16 @@ func Bolt3DeriveRevocation(keyShare *KeyShareHandle, perCommitmentPoint, perComm
 	if err := checkNonNil("keyShare", keyShare); err != nil {
 		return nil, err
 	}
-	handle, err := keyShare.native.value()
-	if err != nil {
-		return nil, err
-	}
 	var out C.TssHandle
-	if err := callStatus(func() C.TssStatus {
-		return C.tss_bolt3_derive_revocation(
-			handle,
-			bytesToSlice(perCommitmentPoint),
-			bytesToSlice(perCommitmentSecret),
-			&out,
-		)
+	if err := keyShare.use(func(handle C.TssHandle) error {
+		return callStatus(func() C.TssStatus {
+			return C.tss_bolt3_derive_revocation(
+				handle,
+				bytesToSlice(perCommitmentPoint),
+				bytesToSlice(perCommitmentSecret),
+				&out,
+			)
+		})
 	}); err != nil {
 		return nil, err
 	}
@@ -125,4 +124,60 @@ func Bolt3DeriveRevocationPublicKeys(pubkeyPackage, perCommitmentPoint []byte) (
 		return nil, err
 	}
 	return bufferToBytes(&out), nil
+}
+
+// DKLsRepairHelperTerm returns this helper's repair term for target as
+// messages to send to the target only, over a confidential, authenticated
+// channel. helpers lists the helper identifiers (any order, no duplicates, at
+// least MinSigners, including this party, not the target); every helper uses
+// the same helpers and repairID. The helpers must authenticate the target:
+// repair hands the target index's share to whoever receives the terms.
+func DKLsRepairHelperTerm(keyShare *KeyShareHandle, helpers []Identifier, target Identifier, repairID []byte) ([]Message, error) {
+	if err := checkNonNil("keyShare", keyShare); err != nil {
+		return nil, err
+	}
+	if len(helpers) == 0 {
+		return nil, fmt.Errorf("helpers must not be empty")
+	}
+	var out C.struct_TssBuffer
+	if err := keyShare.use(func(handle C.TssHandle) error {
+		return callStatus(func() C.TssStatus {
+			return C.tss_repair_helper_term(
+				handle,
+				(*C.uint16_t)(unsafe.Pointer(&helpers[0])),
+				C.uintptr_t(len(helpers)),
+				C.uint16_t(target),
+				bytesToSlice(repairID),
+				&out,
+			)
+		})
+	}); err != nil {
+		return nil, err
+	}
+	return parseNativeMessages(&out)
+}
+
+// DKLsRepairAssemble assembles the helpers' repair messages into the target's
+// repaired share. pubkeyPackage is the group's serialized public key package.
+// Each message's From must be its authenticated sender. The repaired share
+// cannot sign until all parties run NewRefreshSessionDKLs.
+func DKLsRepairAssemble(suite Ciphersuite, pubkeyPackage []byte, target Identifier, messages []Message) (*KeyShareHandle, error) {
+	blob, err := BuildMessages(messages)
+	if err != nil {
+		return nil, err
+	}
+	defer WipeBytes(blob)
+	var out C.TssHandle
+	if err := callStatus(func() C.TssStatus {
+		return C.tss_repair_assemble(
+			C.uint8_t(suite),
+			bytesToSlice(pubkeyPackage),
+			C.uint16_t(target),
+			bytesToSlice(blob),
+			&out,
+		)
+	}); err != nil {
+		return nil, err
+	}
+	return newKeyShareHandle(out), nil
 }

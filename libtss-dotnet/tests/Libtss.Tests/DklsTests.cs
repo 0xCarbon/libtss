@@ -179,6 +179,30 @@ public class DklsTests
         foreach (var h in shares) h.Dispose();
     }
 
+    [Theory]
+    [InlineData(Ciphersuite.Secp256k1ECDSA)]
+    [InlineData(Ciphersuite.Secp256r1ECDSA)]
+    public void RepairRebuildsALostShare(Ciphersuite suite)
+    {
+        var (shares, package) = DklsOperations.SplitKey(suite, Enumerable.Repeat((byte)0x42, 32).ToArray(), 3, 2);
+        try
+        {
+            var repairId = "dotnet-repair"u8.ToArray();
+            var received = new[] { shares[0], shares[2] }
+                .SelectMany(s => DklsOperations.RepairHelperTerm(s, new ushort[] { 1, 3 }, 2, repairId))
+                .ToArray();
+            using var repaired = DklsOperations.RepairAssemble(suite, package, 2, received);
+            Assert.Equal(shares[1].VerifyingShare, repaired.VerifyingShare);
+
+            var forged = received.Select((m, i) => i == 1 ? new Message(2, m.To, m.Data) : m).ToArray();
+            Assert.Throws<TssException>(() => DklsOperations.RepairAssemble(suite, package, 2, forged));
+        }
+        finally
+        {
+            foreach (var h in shares) h.Dispose();
+        }
+    }
+
     [Fact]
     public void ImportRejectsInvalidInput()
     {

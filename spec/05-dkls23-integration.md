@@ -4,10 +4,10 @@
 
 DKLs23 implements threshold ECDSA based on oblivious transfer, as described in
 [eprint 2023/765](https://eprint.iacr.org/2023/765). The 0xCarbon implementation
-(v0.6.1) is the Rust workspace at [github.com/0xCarbon/DKLs23](https://github.com/0xCarbon/DKLs23),
+(v0.6.2) is the Rust workspace at [github.com/0xCarbon/DKLs23](https://github.com/0xCarbon/DKLs23),
 published on crates.io as `dkls23-core` (curve-generic), `dkls23-secp256k1` and
 `dkls23-secp256r1` (plus a `dkls23` umbrella crate). libtss depends on the two curve
-crates at 0.6.1.
+crates at 0.6.2.
 
 ### Implementation Landscape
 
@@ -15,7 +15,7 @@ Two major open-source Rust implementations exist:
 
 | | [0xCarbon DKLs23](https://github.com/0xCarbon/DKLs23) | Silence Labs |
 |---|---|---|
-| **Version** | 0.6.1 (multi-crate workspace) | Production |
+| **Version** | 0.6.2 (multi-crate workspace) | Production |
 | **Curves** | secp256k1, secp256r1 (NIST P-256) | secp256k1 |
 | **Audit** | Internal security review (Mar 2026) -- [PR #46](https://github.com/0xCarbon/DKLs23/pull/46); input validation hardening [PR #56](https://github.com/0xCarbon/DKLs23/pull/56) | Trail of Bits (Feb 2024) -- 15 findings, 14 resolved |
 | **Features** | Curve-generic types (`Party<C: DklsCurve>`, `DkgSession<C>`, `SignSession<'a, C>`), DKG, signing, complete + fast refresh, BIP-32 derivation, re-key, `AddressScheme<C>` trait with blockchain-specific address functions, versioned domain-separated tagged hashing, structured `AbortReason` enum with ban/recoverable classification, comprehensive input validation, session state machines, typed `PartyIndex`, `PublicKeyPackage<C>`, `EcdsaSignature`, `PhaseOutput`/`PhaseInput` message containers, feature-gated serde | DKG, signing, refresh, dynamic quorum, key import/export, migration from GG/CMP |
@@ -644,6 +644,29 @@ the `MessageTag` trait. This replaces the need for libtss to manually serialize/
 
 The `MessageTag` trait is implemented on all `Transmit*` and `Broadcast*` types when
 the `serde` feature is enabled.
+
+### Sender Validation
+
+`Message.from` is the authenticated sender (the transport must guarantee it).
+Before calling DKLs23, libtss checks every DKG, signing and refresh round on both
+curves:
+
+- Messages addressed to another receiver are ignored before `from` is
+  examined, whoever sent them. Messages with `from ==` the local party (its own
+  broadcasts echoed back by a relay) are ignored too.
+- Every remaining broadcast and every message addressed to the local party must
+  come from an expected party: the other group members (DKG, refresh, including
+  the phase-1 fragments) or the session's counterparties (signing). Any other
+  sender, including an identifier outside `1..=n` or above 255, is an abort
+  naming that sender.
+- Payload identity fields must match the envelope: `ProofCommitment.index` and
+  `BroadcastDerivation*.sender_index` must equal `from`, and every
+  `PartiesMessage` must have `sender == from` and `receiver ==` the local party.
+- Signing decodes exactly one message per counterparty in each round; a missing
+  counterparty message is an error, and the final `Broadcast3to4` values are
+  summed only over the counterparties.
+
+A violation returns `TssError::Abort` naming the envelope sender as the culprit.
 
 ## `PublicKeyPackage`
 

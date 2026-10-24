@@ -83,15 +83,27 @@ fn handle_take_prevents_reuse() {
 // Zeroizing wrapper used in export path
 // ---------------------------------------------------------------------------
 
-/// Verify that Zeroizing<Vec<u8>> zeroes the inner Vec in-place before drop.
-/// We use explicit zeroize() rather than reading freed memory (which is UB).
+/// Verify that `Vec::zeroize` wipes the whole allocation in place. The
+/// backing buffer is inspected while the vector still owns it (after
+/// `zeroize`, before drop); reading freed memory would be undefined behavior.
 #[test]
 fn zeroizing_vec_zeroes_in_place() {
     use zeroize::Zeroize;
-    let mut data = vec![0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE];
+    let mut data = Vec::with_capacity(16);
+    data.extend_from_slice(&[0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE]);
+    let ptr = data.as_ptr();
+    let capacity = data.capacity();
     data.zeroize();
-    assert!(data.iter().all(|&b| b == 0), "Zeroize must zero all bytes");
-    assert!(data.is_empty(), "Zeroize on Vec should also clear length");
+    assert!(data.is_empty(), "Zeroize on Vec clears the length");
+    assert_eq!(data.as_ptr(), ptr, "the allocation is kept until drop");
+    assert_eq!(data.capacity(), capacity);
+    // SAFETY: `data` still owns `capacity` bytes at `ptr`, and `zeroize` has
+    // written every one of them (spare capacity included).
+    let backing = unsafe { std::slice::from_raw_parts(ptr, capacity) };
+    assert!(
+        backing.iter().all(|&b| b == 0),
+        "Zeroize must zero the whole allocation"
+    );
 }
 
 /// Verify that Zeroizing wrapper implements Drop + Zeroize (compile-time).
@@ -113,4 +125,12 @@ fn dkls_party_not_copy() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/compile_fail/dkls_party_k1_not_copy.rs");
     t.compile_fail("tests/compile_fail/dkls_party_r1_not_copy.rs");
+}
+
+/// FROST signing nonces are single-use: not `Clone`, and moved into `frost_sign`.
+#[test]
+fn frost_nonces_single_use() {
+    let t = trybuild::TestCases::new();
+    t.compile_fail("tests/compile_fail/frost_nonces_single_use.rs");
+    t.compile_fail("tests/compile_fail/frost_nonces_not_clone.rs");
 }

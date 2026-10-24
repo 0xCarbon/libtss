@@ -15,23 +15,33 @@ namespace Libtss;
 /// </remarks>
 public sealed class KeyShareHandle : IDisposable
 {
-    private ulong _handle;
-    private int _disposed; // int for Interlocked atomics
+    private static readonly Action<ulong> FreeHandle = Native.tss_handle_free;
+
+    private readonly NativeRef _native;
 
     internal KeyShareHandle(ulong handle)
     {
-        _handle = handle;
+        _native = new NativeRef(handle, FreeHandle);
     }
 
     /// <summary>
-    /// The raw native handle value. For internal use by session constructors.
+    /// Takes a reference to the native handle for one native call. Dispose the
+    /// lease after the call; the handle is not freed (by <see cref="Dispose"/>
+    /// on another thread or by the finalizer) while a lease is held.
+    /// </summary>
+    internal NativeRef.Lease Lease() => _native.Acquire(nameof(KeyShareHandle));
+
+    /// <summary>
+    /// The raw native handle value without a lease. Callers must call
+    /// <c>GC.KeepAlive</c> on this object after the native call that uses the
+    /// value. Prefer <see cref="Lease"/>.
     /// </summary>
     internal ulong Handle
     {
         get
         {
-            ThrowIfDisposed();
-            return _handle;
+            using var lease = _native.Acquire(nameof(KeyShareHandle));
+            return lease.Value;
         }
     }
 
@@ -42,9 +52,9 @@ public sealed class KeyShareHandle : IDisposable
     {
         get
         {
-            ThrowIfDisposed();
+            using var lease = _native.Acquire(nameof(KeyShareHandle));
             ushort id;
-            int status = Native.tss_handle_identifier(_handle, &id);
+            int status = Native.tss_handle_identifier(lease.Value, &id);
             TssException.ThrowIfError(status);
             return id;
         }
@@ -57,8 +67,8 @@ public sealed class KeyShareHandle : IDisposable
     {
         get
         {
-            ThrowIfDisposed();
-            byte raw = Native.tss_handle_ciphersuite(_handle);
+            using var lease = _native.Acquire(nameof(KeyShareHandle));
+            byte raw = Native.tss_handle_ciphersuite(lease.Value);
             return (Ciphersuite)raw;
         }
     }
@@ -75,12 +85,12 @@ public sealed class KeyShareHandle : IDisposable
     {
         get
         {
-            ThrowIfDisposed();
-            var buf = new NativeTssBuffer();
+            using var lease = _native.Acquire(nameof(KeyShareHandle));
+            using var buf = new NativeTssBuffer();
             int status;
             fixed (TssBuffer* p = &buf.Raw)
             {
-                status = Native.tss_handle_group_key(_handle, p);
+                status = Native.tss_handle_group_key(lease.Value, p);
             }
             TssException.ThrowIfError(status);
             return buf.ToArray();
@@ -108,12 +118,12 @@ public sealed class KeyShareHandle : IDisposable
     {
         get
         {
-            ThrowIfDisposed();
-            var buf = new NativeTssBuffer();
+            using var lease = _native.Acquire(nameof(KeyShareHandle));
+            using var buf = new NativeTssBuffer();
             int status;
             fixed (TssBuffer* p = &buf.Raw)
             {
-                status = Native.tss_handle_chain_code(_handle, p);
+                status = Native.tss_handle_chain_code(lease.Value, p);
             }
             TssException.ThrowIfError(status);
             return buf.ToArray();
@@ -127,12 +137,12 @@ public sealed class KeyShareHandle : IDisposable
     {
         get
         {
-            ThrowIfDisposed();
-            var buf = new NativeTssBuffer();
+            using var lease = _native.Acquire(nameof(KeyShareHandle));
+            using var buf = new NativeTssBuffer();
             int status;
             fixed (TssBuffer* p = &buf.Raw)
             {
-                status = Native.tss_handle_verifying_share(_handle, p);
+                status = Native.tss_handle_verifying_share(lease.Value, p);
             }
             TssException.ThrowIfError(status);
             return buf.ToArray();
@@ -146,12 +156,12 @@ public sealed class KeyShareHandle : IDisposable
     {
         get
         {
-            ThrowIfDisposed();
-            var buf = new NativeTssBuffer();
+            using var lease = _native.Acquire(nameof(KeyShareHandle));
+            using var buf = new NativeTssBuffer();
             int status;
             fixed (TssBuffer* p = &buf.Raw)
             {
-                status = Native.tss_handle_pubkey_package(_handle, p);
+                status = Native.tss_handle_pubkey_package(lease.Value, p);
             }
             TssException.ThrowIfError(status);
             return buf.ToArray();
@@ -169,12 +179,12 @@ public sealed class KeyShareHandle : IDisposable
     /// <returns>Serialized key share bytes (unencrypted).</returns>
     public unsafe byte[] Export()
     {
-        ThrowIfDisposed();
-        var buf = new NativeTssBuffer();
+        using var lease = _native.Acquire(nameof(KeyShareHandle));
+        using var buf = new NativeTssBuffer();
         int status;
         fixed (TssBuffer* p = &buf.Raw)
         {
-            status = Native.tss_handle_export(_handle, p);
+            status = Native.tss_handle_export(lease.Value, p);
         }
         TssException.ThrowIfError(status);
         return buf.ToArray();
@@ -186,9 +196,9 @@ public sealed class KeyShareHandle : IDisposable
     /// </summary>
     public unsafe SecureBytes ExportKeyShareSecure()
     {
-        ThrowIfDisposed();
+        using var lease = _native.Acquire(nameof(KeyShareHandle));
         TssBuffer buf = default;
-        int status = Native.tss_handle_export(_handle, &buf);
+        int status = Native.tss_handle_export(lease.Value, &buf);
         TssException.ThrowIfError(status);
 
         if (buf.Data == null || buf.Len == 0)
@@ -224,8 +234,12 @@ public sealed class KeyShareHandle : IDisposable
             throw new ArgumentException("Data must not be empty.", nameof(data));
 
         ulong handle;
-        int status = Native.tss_handle_import(
-            (byte*)data.DangerousGetPtr(), (nuint)data.Length, (byte)suite, &handle);
+        int length = data.Length;
+        byte* ptr = (byte*)data.DangerousGetPtr();
+        int status = Native.tss_handle_import(ptr, (nuint)length, (byte)suite, &handle);
+        // data's finalizer wipes and frees the pointer; keep it reachable
+        // until the native call has returned.
+        GC.KeepAlive(data);
         TssException.ThrowIfError(status);
         return new KeyShareHandle(handle);
     }
@@ -252,30 +266,19 @@ public sealed class KeyShareHandle : IDisposable
         return new KeyShareHandle(handle);
     }
 
-    private void ThrowIfDisposed()
-    {
-        ObjectDisposedException.ThrowIf(_disposed != 0, this);
-    }
-
     /// <summary>
-    /// Frees the native handle and zeroes secret material.
+    /// Frees the native handle and zeroes secret material. Idempotent; when
+    /// a native call on this handle is in flight on another thread, the handle
+    /// is freed as soon as that call returns.
     /// </summary>
     public void Dispose()
     {
-        if (Interlocked.CompareExchange(ref _disposed, 1, 0) != 0)
-            return;
-
-        Native.tss_handle_free(_handle);
-        _handle = 0;
+        _native.Dispose();
         GC.SuppressFinalize(this);
     }
 
     ~KeyShareHandle()
     {
-        if (Interlocked.CompareExchange(ref _disposed, 1, 0) == 0)
-        {
-            Native.tss_handle_free(_handle);
-            _handle = 0;
-        }
+        _native.Dispose();
     }
 }

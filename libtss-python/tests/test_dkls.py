@@ -106,3 +106,20 @@ def test_import_rejects_out_of_range_thresholds_and_wipes_the_secret(min_signers
     with pytest.raises(ValueError):
         dkls.split_key(Ciphersuite.SECP256K1_ECDSA, secret, 3, min_signers)
     assert secret == bytearray(32)
+
+
+@pytest.mark.parametrize("suite", SUITES)
+def test_repair_rebuilds_a_lost_share(suite):
+    shares, package = dkls.split_key(suite, b"\x42" * 32, 3, 2)
+    received = []
+    for share in (shares[0], shares[2]):
+        received += dkls.repair_helper_term(share, [1, 3], 2, b"py-repair")
+    repaired = dkls.repair_assemble(suite, package, 2, received)
+    assert repaired.verifying_share == shares[1].verifying_share
+
+    # A term relayed under another sender is refused.
+    import dataclasses
+    forged = list(received)
+    forged[1] = dataclasses.replace(forged[1], sender=2)
+    with pytest.raises(TssError):
+        dkls.repair_assemble(suite, package, 2, forged)

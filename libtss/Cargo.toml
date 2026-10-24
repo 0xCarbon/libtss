@@ -22,7 +22,7 @@ slotmap.workspace = true
 k256.workspace = true
 p256.workspace = true
 subtle.workspace = true
-postcard = { version = "1", features = ["alloc"] }
+postcard = { version = "1", default-features = false, features = ["alloc"] }
 serde = { version = "1", features = ["derive"] }
 hmac = "0.12"
 sha2 = "0.10"

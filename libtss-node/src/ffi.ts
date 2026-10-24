@@ -145,6 +145,9 @@ export const lib: Record<string, (...args: any[]) => any> = {
 	tss_sign_next: native.func(
 		"int32_t tss_sign_next(uint64_t session, TssSlice messages, _Out_ TssBuffer *out_signature, _Out_ TssBuffer *out_messages, _Out_ bool *out_complete)",
 	),
+	tss_sign_next_recoverable: native.func(
+		"int32_t tss_sign_next_recoverable(uint64_t session, TssSlice messages, _Out_ TssBuffer *out_signature, _Out_ uint8_t *out_recovery_id, _Out_ TssBuffer *out_messages, _Out_ bool *out_complete)",
+	),
 
 	// Refresh session
 	tss_refresh_new: native.func(
@@ -154,7 +157,7 @@ export const lib: Record<string, (...args: any[]) => any> = {
 		"int32_t tss_refresh_new_dkls(uint64_t key_share, const uint8_t *session_id, size_t session_id_len, _Out_ uint64_t *out_session, _Out_ TssBuffer *out_messages)",
 	),
 	tss_refresh_receiver: native.func(
-		"int32_t tss_refresh_receiver(uint64_t key_share, _Out_ uint64_t *out_session)",
+		"int32_t tss_refresh_receiver(uint64_t key_share, uint16_t dealer, _Out_ uint64_t *out_session)",
 	),
 	tss_refresh_next: native.func(
 		"int32_t tss_refresh_next(uint64_t session, TssSlice messages, _Out_ uint64_t *out_key_share, _Out_ TssBuffer *out_pubkey_package, _Out_ TssBuffer *out_messages, _Out_ bool *out_complete)",
@@ -181,6 +184,12 @@ export const lib: Record<string, (...args: any[]) => any> = {
 	),
 	tss_bolt3_derive_revocation_pubkey_package: native.func(
 		"int32_t tss_bolt3_derive_revocation_pubkey_package(TssSlice pubkey_package, TssSlice per_commitment_point, _Out_ TssBuffer *out_pubkey_package)",
+	),
+	tss_repair_helper_term: native.func(
+		"int32_t tss_repair_helper_term(uint64_t key_share, const uint16_t *helpers, size_t helpers_len, uint16_t target, TssSlice repair_id, _Out_ TssBuffer *out_messages)",
+	),
+	tss_repair_assemble: native.func(
+		"int32_t tss_repair_assemble(uint8_t suite, TssSlice pubkey_package, uint16_t target, TssSlice messages, _Out_ uint64_t *out_handle)",
 	),
 	tss_dkls_split_key: native.func(
 		"int32_t tss_dkls_split_key(uint8_t suite, TssSlice secret_key, TssSlice chain_code, uint16_t max_signers, uint16_t min_signers, uint64_t *out_handles, _Out_ size_t *out_handle_count, _Out_ TssBuffer *out_pubkey_package)",
