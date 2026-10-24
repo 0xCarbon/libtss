@@ -249,7 +249,7 @@ uint16_t tss_abort_banned_party(void);
 // --- Memory ---
 void tss_buffer_free(TssBuffer *buf);
 void tss_handle_free(TssHandle handle);
-void tss_session_free(TssHandle session);
+void tss_session_free(TssHandle session);  // honored after a concurrent *_next returns
 
 // --- Handle Queries ---
 TssStatus tss_handle_identifier(TssHandle handle, uint16_t *out_id);

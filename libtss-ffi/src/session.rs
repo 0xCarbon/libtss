@@ -406,6 +406,11 @@ pub extern "C" fn tss_refresh_next(
     })
 }
 
+/// Free a session handle. Idempotent. If another thread is inside a
+/// `*_next` call on the same session, the session is dropped when that call
+/// returns; further calls on the handle return `TSS_ERR_HANDLE_INVALID`. A
+/// second `*_next` on a session that is already in use also returns
+/// `TSS_ERR_HANDLE_INVALID`.
 #[no_mangle]
 pub extern "C" fn tss_session_free(session: TssHandle) {
     crate::error::clear_last_error();

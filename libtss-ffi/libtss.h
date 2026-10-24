@@ -409,6 +409,11 @@ TssStatus tss_refresh_next(TssHandle session,
                            struct TssBuffer *out_messages,
                            bool *out_complete);
 
+// Free a session handle. Idempotent. If another thread is inside a
+// `*_next` call on the same session, the session is dropped when that call
+// returns; further calls on the handle return `TSS_ERR_HANDLE_INVALID`. A
+// second `*_next` on a session that is already in use also returns
+// `TSS_ERR_HANDLE_INVALID`.
 void tss_session_free(TssHandle session);
 
 // Same as `tss_sign_next`, and additionally writes the recovery identifier
