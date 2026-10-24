@@ -10,7 +10,7 @@ import {
 	SignSession,
 	version,
 } from "../index";
-import { __mock } from "./__mocks__/NativeLibtss";
+import NativeLibtss, { __mock } from "./__mocks__/NativeLibtss";
 
 const FROST_SUITES: [string, number, Ciphersuite][] = [
 	["Secp256k1Taproot", 64, Ciphersuite.Secp256k1Taproot],
@@ -215,6 +215,37 @@ describe("session wrappers", () => {
 			).rejects.toThrow(RangeError);
 		},
 	);
+
+	it.each([0, -1])("rejects signer count %p before calling native", async (bad) => {
+		for (const config of [
+			{ minSigners: bad, maxSigners: 3, suite: Ciphersuite.Ed25519 },
+			{ minSigners: 2, maxSigners: bad, suite: Ciphersuite.Ed25519 },
+		]) {
+			await expect(DkgSession.create(config, 1)).rejects.toThrow(RangeError);
+		}
+		expect(NativeLibtss.dkgNew).not.toHaveBeenCalled();
+	});
+
+	it("surfaces envelope validation in next() as RangeError", async () => {
+		__mock.pushDkgNew({ handle: "301", messages: "" });
+		__mock.registerHandle("311", { suite: Ciphersuite.Ed25519 });
+		__mock.pushSignNew({ handle: "321", messages: "" });
+		__mock.pushRefreshNew({ handle: "331", messages: "" });
+		const [dkg] = await DkgSession.create(
+			{ minSigners: 2, maxSigners: 3, suite: Ciphersuite.Ed25519 },
+			1,
+		);
+		const share = new KeyShareHandle("311");
+		const [sign] = await SignSession.create(share, Uint8Array.of(1));
+		const [refresh] = await RefreshSession.create(share);
+		const bad = [{ from: 65536, to: null, data: Uint8Array.of(1) }];
+		await expect(dkg.next(bad)).rejects.toThrow(RangeError);
+		await expect(sign.next(bad)).rejects.toThrow(RangeError);
+		await expect(refresh.next(bad)).rejects.toThrow(RangeError);
+		expect(NativeLibtss.dkgNext).not.toHaveBeenCalled();
+		expect(NativeLibtss.signNext).not.toHaveBeenCalled();
+		expect(NativeLibtss.refreshNext).not.toHaveBeenCalled();
+	});
 
 	it("rejects a fractional ciphersuite in DKG", async () => {
 		await expect(
