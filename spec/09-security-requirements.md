@@ -51,7 +51,10 @@ the key from the deterministic relationship between nonces.
 6. The low-level `libtss::frost` API returns nonces as an opaque
    `frost::SigningNonces` value that is neither `Clone` nor serializable;
    `frost_sign` takes it by value, so one nonce pair yields at most one share.
-   `frost_sign` also rejects nonces committed by a different key share.
+   `frost_sign` also rejects nonces committed by a different key share: the
+   nonces carry the suite, identifier, verifying share and group key of the
+   committing share, so another group or refresh epoch with the same
+   identifier is rejected.
 
 **Verification**: The type system enforces single-use via consumption. The
 `frost_nonces_single_use` trybuild test checks that reusing or cloning
