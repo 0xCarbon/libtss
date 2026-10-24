@@ -642,12 +642,20 @@ fn frost_refresh_receiver_uses_only_its_own_consistent_message() {
         RefreshOutput::Complete { .. }
     ));
 
-    // Two messages addressed to this party.
+    // A duplicate of the dealer's message is accepted; a conflicting one
+    // names the dealer.
     let mut session = RefreshSession::new_frost_receiver(party, id(1)).unwrap();
     assert!(matches!(
         session.next(&[own.clone(), own.clone()]),
-        Err(TssError::InvalidConfig(_))
+        Ok(RefreshOutput::Complete { .. })
     ));
+    let mut conflicting = own.clone();
+    *conflicting.data.last_mut().unwrap() ^= 1;
+    let mut session = RefreshSession::new_frost_receiver(party, id(1)).unwrap();
+    match session.next(&[own.clone(), conflicting]) {
+        Err(TssError::Abort { culprits, .. }) => assert_eq!(culprits, vec![id(1)]),
+        other => panic!("expected Abort, got {:?}", other.err()),
+    }
 
     // No message addressed to this party.
     let mut session = RefreshSession::new_frost_receiver(party, id(1)).unwrap();
