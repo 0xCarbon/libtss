@@ -26,6 +26,9 @@ struct TssSlice {
 };
 
 constexpr TssStatus TSS_OK = 0;
+constexpr TssStatus TSS_ERR_INVALID_CONFIG = 1;
+constexpr TssStatus TSS_ERR_HANDLE_INVALID = 7;
+constexpr TssStatus TSS_ERR_INTERNAL_PANIC = 255;
 constexpr TssStatus TSS_ERR_ABORT = 10;
 constexpr TssStatus TSS_ERR_ABORT_BAN = 11;
 constexpr uint8_t TSS_NO_RECOVERY_ID = 255;
@@ -143,10 +146,12 @@ NSString *LastErrorMessage() {
       ?: @"libtss native call failed";
 }
 
-NSError *BridgeError(NSString *message) {
+// Errors detected in the bridge itself carry a status code like native
+// errors, so JS sees a regular TssError code instead of INTERNAL_PANIC.
+NSError *BridgeError(NSString *message, TssStatus code) {
   return [NSError errorWithDomain:@"libtss"
-                             code:-1
-                         userInfo:@{NSLocalizedDescriptionKey : message}];
+                             code:code
+                         userInfo:@{NSLocalizedDescriptionKey : message, @"code" : @(code)}];
 }
 
 NSArray<NSNumber *> *AbortCulprits() {
@@ -186,14 +191,15 @@ void RejectStatus(RCTPromiseRejectBlock reject, TssStatus status) {
   reject(@"E_LIBTSS", error.localizedDescription, error);
 }
 
-void RejectBridgeError(RCTPromiseRejectBlock reject, NSString *message) {
-  NSError *error = BridgeError(message);
+void RejectBridgeError(RCTPromiseRejectBlock reject, NSString *message,
+                       TssStatus code = TSS_ERR_INVALID_CONFIG) {
+  NSError *error = BridgeError(message, code);
   reject(@"E_LIBTSS", message, error);
 }
 
 BOOL ParseHandle(NSString *handle, TssHandle *outHandle, RCTPromiseRejectBlock reject) {
   if (handle == nil) {
-    RejectBridgeError(reject, @"handle is required");
+    RejectBridgeError(reject, @"handle is required", TSS_ERR_HANDLE_INVALID);
     return NO;
   }
 
@@ -202,7 +208,7 @@ BOOL ParseHandle(NSString *handle, TssHandle *outHandle, RCTPromiseRejectBlock r
   char *end = nullptr;
   unsigned long long parsed = std::strtoull(raw, &end, 10);
   if (errno != 0 || end == raw || end == nullptr || *end != '\0') {
-    RejectBridgeError(reject, @"invalid handle");
+    RejectBridgeError(reject, @"invalid handle", TSS_ERR_HANDLE_INVALID);
     return NO;
   }
 
@@ -1052,7 +1058,7 @@ RCT_EXPORT_METHOD(version:(RCTPromiseResolveBlock)resolve
 {
   const char *version = tss_version();
   if (version == nullptr) {
-    RejectBridgeError(reject, @"missing libtss version");
+    RejectBridgeError(reject, @"missing libtss version", TSS_ERR_INTERNAL_PANIC);
     return;
   }
 
@@ -1134,7 +1140,8 @@ RCT_EXPORT_METHOD(exportKeyShareSecure:(NSString *)handle
   tss_buffer_free(&out);
 
   if (ks != errSecSuccess) {
-    RejectBridgeError(reject, [NSString stringWithFormat:@"Keychain SecItemAdd failed: %d", (int)ks]);
+    RejectBridgeError(reject, [NSString stringWithFormat:@"Keychain SecItemAdd failed: %d", (int)ks],
+                      TSS_ERR_INTERNAL_PANIC);
     return;
   }
 
@@ -1146,6 +1153,16 @@ RCT_EXPORT_METHOD(importKeyShareSecure:(nonnull NSNumber *)suite
                   resolve:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject)
 {
+  // Validate the suite before reading the secret from the keychain.
+  uint8_t suiteValue = 0;
+  if (!CheckedSuite(suite, &suiteValue, reject)) {
+    return;
+  }
+  if (keychainId == nil) {
+    RejectBridgeError(reject, @"keychainId is required");
+    return;
+  }
+
   NSDictionary *query = @{
     (__bridge id)kSecClass : (__bridge id)kSecClassGenericPassword,
     (__bridge id)kSecAttrService : kKeychainService,
@@ -1156,7 +1173,8 @@ RCT_EXPORT_METHOD(importKeyShareSecure:(nonnull NSNumber *)suite
   CFTypeRef result = NULL;
   OSStatus ks = SecItemCopyMatching((__bridge CFDictionaryRef)query, &result);
   if (ks != errSecSuccess || result == NULL) {
-    RejectBridgeError(reject, [NSString stringWithFormat:@"Keychain SecItemCopyMatching failed: %d", (int)ks]);
+    RejectBridgeError(reject, [NSString stringWithFormat:@"Keychain SecItemCopyMatching failed: %d", (int)ks],
+                      ks == errSecItemNotFound ? TSS_ERR_INVALID_CONFIG : TSS_ERR_INTERNAL_PANIC);
     return;
   }
 
@@ -1168,12 +1186,6 @@ RCT_EXPORT_METHOD(importKeyShareSecure:(nonnull NSNumber *)suite
   // is guaranteed heap-writable. The original NSData is released by ARC.
   NSMutableData *mutableCopy = [keychainData mutableCopy];
   keychainData = nil;  // release immutable copy early
-
-  uint8_t suiteValue = 0;
-  if (!CheckedSuite(suite, &suiteValue, reject)) {
-    memset_s(mutableCopy.mutableBytes, mutableCopy.length, 0, mutableCopy.length);
-    return;
-  }
 
   TssHandle out = 0;
   TssStatus status = tss_handle_import(
