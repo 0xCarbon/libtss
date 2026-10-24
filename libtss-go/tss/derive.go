@@ -25,13 +25,11 @@ func DeriveChild(keyShare *KeyShareHandle, childNumber uint32) (*KeyShareHandle,
 	if childNumber >= 1<<31 {
 		return nil, fmt.Errorf("childNumber must be less than 2^31 (non-hardened)")
 	}
-	handle, err := keyShare.native.value()
-	if err != nil {
-		return nil, err
-	}
 	var out C.TssHandle
-	if err := callStatus(func() C.TssStatus {
-		return C.tss_derive_child(handle, C.uint32_t(childNumber), &out)
+	if err := keyShare.use(func(handle C.TssHandle) error {
+		return callStatus(func() C.TssStatus {
+			return C.tss_derive_child(handle, C.uint32_t(childNumber), &out)
+		})
 	}); err != nil {
 		return nil, err
 	}
@@ -46,18 +44,16 @@ func DerivePath(keyShare *KeyShareHandle, path string) (*KeyShareHandle, error) 
 	if err := checkNonNil("keyShare", keyShare); err != nil {
 		return nil, err
 	}
-	handle, err := keyShare.native.value()
-	if err != nil {
-		return nil, err
-	}
 	if strings.ContainsRune(path, 0) {
 		return nil, fmt.Errorf("path must not contain NUL bytes")
 	}
 	cPath := C.CString(path)
 	defer C.free(unsafe.Pointer(cPath))
 	var out C.TssHandle
-	if err := callStatus(func() C.TssStatus {
-		return C.tss_derive_path(handle, cPath, &out)
+	if err := keyShare.use(func(handle C.TssHandle) error {
+		return callStatus(func() C.TssStatus {
+			return C.tss_derive_path(handle, cPath, &out)
+		})
 	}); err != nil {
 		return nil, err
 	}

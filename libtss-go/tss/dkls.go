@@ -58,13 +58,11 @@ func Bolt3Derive(keyShare *KeyShareHandle, perCommitmentPoint []byte) (*KeyShare
 	if err := checkNonNil("keyShare", keyShare); err != nil {
 		return nil, err
 	}
-	handle, err := keyShare.native.value()
-	if err != nil {
-		return nil, err
-	}
 	var out C.TssHandle
-	if err := callStatus(func() C.TssStatus {
-		return C.tss_bolt3_derive(handle, bytesToSlice(perCommitmentPoint), &out)
+	if err := keyShare.use(func(handle C.TssHandle) error {
+		return callStatus(func() C.TssStatus {
+			return C.tss_bolt3_derive(handle, bytesToSlice(perCommitmentPoint), &out)
+		})
 	}); err != nil {
 		return nil, err
 	}
@@ -80,18 +78,16 @@ func Bolt3DeriveRevocation(keyShare *KeyShareHandle, perCommitmentPoint, perComm
 	if err := checkNonNil("keyShare", keyShare); err != nil {
 		return nil, err
 	}
-	handle, err := keyShare.native.value()
-	if err != nil {
-		return nil, err
-	}
 	var out C.TssHandle
-	if err := callStatus(func() C.TssStatus {
-		return C.tss_bolt3_derive_revocation(
-			handle,
-			bytesToSlice(perCommitmentPoint),
-			bytesToSlice(perCommitmentSecret),
-			&out,
-		)
+	if err := keyShare.use(func(handle C.TssHandle) error {
+		return callStatus(func() C.TssStatus {
+			return C.tss_bolt3_derive_revocation(
+				handle,
+				bytesToSlice(perCommitmentPoint),
+				bytesToSlice(perCommitmentSecret),
+				&out,
+			)
+		})
 	}); err != nil {
 		return nil, err
 	}
@@ -143,20 +139,18 @@ func DKLsRepairHelperTerm(keyShare *KeyShareHandle, helpers []Identifier, target
 	if len(helpers) == 0 {
 		return nil, fmt.Errorf("helpers must not be empty")
 	}
-	handle, err := keyShare.native.value()
-	if err != nil {
-		return nil, err
-	}
 	var out C.struct_TssBuffer
-	if err := callStatus(func() C.TssStatus {
-		return C.tss_repair_helper_term(
-			handle,
-			(*C.uint16_t)(unsafe.Pointer(&helpers[0])),
-			C.uintptr_t(len(helpers)),
-			C.uint16_t(target),
-			bytesToSlice(repairID),
-			&out,
-		)
+	if err := keyShare.use(func(handle C.TssHandle) error {
+		return callStatus(func() C.TssStatus {
+			return C.tss_repair_helper_term(
+				handle,
+				(*C.uint16_t)(unsafe.Pointer(&helpers[0])),
+				C.uintptr_t(len(helpers)),
+				C.uint16_t(target),
+				bytesToSlice(repairID),
+				&out,
+			)
+		})
 	}); err != nil {
 		return nil, err
 	}
