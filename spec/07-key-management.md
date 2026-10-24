@@ -380,6 +380,11 @@ pub fn repair_assemble(suite: Ciphersuite, public_keys: &PublicKeyPackage,
   it. After the refresh, every party erases its pre-repair share and backups;
   use the refreshed public key package for later repairs.
 - Root shares only: BIP-32-derived shares are refused.
+- The target gets the public key package from an authenticated source; the
+  repaired share takes its threshold and the other parties' verifying shares
+  from it. `repair_assemble` rejects a package whose group key and verifying
+  shares do not lie on one polynomial of degree below `min_signers`, or that
+  contains an identity point.
 
 ## Key Share Persistence
 
