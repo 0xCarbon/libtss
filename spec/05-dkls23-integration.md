@@ -4,10 +4,10 @@
 
 DKLs23 implements threshold ECDSA based on oblivious transfer, as described in
 [eprint 2023/765](https://eprint.iacr.org/2023/765). The 0xCarbon implementation
-(v0.6.1) is the Rust workspace at [github.com/0xCarbon/DKLs23](https://github.com/0xCarbon/DKLs23),
+(v0.6.2) is the Rust workspace at [github.com/0xCarbon/DKLs23](https://github.com/0xCarbon/DKLs23),
 published on crates.io as `dkls23-core` (curve-generic), `dkls23-secp256k1` and
 `dkls23-secp256r1` (plus a `dkls23` umbrella crate). libtss depends on the two curve
-crates at 0.6.1.
+crates at 0.6.2.
 
 ### Implementation Landscape
 
@@ -15,7 +15,7 @@ Two major open-source Rust implementations exist:
 
 | | [0xCarbon DKLs23](https://github.com/0xCarbon/DKLs23) | Silence Labs |
 |---|---|---|
-| **Version** | 0.6.1 (multi-crate workspace) | Production |
+| **Version** | 0.6.2 (multi-crate workspace) | Production |
 | **Curves** | secp256k1, secp256r1 (NIST P-256) | secp256k1 |
 | **Audit** | Internal security review (Mar 2026) -- [PR #46](https://github.com/0xCarbon/DKLs23/pull/46); input validation hardening [PR #56](https://github.com/0xCarbon/DKLs23/pull/56) | Trail of Bits (Feb 2024) -- 15 findings, 14 resolved |
 | **Features** | Curve-generic types (`Party<C: DklsCurve>`, `DkgSession<C>`, `SignSession<'a, C>`), DKG, signing, complete + fast refresh, BIP-32 derivation, re-key, `AddressScheme<C>` trait with blockchain-specific address functions, versioned domain-separated tagged hashing, structured `AbortReason` enum with ban/recoverable classification, comprehensive input validation, session state machines, typed `PartyIndex`, `PublicKeyPackage<C>`, `EcdsaSignature`, `PhaseOutput`/`PhaseInput` message containers, feature-gated serde | DKG, signing, refresh, dynamic quorum, key import/export, migration from GG/CMP |

@@ -797,8 +797,8 @@ frost-ed25519 = "3.0.0"
 frost-p256 = "3.0.0"
 frost-ristretto255 = "3.0.0"
 frost-ed448 = "3.0.0"
-dkls23-secp256k1 = { version = "0.6.1", features = ["serde"] }
-dkls23-secp256r1 = { version = "0.6.1", features = ["serde"] }
+dkls23-secp256k1 = { version = "0.6.2", features = ["serde"] }
+dkls23-secp256r1 = { version = "0.6.2", features = ["serde"] }
 zeroize = { version = "1", features = ["derive"] }
 ```
 

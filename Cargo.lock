@@ -588,9 +588,9 @@ dependencies = [
 
 [[package]]
 name = "dkls23-core"
-version = "0.6.1"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb0185ffa77b102a041cbc1c1ad0a63cc98e1a69208e582a5abea8e24580366c"
+checksum = "b2093ae0b1da361de3a9ec14d205dd6f1f92add8b8d2e4880f2763f787653c25"
 dependencies = [
  "elliptic-curve 0.14.1",
  "ff 0.14.0",
@@ -611,9 +611,9 @@ dependencies = [
 
 [[package]]
 name = "dkls23-secp256k1"
-version = "0.6.1"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "332fbef40cc5938b7f593d976164249cdb19186ee5e94dcfb9f181a169ef9b96"
+checksum = "f103e547baa29315c8a0f1295fae72c9e4e7bf1d5c7c4b73d3d75cb79d90104d"
 dependencies = [
  "bech32",
  "blake2",
@@ -629,9 +629,9 @@ dependencies = [
 
 [[package]]
 name = "dkls23-secp256r1"
-version = "0.6.1"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6cf5b368b4b87e5472becebfce6520cfe2fac41929d4118f1d9716933cc415ff"
+checksum = "0a8d379a37a1da821a0b4c51ec225aa8a64340a939c676fc0206308fd6a28408"
 dependencies = [
  "blake2",
  "bs58",
