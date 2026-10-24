@@ -258,7 +258,7 @@ pub fn to_frost_handle(handle: &KeyShareHandle) -> Result<crate::frost::KeyShare
         REGISTRY.with::<KeyShareInner, _>(handle.id, |inner| -> Result<Vec<u8>, TssError> {
             macro_rules! ser {
                 ($kp:expr) => {
-                    $kp.serialize().map_err(TssError::from)
+                    serialize_secret($kp)
                 };
             }
             match inner {

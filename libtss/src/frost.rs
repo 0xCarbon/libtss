@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use rand_core::OsRng;
 use zeroize::{Zeroize, Zeroizing};
 
+use crate::keyshare::serialize_secret;
 use crate::{
     message::Message,
     types::{Ciphersuite, Identifier, Protocol, PublicKeyPackage, Signature, ThresholdConfig},
@@ -302,7 +303,7 @@ fn part1_inner<C: frost_core::Ciphersuite>(
         frost_core::keys::dkg::part1::<C, _>(identifier, max_signers, min_signers, OsRng)
             .map_err(TssError::from)?;
     Ok((
-        Zeroizing::new(secret.serialize().map_err(TssError::from)?),
+        Zeroizing::new(serialize_secret(&secret)?),
         vec![Message {
             from: self_id,
             to: None,
@@ -330,14 +331,11 @@ fn part2_inner<C: frost_core::Ciphersuite>(
         messages.push(Message {
             from: self_id,
             to: Some(from_frost_id(suite, recipient)?),
-            data: package.serialize().map_err(TssError::from)?,
+            data: serialize_secret(&package)?,
         });
     }
 
-    Ok((
-        Zeroizing::new(secret.serialize().map_err(TssError::from)?),
-        messages,
-    ))
+    Ok((Zeroizing::new(serialize_secret(&secret)?), messages))
 }
 
 fn part3_inner<C: frost_core::Ciphersuite>(
@@ -358,7 +356,7 @@ fn part3_inner<C: frost_core::Ciphersuite>(
         frost_core::keys::dkg::part3::<C>(&secret, &round1_packages, &round2_packages)
             .map_err(TssError::from)?;
     Ok((
-        key_package.serialize().map_err(TssError::from)?,
+        serialize_secret(&key_package)?,
         frost_pubkey_to_libtss(suite, &public_key_package)?,
     ))
 }
@@ -373,7 +371,7 @@ fn commit_inner<C: frost_core::Ciphersuite>(
     let (nonces, commitments) =
         frost_core::round1::commit::<C, _>(key_package.signing_share(), &mut OsRng);
     Ok((
-        Zeroizing::new(nonces.serialize().map_err(TssError::from)?),
+        Zeroizing::new(serialize_secret(&nonces)?),
         Message {
             from: identifier,
             to: None,
@@ -445,7 +443,7 @@ fn generate_with_dealer_inner<C: frost_core::Ciphersuite>(
     for (id, share) in shares {
         let identifier = from_frost_id(suite, id)?;
         let key_package = frost_core::keys::KeyPackage::try_from(share).map_err(TssError::from)?;
-        key_packages.push((identifier, key_package.serialize().map_err(TssError::from)?));
+        key_packages.push((identifier, serialize_secret(&key_package)?));
     }
 
     Ok((
@@ -475,7 +473,7 @@ fn split_key_inner<C: frost_core::Ciphersuite>(
     for (id, share) in shares {
         let identifier = from_frost_id(suite, id)?;
         let key_package = frost_core::keys::KeyPackage::try_from(share).map_err(TssError::from)?;
-        key_packages.push((identifier, key_package.serialize().map_err(TssError::from)?));
+        key_packages.push((identifier, serialize_secret(&key_package)?));
     }
 
     Ok((
@@ -538,10 +536,13 @@ fn repair_part3_inner<C: frost_core::Ciphersuite>(
         .collect::<Result<Vec<_>, _>>()?;
     let participant = to_frost_id::<C>(participant)?;
     let public_key_package = libtss_pubkey_to_frost::<C>(suite, pubkey_package)?;
-    frost_core::keys::repairable::repair_share_part3::<C>(&sigmas, participant, &public_key_package)
-        .map_err(TssError::from)?
-        .serialize()
-        .map_err(TssError::from)
+    let key_package = frost_core::keys::repairable::repair_share_part3::<C>(
+        &sigmas,
+        participant,
+        &public_key_package,
+    )
+    .map_err(TssError::from)?;
+    serialize_secret(&key_package)
 }
 
 fn refresh_with_dealer_inner<C: frost_core::Ciphersuite>(
@@ -569,7 +570,7 @@ fn refresh_with_dealer_inner<C: frost_core::Ciphersuite>(
         .map(|share| {
             Ok((
                 from_frost_id(suite, *share.identifier())?,
-                share.serialize().map_err(TssError::from)?,
+                serialize_secret(&share)?,
             ))
         })
         .collect::<Result<Vec<_>, TssError>>()?;
@@ -588,10 +589,9 @@ fn apply_refresh_inner<C: frost_core::Ciphersuite>(
         .map_err(TssError::from)?;
     let refresh_data =
         frost_core::keys::SecretShare::<C>::deserialize(refresh_data).map_err(TssError::from)?;
-    frost_core::keys::refresh::refresh_share::<C>(refresh_data, &key_package)
-        .map_err(TssError::from)?
-        .serialize()
-        .map_err(TssError::from)
+    let refreshed = frost_core::keys::refresh::refresh_share::<C>(refresh_data, &key_package)
+        .map_err(TssError::from)?;
+    serialize_secret(&refreshed)
 }
 
 pub fn frost_dkg_part1(
@@ -906,7 +906,7 @@ pub fn frost_tweak_key_share(
     Ok((
         key_share_handle_from_bytes(
             Ciphersuite::Secp256k1Taproot,
-            key_package.serialize().map_err(TssError::from)?,
+            serialize_secret(&key_package)?,
         )?,
         parity,
     ))
