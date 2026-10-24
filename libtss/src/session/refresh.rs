@@ -254,16 +254,25 @@ impl RefreshSession {
                     });
                 }
                 let msg = match addressed.as_slice() {
-                    [msg] => *msg,
                     [] => {
                         return Err(TssError::DeserializeFailed(
                             "no refresh data addressed to this party".into(),
                         ))
                     }
-                    _ => {
-                        return Err(TssError::InvalidConfig(
-                            "more than one refresh message from the dealer".into(),
-                        ))
+                    // Identical copies (a transport delivering twice) are one
+                    // message; differing ones name the dealer.
+                    [first, rest @ ..] => {
+                        if rest.iter().any(|m| m.data != first.data) {
+                            return Err(TssError::Abort {
+                                culprits: vec![dealer],
+                                message: format!(
+                                    "party {}: conflicting refresh messages",
+                                    dealer.as_u16()
+                                ),
+                                ban: None,
+                            });
+                        }
+                        *first
                     }
                 };
 
@@ -615,13 +624,39 @@ mod receiver_checks {
     fn names_a_non_dealer_sender_next_to_the_dealer_message() {
         let setup = setup(&[1, 2, 3, 4]);
         let honest = tampered(&setup, 2, |_, _| {});
-        let mut stray = honest.clone();
-        stray.from = id(3);
+        let stray = |from: u16| {
+            let mut message = honest.clone();
+            message.from = id(from);
+            message
+        };
+        let mut elsewhere = stray(4);
+        elsewhere.to = Some(id(3));
         let result = RefreshSession::new_frost_receiver(&setup.shares[1], id(1))
             .unwrap()
-            .next(&[honest, stray]);
+            .next(&[stray(4), honest.clone(), elsewhere, stray(3), stray(4)]);
         match result {
-            Err(TssError::Abort { culprits, .. }) => assert_eq!(culprits, vec![id(3)]),
+            Err(TssError::Abort { culprits, .. }) => assert_eq!(culprits, vec![id(3), id(4)]),
+            other => panic!("expected Abort, got {:?}", other.err()),
+        }
+    }
+
+    #[test]
+    fn accepts_a_duplicate_and_names_a_dealer_with_conflicting_messages() {
+        let setup = setup(&[1, 2, 3, 4]);
+        let honest = tampered(&setup, 2, |_, _| {});
+        let receive_all = |messages: &[Message]| {
+            RefreshSession::new_frost_receiver(&setup.shares[1], id(1))
+                .unwrap()
+                .next(messages)
+        };
+        assert!(matches!(
+            receive_all(&[honest.clone(), honest.clone()]),
+            Ok(RefreshOutput::Complete { .. })
+        ));
+        let mut other = honest.clone();
+        *other.data.last_mut().unwrap() ^= 1;
+        match receive_all(&[honest, other]) {
+            Err(TssError::Abort { culprits, .. }) => assert_eq!(culprits, vec![id(1)]),
             other => panic!("expected Abort, got {:?}", other.err()),
         }
     }

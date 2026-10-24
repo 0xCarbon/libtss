@@ -108,6 +108,30 @@ public class LifetimeTests : IDisposable
     }
 
     [Fact]
+    public void Dispose_DuringFailingConstructor_KeepsTheNativeError()
+    {
+        var (handles, _) = FrostOperations.GenerateDealer(Ciphersuite.Ed25519, 3, 2);
+        try
+        {
+            var share = handles[1];
+            // The last lease is released after the native call; freeing the
+            // handle must not clear the error before it is read.
+            TestHooks.AfterHandleAcquired = () =>
+            {
+                TestHooks.AfterHandleAcquired = null;
+                share.Dispose();
+            };
+            var err = Assert.Throws<TssException>(() => RefreshSession.CreateReceiver(share, 9));
+            Assert.Equal(TssStatus.InvalidId, err.Code);
+            Assert.Contains("identifier", err.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            foreach (var h in handles) h.Dispose();
+        }
+    }
+
+    [Fact]
     public void Finalizer_DuringNext_DoesNotFreeTheSession()
     {
         var (handles, _) = FrostOperations.GenerateDealer(Ciphersuite.Ed25519, 2, 2);

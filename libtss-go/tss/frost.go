@@ -155,6 +155,11 @@ func FrostRefreshDealer(pubkeyPackage []byte, participants []Identifier) (map[Id
 	return shareMap, bufferToBytes(&outPkg), nil
 }
 
+// FrostApplyRefresh applies a trusted-dealer refresh share to keyShare. The
+// refreshed public key package must keep the group key and min_signers, list a
+// subset of the share's current identifiers including this party, and match
+// the refresh share's commitment for every verifying share; otherwise it
+// returns a TssError with code TSS_ERR_INVALID_SHARE.
 func FrostApplyRefresh(keyShare *KeyShareHandle, refreshData, pubkeyPackage []byte) (*KeyShareHandle, error) {
 	if err := checkNonNil("keyShare", keyShare); err != nil {
 		return nil, err

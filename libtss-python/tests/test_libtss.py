@@ -457,8 +457,9 @@ class TestDealerRefresh:
         shares, new_pkg = frost.refresh_dealer(pkg, [1, 2, 3])
         tampered = _swap_verifying_shares(new_pkg, 2, 3)
         assert tampered != new_pkg
-        with pytest.raises(TssError):
+        with pytest.raises(TssError) as excinfo:
             frost.apply_refresh(handles[0], shares[1], tampered)
+        assert excinfo.value.code == 3  # TSS_ERR_INVALID_SHARE
         refreshed = frost.apply_refresh(handles[0], shares[1], new_pkg)
         assert refreshed.group_verifying_key == handles[0].group_verifying_key
         refreshed.close()

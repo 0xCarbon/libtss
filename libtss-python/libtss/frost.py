@@ -227,7 +227,13 @@ def apply_refresh(
     refresh_data: bytes,
     pubkey_package: bytes,
 ) -> KeyShareHandle:
-    """Apply a trusted-dealer refreshing share to an existing key share."""
+    """Apply a trusted-dealer refreshing share to an existing key share.
+
+    The refreshed public key package must keep the group key and
+    ``min_signers``, list a subset of the share's current identifiers
+    including this party, and match the refresh share's commitment for every
+    verifying share; otherwise ``TssError`` with ``TSS_ERR_INVALID_SHARE``.
+    """
     out = ctypes.c_uint64()
     status = get_lib().tss_frost_apply_refresh(
         key_share.raw,

@@ -269,6 +269,12 @@ pub extern "C" fn tss_frost_refresh_dealer(
     })
 }
 
+/// Applies a trusted-dealer refresh share to `key_share`. The refreshed
+/// public key package must keep the group key and `min_signers`, list a subset
+/// of the share's current identifiers including this party, and match the
+/// commitment in the refresh share for every verifying share; otherwise
+/// `TSS_ERR_INVALID_SHARE`. The dealer must compute the refresh from the
+/// share's current package.
 #[no_mangle]
 pub extern "C" fn tss_frost_apply_refresh(
     key_share: TssHandle,

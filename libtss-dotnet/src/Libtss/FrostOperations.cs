@@ -267,6 +267,11 @@ public static class FrostOperations
 
     /// <summary>
     /// Applies a trusted-dealer refreshing share to an existing key share.
+    /// The refreshed public key package must keep the group key and
+    /// <c>min_signers</c>, list a subset of the share's current identifiers
+    /// including this party, and match the refresh share's commitment for
+    /// every verifying share; otherwise a <see cref="TssException"/> with
+    /// <see cref="TssStatus.InvalidShare"/> is thrown.
     /// </summary>
     /// <param name="keyShare">The existing key share to refresh.</param>
     /// <param name="refreshData">The refresh share data for this participant.</param>
