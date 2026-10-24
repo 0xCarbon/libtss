@@ -234,30 +234,38 @@ impl RefreshSession {
                 dealer,
                 public_keys,
             } => {
-                let mut addressed = received.iter().filter(|m| m.to == Some(self_id));
-                let msg = match (addressed.next(), addressed.next()) {
-                    (Some(msg), None) => msg,
-                    (None, _) => {
+                let addressed: Vec<&Message> =
+                    received.iter().filter(|m| m.to == Some(self_id)).collect();
+                let mut culprits: Vec<Identifier> = addressed
+                    .iter()
+                    .map(|m| m.from)
+                    .filter(|&from| from != dealer)
+                    .collect();
+                culprits.sort_unstable();
+                culprits.dedup();
+                if !culprits.is_empty() {
+                    return Err(TssError::Abort {
+                        message: format!(
+                            "refresh message not from the dealer (parties {:?})",
+                            culprits.iter().map(|c| c.as_u16()).collect::<Vec<_>>()
+                        ),
+                        culprits,
+                        ban: None,
+                    });
+                }
+                let msg = match addressed.as_slice() {
+                    [msg] => *msg,
+                    [] => {
                         return Err(TssError::DeserializeFailed(
                             "no refresh data addressed to this party".into(),
                         ))
                     }
-                    (Some(_), Some(_)) => {
+                    _ => {
                         return Err(TssError::InvalidConfig(
-                            "more than one refresh message addressed to this party".into(),
+                            "more than one refresh message from the dealer".into(),
                         ))
                     }
                 };
-                if msg.from != dealer {
-                    return Err(TssError::Abort {
-                        culprits: vec![msg.from],
-                        message: format!(
-                            "party {}: refresh message not from the dealer",
-                            msg.from.as_u16()
-                        ),
-                        ban: None,
-                    });
-                }
 
                 // Parse message: [pubkey_len:u32 LE][pubkey_bytes][refresh_data]
                 if msg.data.len() < 4 {
@@ -598,6 +606,21 @@ mod receiver_checks {
         let mut message = tampered(&setup, 2, |_, _| {});
         message.from = id(3);
         match receive(&setup.shares[1], message) {
+            Err(TssError::Abort { culprits, .. }) => assert_eq!(culprits, vec![id(3)]),
+            other => panic!("expected Abort, got {:?}", other.err()),
+        }
+    }
+
+    #[test]
+    fn names_a_non_dealer_sender_next_to_the_dealer_message() {
+        let setup = setup(&[1, 2, 3, 4]);
+        let honest = tampered(&setup, 2, |_, _| {});
+        let mut stray = honest.clone();
+        stray.from = id(3);
+        let result = RefreshSession::new_frost_receiver(&setup.shares[1], id(1))
+            .unwrap()
+            .next(&[honest, stray]);
+        match result {
             Err(TssError::Abort { culprits, .. }) => assert_eq!(culprits, vec![id(3)]),
             other => panic!("expected Abort, got {:?}", other.err()),
         }

@@ -203,8 +203,12 @@ BOOL ParseHandle(NSString *handle, TssHandle *outHandle, RCTPromiseRejectBlock r
     return NO;
   }
 
-  errno = 0;
   const char *raw = handle.UTF8String;
+  if (raw == nullptr || raw[0] < '0' || raw[0] > '9') {
+    RejectBridgeError(reject, @"invalid handle", TSS_ERR_HANDLE_INVALID);
+    return NO;
+  }
+  errno = 0;
   char *end = nullptr;
   unsigned long long parsed = std::strtoull(raw, &end, 10);
   if (errno != 0 || end == raw || end == nullptr || *end != '\0') {

@@ -135,7 +135,9 @@ type Signature struct {
 	Protocol Protocol
 	Data     []byte
 	// RecoveryID is the ECDSA recovery identifier (0 or 1) of a DKLs23
-	// signature, and NoRecoveryID for FROST signatures.
+	// signature, and NoRecoveryID for FROST signatures. Signatures returned
+	// by this package always set it; a Signature built by hand must set
+	// NoRecoveryID explicitly, since the zero value is a valid recovery id.
 	RecoveryID int
 }
 

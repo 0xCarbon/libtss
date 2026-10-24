@@ -130,17 +130,27 @@ public sealed class DkgSession : IDisposable
 
         if (complete != 0)
         {
-            byte[] pubKeyPkgBytes = outPubKeyPkg.ToArray();
-            outMessages.Dispose();
-
-            // The native session is consumed on completion.
+            // The native session is consumed on completion; take ownership of
+            // the new key share before anything else can throw.
             _native.MarkConsumed();
             GC.SuppressFinalize(this);
+            var keyShare = new KeyShareHandle(outKeyShare);
+            byte[] pubKeyPkgBytes;
+            try
+            {
+                pubKeyPkgBytes = outPubKeyPkg.ToArray();
+                outMessages.Dispose();
+            }
+            catch
+            {
+                keyShare.Dispose();
+                throw;
+            }
 
             return new DkgResult(
                 Complete: true,
                 Messages: null,
-                KeyShare: new KeyShareHandle(outKeyShare),
+                KeyShare: keyShare,
                 PublicKeyPackage: pubKeyPkgBytes);
         }
         else

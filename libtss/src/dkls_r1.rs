@@ -142,7 +142,7 @@ pub fn dkls_r1_dkg_phase1(
     let session = DkgSession::new(parameters, self_index, session_id);
     let fragments = SecretScalars(session.phase1());
     let self_position = usize::from(self_index.as_u8() - 1);
-    let self_fragment: Scalar = fragments.0[self_position];
+    let self_fragment = Zeroizing::new(fragments.0[self_position]);
     let mut messages = Vec::with_capacity(usize::from(share_count.saturating_sub(1)));
 
     for (index, fragment) in fragments.0.iter().enumerate() {
@@ -164,7 +164,7 @@ pub fn dkls_r1_dkg_phase1(
             session,
             self_id,
             share_count,
-            self_fragment: Some(Zeroizing::new(self_fragment)),
+            self_fragment: Some(self_fragment),
             self_proof_commitment: None,
             self_bip_phase2: None,
             self_bip_phase3: None,

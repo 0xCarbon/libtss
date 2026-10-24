@@ -7,9 +7,9 @@
 //! and in range; anything else throws a `RangeError` (a `TypeError` for a
 //! value that is not a number or an array).
 
-use js_sys::{Array, ArrayBuffer, RangeError, TypeError};
+use js_sys::{Array, RangeError, TypeError, Uint16Array};
 use libtss::{Ciphersuite, Identifier};
-use wasm_bindgen::JsValue;
+use wasm_bindgen::{JsCast, JsValue};
 
 use crate::error::map_err;
 
@@ -47,9 +47,9 @@ pub(crate) fn identifier_arg(value: &JsValue, name: &str) -> Result<Identifier, 
     map_err(Identifier::new(id))
 }
 
-/// Identifiers from a JS array or typed array of numbers.
+/// Identifiers from a JS array of numbers or a `Uint16Array`.
 pub(crate) fn identifiers_arg(value: &JsValue, name: &str) -> Result<Vec<Identifier>, JsValue> {
-    if !Array::is_array(value) && !ArrayBuffer::is_view(value) {
+    if !Array::is_array(value) && !value.is_instance_of::<Uint16Array>() {
         return Err(TypeError::new(&format!("{name} must be an array of numbers")).into());
     }
     Array::from(value)

@@ -210,12 +210,14 @@ void throw_libtss_exception(JNIEnv* env, TssStatus status) {
 
     jclass exception_class = env->FindClass("com/libtss/LibtssException");
     if (exception_class == nullptr) {
+        env->ExceptionClear();
         throw_with_message(env, "java/lang/RuntimeException", message);
         return;
     }
 
     jmethodID ctor = env->GetMethodID(exception_class, "<init>", "(ILjava/lang/String;[ILjava/lang/Integer;)V");
     if (ctor == nullptr) {
+        env->ExceptionClear();
         throw_with_message(env, "java/lang/RuntimeException", message);
         return;
     }
@@ -274,7 +276,8 @@ bool parse_handle(JNIEnv* env, jstring value, TssHandle* out_handle) {
     errno = 0;
     char* end = nullptr;
     unsigned long long parsed = std::strtoull(chars.get(), &end, 10);
-    if (errno != 0 || end == chars.get() || end == nullptr || *end != '\0') {
+    if (chars.get()[0] < '0' || chars.get()[0] > '9' || errno != 0 || end == chars.get() ||
+        end == nullptr || *end != '\0') {
         throw_bridge_error(env, TSS_ERR_HANDLE_INVALID, "invalid handle");
         return false;
     }
