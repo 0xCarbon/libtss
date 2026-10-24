@@ -415,6 +415,7 @@ class RefreshSession:
             key_share: Current key share handle.
             dealer: Identifier of the party that called :meth:`create_dealer`.
         """
+        dealer = check_identifier(dealer, "dealer")
         lib = get_lib()
         out_session = ctypes.c_uint64()
 

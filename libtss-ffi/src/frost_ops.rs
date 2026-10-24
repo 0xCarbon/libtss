@@ -286,8 +286,13 @@ pub extern "C" fn tss_frost_apply_refresh(
         let rd = checked_slice(refresh_data)?;
         let pubkey = libtss::PublicKeyPackage::deserialize(checked_slice(pubkey_package)?)?;
 
-        let refreshed = libtss::frost::frost_apply_refresh(&frost_handle, rd)?;
-        let new_handle = libtss::keyshare::from_frost_dkg(refreshed, &pubkey)?;
+        let new_handle = libtss::session::refresh::apply_verified_frost_refresh(
+            &frost_handle,
+            handle.identifier(),
+            handle.public_key_package(),
+            &pubkey,
+            rd,
+        )?;
         *out = new_handle.handle_id();
         std::mem::forget(new_handle);
         Ok(())

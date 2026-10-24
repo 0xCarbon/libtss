@@ -414,6 +414,10 @@ class TestRefresh:
         with pytest.raises(TssError) as excinfo:
             RefreshSession.create_receiver(shares[1], 9)
         assert excinfo.value.code == 2  # TSS_ERR_INVALID_ID
+        for bad, error in [(0, ValueError), (-1, ValueError), (65536, ValueError),
+                           (True, TypeError), (1.5, TypeError), ("1", TypeError)]:
+            with pytest.raises(error):
+                RefreshSession.create_receiver(shares[1], bad)
 
         session = RefreshSession.create_receiver(shares[1], 3)
         with pytest.raises(TssAbortError) as excinfo:
@@ -423,6 +427,43 @@ class TestRefresh:
 
         for ks in shares:
             ks.close()
+
+
+def _swap_verifying_shares(package: bytes, a: int, b: int) -> bytes:
+    """Swap two verifying shares in a serialized public key package."""
+    import struct
+
+    pos = 3
+    (vk_len,) = struct.unpack_from("<I", package, pos)
+    pos += 4 + vk_len
+    (count,) = struct.unpack_from("<H", package, pos)
+    head = package[: pos + 2]
+    pos += 2
+    shares = []
+    for _ in range(count):
+        ident, length = struct.unpack_from("<HI", package, pos)
+        pos += 6
+        shares.append([ident, package[pos : pos + length]])
+        pos += length
+    index = {ident: i for i, (ident, _) in enumerate(shares)}
+    shares[index[a]][1], shares[index[b]][1] = shares[index[b]][1], shares[index[a]][1]
+    body = b"".join(struct.pack("<HI", i, len(v)) + v for i, v in shares)
+    return head + body
+
+
+class TestDealerRefresh:
+    def test_apply_refresh_checks_the_whole_package(self):
+        handles, pkg = frost.generate_dealer(Ciphersuite.ED25519, 3, 2)
+        shares, new_pkg = frost.refresh_dealer(pkg, [1, 2, 3])
+        tampered = _swap_verifying_shares(new_pkg, 2, 3)
+        assert tampered != new_pkg
+        with pytest.raises(TssError):
+            frost.apply_refresh(handles[0], shares[1], tampered)
+        refreshed = frost.apply_refresh(handles[0], shares[1], new_pkg)
+        assert refreshed.group_verifying_key == handles[0].group_verifying_key
+        refreshed.close()
+        for h in handles:
+            h.close()
 
 
 class TestErrors:

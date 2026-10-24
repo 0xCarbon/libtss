@@ -89,8 +89,8 @@ public sealed class SignSession : IDisposable
                 signId != null ? (nuint)signId.Length : 0,
                 &sessionHandle,
                 pOutMessages);
+            TssException.ThrowIfError(status);
         }
-        TssException.ThrowIfError(status);
 
         var session = new SignSession(sessionHandle, suite);
         try

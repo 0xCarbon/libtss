@@ -255,7 +255,7 @@ export class RefreshSession extends SessionHandle {
 		keyShare: KeyShareHandle,
 		dealer: number,
 	): RefreshSession {
-		const dealerId = u16(dealer, "dealer");
+		const dealerId = identifier(dealer, "dealer");
 		const outSession: [bigint] = [0n];
 		checkStatus(
 			lib.tss_refresh_receiver(keyShare.handle, dealerId, outSession),

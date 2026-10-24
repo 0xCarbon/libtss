@@ -59,8 +59,8 @@ public sealed class RefreshSession : IDisposable
                 (nuint)participants.Length,
                 &sessionHandle,
                 pOutMessages);
+            TssException.ThrowIfError(status);
         }
-        TssException.ThrowIfError(status);
 
         return WithMessages(new RefreshSession(sessionHandle), outMessages);
     }
@@ -100,8 +100,8 @@ public sealed class RefreshSession : IDisposable
                 (nuint)sessionId.Length,
                 &sessionHandle,
                 pOutMessages);
+            TssException.ThrowIfError(status);
         }
-        TssException.ThrowIfError(status);
 
         return WithMessages(new RefreshSession(sessionHandle), outMessages);
     }
@@ -141,8 +141,8 @@ public sealed class RefreshSession : IDisposable
         using (var share = keyShare.Lease())
         {
             status = Native.tss_refresh_receiver(share.Value, dealer, &sessionHandle);
+            TssException.ThrowIfError(status);
         }
-        TssException.ThrowIfError(status);
 
         return new RefreshSession(sessionHandle);
     }

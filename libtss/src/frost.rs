@@ -818,7 +818,7 @@ pub fn frost_refresh_with_dealer(
     Ok((shares.into_iter().collect(), refreshed_public_key_package))
 }
 
-pub fn frost_apply_refresh(
+pub(crate) fn frost_apply_refresh(
     key_share: &KeyShareHandle,
     refresh_data: &[u8],
 ) -> Result<KeyShareHandle, TssError> {

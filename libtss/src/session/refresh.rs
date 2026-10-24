@@ -9,6 +9,26 @@ use crate::message::Message;
 use crate::types::{Ciphersuite, Identifier, Protocol, PublicKeyPackage};
 use crate::TssError;
 
+/// Applies a FROST dealer refresh share after checking the refreshed public
+/// key package against the current one (see
+/// [`frost_verify_refreshed_package`]); the refreshed share must match this
+/// party's verifying share in the new package.
+pub fn apply_verified_frost_refresh(
+    key_share: &crate::frost::KeyShareHandle,
+    self_id: Identifier,
+    current: &PublicKeyPackage,
+    refreshed: &PublicKeyPackage,
+    refresh_data: &[u8],
+) -> Result<KeyShareHandle, TssError> {
+    frost_verify_refreshed_package(self_id, current, refreshed, refresh_data)?;
+    let applied = frost_apply_refresh(key_share, refresh_data)?;
+    let handle = keyshare::from_frost_dkg(applied, refreshed)?;
+    if refreshed.verifying_share(self_id) != Some(handle.verifying_share().as_slice()) {
+        return Err(TssError::InvalidShare);
+    }
+    Ok(handle)
+}
+
 pub enum RefreshOutput {
     Continue(Vec<Message>),
     Complete {
@@ -259,20 +279,13 @@ impl RefreshSession {
                     })?;
                 let (pubkey_bytes, refresh_data) = body.split_at(pubkey_len);
                 let pubkey_package = PublicKeyPackage::deserialize(pubkey_bytes)?;
-                frost_verify_refreshed_package(
+                let registry_handle = apply_verified_frost_refresh(
+                    &key_share,
                     self_id,
                     &public_keys,
                     &pubkey_package,
                     refresh_data,
                 )?;
-
-                let refreshed = frost_apply_refresh(&key_share, refresh_data)?;
-                let registry_handle = keyshare::from_frost_dkg(refreshed, &pubkey_package)?;
-                if pubkey_package.verifying_share(self_id)
-                    != Some(registry_handle.verifying_share().as_slice())
-                {
-                    return Err(TssError::InvalidShare);
-                }
                 self.round = 2;
                 Ok(RefreshOutput::Complete {
                     key_share: registry_handle,

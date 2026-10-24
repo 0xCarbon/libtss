@@ -49,9 +49,11 @@ describe("FROST refresh receiver", () => {
 			expect(() => RefreshSession.createReceiver(keyShares[1], 9)).toThrow(
 				expect.objectContaining({ code: TssStatusCode.INVALID_ID }),
 			);
-			expect(() => RefreshSession.createReceiver(keyShares[1], 65536)).toThrow(
-				RangeError,
-			);
+			for (const bad of [0, -1, 1.5, 65536]) {
+				expect(() => RefreshSession.createReceiver(keyShares[1], bad)).toThrow(
+					RangeError,
+				);
+			}
 			const receiver = RefreshSession.createReceiver(keyShares[1], 3);
 			try {
 				receiver.next(messages.filter((m) => m.to === 2));

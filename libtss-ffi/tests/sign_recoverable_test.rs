@@ -123,7 +123,11 @@ fn check_recovery_ids(suite: u8, recover: fn(&[u8; 32], &[u8], u8) -> Vec<u8>) {
             break;
         }
     }
-    assert_eq!(seen, [true, true], "both recovery ids observed within {MAX_SIGNATURES} signatures");
+    assert_eq!(
+        seen,
+        [true, true],
+        "both recovery ids observed within {MAX_SIGNATURES} signatures"
+    );
     for key in keys {
         tss_handle_free(key);
     }
