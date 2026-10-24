@@ -137,8 +137,11 @@ public sealed class RefreshSession : IDisposable
         ArgumentNullException.ThrowIfNull(keyShare);
 
         ulong sessionHandle;
-        int status = Native.tss_refresh_receiver(keyShare.Handle, dealer, &sessionHandle);
-        GC.KeepAlive(keyShare);
+        int status;
+        using (var share = keyShare.Lease())
+        {
+            status = Native.tss_refresh_receiver(share.Value, dealer, &sessionHandle);
+        }
         TssException.ThrowIfError(status);
 
         return new RefreshSession(sessionHandle);
