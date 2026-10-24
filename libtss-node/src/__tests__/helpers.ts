@@ -1,6 +1,6 @@
 import type { KeyShareHandle } from "../handle";
-import { DkgSession } from "../session";
-import type { Message, ThresholdConfig } from "../types";
+import { DkgSession, SignSession } from "../session";
+import type { Message, Signature, ThresholdConfig } from "../types";
 
 const MAX_DKG_ROUNDS = 10;
 
@@ -80,4 +80,51 @@ export function freeAll(handles: KeyShareHandle[]): void {
 	for (const handle of handles) {
 		handle.free();
 	}
+}
+
+/**
+ * Runs a signing session among `signers` (each share signs with every other
+ * share as counterparty) and returns the signature every party produced.
+ */
+export function runSign(
+	signers: KeyShareHandle[],
+	message: Uint8Array,
+	signId: Uint8Array,
+): Signature[] {
+	const sessions = new Map<number, SignSession>();
+	let outgoing = new Map<number, Message[]>();
+	const ids = signers.map((share) => share.identifier());
+	for (const share of signers) {
+		const id = share.identifier();
+		const [session, messages] = SignSession.create(
+			share,
+			message,
+			ids.filter((other) => other !== id),
+			signId,
+		);
+		sessions.set(id, session);
+		outgoing.set(id, messages);
+	}
+
+	const signatures: Signature[] = [];
+	for (let round = 0; round < MAX_DKG_ROUNDS && sessions.size > 0; round++) {
+		const nextOutgoing = new Map<number, Message[]>();
+		for (const [partyId, session] of [...sessions]) {
+			const output = session.next(collectFor(partyId, outgoing));
+			if (output.complete) {
+				signatures.push(output.signature);
+				session.free();
+				sessions.delete(partyId);
+			} else {
+				nextOutgoing.set(partyId, output.messages);
+			}
+		}
+		outgoing = nextOutgoing;
+	}
+	if (signatures.length !== signers.length) {
+		throw new Error(
+			`signing incomplete: ${signatures.length}/${signers.length} signatures`,
+		);
+	}
+	return signatures;
 }

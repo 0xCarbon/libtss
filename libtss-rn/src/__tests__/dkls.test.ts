@@ -86,4 +86,54 @@ describe("DKLs23 bindings", () => {
 			Uint8Array.of(4, 4),
 		);
 	});
+
+	it.each([65538, -1, 1.5, 0])(
+		"repair rejects identifier %p before calling native",
+		async (bad) => {
+			const share = new KeyShareHandle("80");
+			const repairId = Uint8Array.of(7);
+			await expect(
+				dklsRepairHelperTerm(share, [1, bad], 3, repairId),
+			).rejects.toThrow(RangeError);
+			await expect(
+				dklsRepairHelperTerm(share, [1, 2], bad, repairId),
+			).rejects.toThrow(RangeError);
+			await expect(
+				dklsRepairAssemble(Ciphersuite.Secp256k1ECDSA, Uint8Array.of(5), bad, []),
+			).rejects.toThrow(RangeError);
+			expect(NativeLibtss.repairHelperTerm).not.toHaveBeenCalled();
+			expect(NativeLibtss.repairAssemble).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each([256, -1, 6.5])(
+		"repairAssemble rejects suite %p before calling native",
+		async (bad) => {
+			await expect(
+				dklsRepairAssemble(bad as Ciphersuite, Uint8Array.of(5), 2, []),
+			).rejects.toThrow(RangeError);
+			expect(NativeLibtss.repairAssemble).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each([65539, -1, 1.5])(
+		"repairAssemble rejects message sender %p",
+		async (bad) => {
+			await expect(
+				dklsRepairAssemble(Ciphersuite.Secp256k1ECDSA, Uint8Array.of(5), 2, [
+					{ from: bad, to: 2, data: Uint8Array.of(1) },
+				]),
+			).rejects.toThrow(RangeError);
+			expect(NativeLibtss.repairAssemble).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each([65539, -1, 1.5])("encodeMessages rejects from/to %p", (bad) => {
+		expect(() =>
+			encodeMessages([{ from: bad, to: 1, data: Uint8Array.of(1) }]),
+		).toThrow(RangeError);
+		expect(() =>
+			encodeMessages([{ from: 1, to: bad, data: Uint8Array.of(1) }]),
+		).toThrow(RangeError);
+	});
 });

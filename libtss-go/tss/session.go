@@ -64,6 +64,15 @@ func (s *DKGSession) Free() {
 	s.native.free()
 }
 
+func (s *DKGSession) use(fn func(C.TssHandle) error) error {
+	if s == nil {
+		return invalidLocalHandle()
+	}
+	err := s.native.use(fn)
+	runtime.KeepAlive(s)
+	return err
+}
+
 func (s *SignSession) Free() {
 	if s == nil {
 		return
@@ -72,12 +81,30 @@ func (s *SignSession) Free() {
 	s.native.free()
 }
 
+func (s *SignSession) use(fn func(C.TssHandle) error) error {
+	if s == nil {
+		return invalidLocalHandle()
+	}
+	err := s.native.use(fn)
+	runtime.KeepAlive(s)
+	return err
+}
+
 func (s *RefreshSession) Free() {
 	if s == nil {
 		return
 	}
 	runtime.SetFinalizer(s, nil)
 	s.native.free()
+}
+
+func (s *RefreshSession) use(fn func(C.TssHandle) error) error {
+	if s == nil {
+		return invalidLocalHandle()
+	}
+	err := s.native.use(fn)
+	runtime.KeepAlive(s)
+	return err
 }
 
 func NewDKGSession(config ThresholdConfig, self Identifier, sessionID []byte) (*DKGSession, []Message, error) {
@@ -113,10 +140,6 @@ func NewDKGSession(config ThresholdConfig, self Identifier, sessionID []byte) (*
 }
 
 func (s *DKGSession) Next(messages []Message) (DKGStep, error) {
-	handle, err := s.native.value()
-	if err != nil {
-		return DKGStep{}, err
-	}
 	blob, err := BuildMessages(messages)
 	if err != nil {
 		return DKGStep{}, err
@@ -125,15 +148,17 @@ func (s *DKGSession) Next(messages []Message) (DKGStep, error) {
 	var outPkg C.struct_TssBuffer
 	var outMsgs C.struct_TssBuffer
 	var complete C.bool
-	if err := callStatus(func() C.TssStatus {
-		return C.tss_dkg_next(
-			handle,
-			bytesToSlice(blob),
-			&outKey,
-			&outPkg,
-			&outMsgs,
-			&complete,
-		)
+	if err := s.use(func(handle C.TssHandle) error {
+		return callStatus(func() C.TssStatus {
+			return C.tss_dkg_next(
+				handle,
+				bytesToSlice(blob),
+				&outKey,
+				&outPkg,
+				&outMsgs,
+				&complete,
+			)
+		})
 	}); err != nil {
 		return DKGStep{}, err
 	}
@@ -156,10 +181,6 @@ func NewSignSession(keyShare *KeyShareHandle, message []byte, counterparties []I
 	if err := checkNonNil("keyShare", keyShare); err != nil {
 		return nil, nil, err
 	}
-	handle, err := keyShare.native.value()
-	if err != nil {
-		return nil, nil, err
-	}
 	suite, err := keyShare.Ciphersuite()
 	if err != nil {
 		return nil, nil, err
@@ -174,17 +195,19 @@ func NewSignSession(keyShare *KeyShareHandle, message []byte, counterparties []I
 	if len(signID) > 0 {
 		sidPtr = (*C.uint8_t)(unsafe.Pointer(&signID[0]))
 	}
-	if err := callStatus(func() C.TssStatus {
-		return C.tss_sign_new(
-			handle,
-			bytesToSlice(message),
-			cpPtr,
-			C.uintptr_t(len(counterparties)),
-			sidPtr,
-			C.uintptr_t(len(signID)),
-			&native,
-			&out,
-		)
+	if err := keyShare.use(func(handle C.TssHandle) error {
+		return callStatus(func() C.TssStatus {
+			return C.tss_sign_new(
+				handle,
+				bytesToSlice(message),
+				cpPtr,
+				C.uintptr_t(len(counterparties)),
+				sidPtr,
+				C.uintptr_t(len(signID)),
+				&native,
+				&out,
+			)
+		})
 	}); err != nil {
 		return nil, nil, err
 	}
@@ -197,10 +220,6 @@ func NewSignSession(keyShare *KeyShareHandle, message []byte, counterparties []I
 }
 
 func (s *SignSession) Next(messages []Message) (SignStep, error) {
-	handle, err := s.native.value()
-	if err != nil {
-		return SignStep{}, err
-	}
 	blob, err := BuildMessages(messages)
 	if err != nil {
 		return SignStep{}, err
@@ -208,14 +227,16 @@ func (s *SignSession) Next(messages []Message) (SignStep, error) {
 	var outSig C.struct_TssBuffer
 	var outMsgs C.struct_TssBuffer
 	var complete C.bool
-	if err := callStatus(func() C.TssStatus {
-		return C.tss_sign_next(
-			handle,
-			bytesToSlice(blob),
-			&outSig,
-			&outMsgs,
-			&complete,
-		)
+	if err := s.use(func(handle C.TssHandle) error {
+		return callStatus(func() C.TssStatus {
+			return C.tss_sign_next(
+				handle,
+				bytesToSlice(blob),
+				&outSig,
+				&outMsgs,
+				&complete,
+			)
+		})
 	}); err != nil {
 		return SignStep{}, err
 	}
@@ -235,24 +256,22 @@ func NewRefreshSession(keyShare *KeyShareHandle, participants []Identifier) (*Re
 	if err := checkNonNil("keyShare", keyShare); err != nil {
 		return nil, nil, err
 	}
-	handle, err := keyShare.native.value()
-	if err != nil {
-		return nil, nil, err
-	}
 	var native C.TssHandle
 	var out C.struct_TssBuffer
 	var pPtr *C.uint16_t
 	if len(participants) > 0 {
 		pPtr = (*C.uint16_t)(unsafe.Pointer(&participants[0]))
 	}
-	if err := callStatus(func() C.TssStatus {
-		return C.tss_refresh_new(
-			handle,
-			pPtr,
-			C.uintptr_t(len(participants)),
-			&native,
-			&out,
-		)
+	if err := keyShare.use(func(handle C.TssHandle) error {
+		return callStatus(func() C.TssStatus {
+			return C.tss_refresh_new(
+				handle,
+				pPtr,
+				C.uintptr_t(len(participants)),
+				&native,
+				&out,
+			)
+		})
 	}); err != nil {
 		return nil, nil, err
 	}
@@ -279,20 +298,18 @@ func NewRefreshSessionDKLs(keyShare *KeyShareHandle, sessionID []byte) (*Refresh
 	if len(sessionID) == 0 {
 		return nil, nil, fmt.Errorf("sessionID must not be empty")
 	}
-	handle, err := keyShare.native.value()
-	if err != nil {
-		return nil, nil, err
-	}
 	var native C.TssHandle
 	var out C.struct_TssBuffer
-	if err := callStatus(func() C.TssStatus {
-		return C.tss_refresh_new_dkls(
-			handle,
-			(*C.uint8_t)(unsafe.Pointer(&sessionID[0])),
-			C.uintptr_t(len(sessionID)),
-			&native,
-			&out,
-		)
+	if err := keyShare.use(func(handle C.TssHandle) error {
+		return callStatus(func() C.TssStatus {
+			return C.tss_refresh_new_dkls(
+				handle,
+				(*C.uint8_t)(unsafe.Pointer(&sessionID[0])),
+				C.uintptr_t(len(sessionID)),
+				&native,
+				&out,
+			)
+		})
 	}); err != nil {
 		return nil, nil, err
 	}
@@ -308,13 +325,11 @@ func NewRefreshReceiver(keyShare *KeyShareHandle) (*RefreshSession, error) {
 	if err := checkNonNil("keyShare", keyShare); err != nil {
 		return nil, err
 	}
-	handle, err := keyShare.native.value()
-	if err != nil {
-		return nil, err
-	}
 	var native C.TssHandle
-	if err := callStatus(func() C.TssStatus {
-		return C.tss_refresh_receiver(handle, &native)
+	if err := keyShare.use(func(handle C.TssHandle) error {
+		return callStatus(func() C.TssStatus {
+			return C.tss_refresh_receiver(handle, &native)
+		})
 	}); err != nil {
 		return nil, err
 	}
@@ -322,10 +337,6 @@ func NewRefreshReceiver(keyShare *KeyShareHandle) (*RefreshSession, error) {
 }
 
 func (s *RefreshSession) Next(messages []Message) (RefreshStep, error) {
-	handle, err := s.native.value()
-	if err != nil {
-		return RefreshStep{}, err
-	}
 	blob, err := BuildMessages(messages)
 	if err != nil {
 		return RefreshStep{}, err
@@ -334,15 +345,17 @@ func (s *RefreshSession) Next(messages []Message) (RefreshStep, error) {
 	var outPkg C.struct_TssBuffer
 	var outMsgs C.struct_TssBuffer
 	var complete C.bool
-	if err := callStatus(func() C.TssStatus {
-		return C.tss_refresh_next(
-			handle,
-			bytesToSlice(blob),
-			&outKey,
-			&outPkg,
-			&outMsgs,
-			&complete,
-		)
+	if err := s.use(func(handle C.TssHandle) error {
+		return callStatus(func() C.TssStatus {
+			return C.tss_refresh_next(
+				handle,
+				bytesToSlice(blob),
+				&outKey,
+				&outPkg,
+				&outMsgs,
+				&complete,
+			)
+		})
 	}); err != nil {
 		return RefreshStep{}, err
 	}

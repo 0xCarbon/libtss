@@ -93,7 +93,9 @@ func bytesToSlice(data []byte) C.struct_TssSlice {
 	}
 }
 
-func checkNonNil(name string, ptr any) error {
+// checkNonNil takes a typed pointer so a nil *T is detected; an `any`
+// parameter would wrap it in a non-nil interface.
+func checkNonNil[T any](name string, ptr *T) error {
 	if ptr == nil {
 		return fmt.Errorf("%s is nil", name)
 	}

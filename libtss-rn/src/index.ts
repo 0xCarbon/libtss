@@ -1,4 +1,5 @@
 import { fromByteArray, toByteArray } from "base64-js";
+import { identifier, identifiers, u8 } from "./checks";
 import { TssError } from "./error";
 import { KeyShareHandle } from "./handle";
 import { decodeMessages, encodeMessages } from "./message";
@@ -20,9 +21,10 @@ export async function importKeyShare(
 	suite: Ciphersuite,
 	data: Uint8Array,
 ): Promise<KeyShareHandle> {
+	const suiteId = u8(suite, "suite");
 	try {
 		return new KeyShareHandle(
-			await NativeLibtss.importKeyShare(suite, encodeBase64(data)),
+			await NativeLibtss.importKeyShare(suiteId, encodeBase64(data)),
 		);
 	} catch (error) {
 		throw TssError.fromNative(error);
@@ -83,9 +85,10 @@ export async function importKeyShareFromKeychain(
 	suite: Ciphersuite,
 	keychainId: string,
 ): Promise<KeyShareHandle> {
+	const suiteId = u8(suite, "suite");
 	try {
 		return new KeyShareHandle(
-			await NativeLibtss.importKeyShareSecure(suite, keychainId),
+			await NativeLibtss.importKeyShareSecure(suiteId, keychainId),
 		);
 	} catch (error) {
 		throw TssError.fromNative(error);
@@ -98,9 +101,10 @@ export async function verify(
 	signature: Uint8Array,
 	publicKey: Uint8Array,
 ): Promise<boolean> {
+	const suiteId = u8(suite, "suite");
 	try {
 		return await NativeLibtss.verify(
-			suite,
+			suiteId,
 			encodeBase64(message),
 			encodeBase64(signature),
 			encodeBase64(publicKey),
@@ -132,11 +136,13 @@ export async function dklsRepairHelperTerm(
 	target: number,
 	repairId: Uint8Array,
 ): Promise<Message[]> {
+	const helperIds = identifiers(helpers, "helper");
+	const targetId = identifier(target, "target");
 	const encoded = await native(() =>
 		NativeLibtss.repairHelperTerm(
 			keyShare.handle,
-			helpers,
-			target,
+			helperIds,
+			targetId,
 			encodeBase64(repairId),
 		),
 	);
@@ -154,13 +160,18 @@ export async function dklsRepairAssemble(
 	target: number,
 	messages: Message[],
 ): Promise<KeyShareHandle> {
+	const suiteId = u8(suite, "suite");
+	const targetId = identifier(target, "target");
+	const blob = encodeMessages(messages);
+	const encoded = encodeBase64(blob);
+	blob.fill(0);
 	return new KeyShareHandle(
 		await native(() =>
 			NativeLibtss.repairAssemble(
-				suite,
+				suiteId,
 				encodeBase64(publicKeys),
-				target,
-				encodeBase64(encodeMessages(messages)),
+				targetId,
+				encoded,
 			),
 		),
 	);

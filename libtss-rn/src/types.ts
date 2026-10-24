@@ -70,3 +70,25 @@ export function protocolForCiphersuite(suite: Ciphersuite): Protocol {
 		? Protocol.DKLs23
 		: Protocol.Frost;
 }
+
+/**
+ * Signature length in bytes produced by each ciphersuite. DKLs23 suites
+ * return `r || s`; the recovery id is reported separately.
+ */
+export function signatureLength(suite: Ciphersuite): number {
+	switch (suite) {
+		case Ciphersuite.Secp256k1Taproot:
+		case Ciphersuite.Ed25519:
+		case Ciphersuite.Ristretto255:
+		case Ciphersuite.Secp256k1ECDSA:
+		case Ciphersuite.Secp256r1ECDSA:
+			return 64;
+		case Ciphersuite.Secp256k1:
+		case Ciphersuite.P256:
+			return 65;
+		case Ciphersuite.Ed448:
+			return 114;
+		default:
+			throw new RangeError(`unknown ciphersuite ${suite}`);
+	}
+}

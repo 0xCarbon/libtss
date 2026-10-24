@@ -57,7 +57,7 @@ public static class MessageCodec
         if (messages.Length == 0)
             return [];
 
-        var buf = new NativeTssBuffer();
+        using var buf = new NativeTssBuffer();
         try
         {
             foreach (var msg in messages)

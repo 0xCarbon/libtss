@@ -5,7 +5,10 @@ package tss
 */
 import "C"
 
-import "unsafe"
+import (
+	"runtime"
+	"unsafe"
+)
 
 type Message struct {
 	From Identifier
@@ -15,7 +18,10 @@ type Message struct {
 
 func ParseMessages(blob []byte) ([]Message, error) {
 	slice := bytesToSlice(blob)
-	count := int(C.tss_message_count(slice))
+	count, err := messageCount(slice, len(blob))
+	if err != nil {
+		return nil, err
+	}
 	out := make([]Message, 0, count)
 	for i := 0; i < count; i++ {
 		var from C.uint16_t
@@ -33,6 +39,18 @@ func ParseMessages(blob []byte) ([]Message, error) {
 		})
 	}
 	return out, nil
+}
+
+// messageCount wraps tss_message_count, which reports malformed input as zero
+// messages and records the reason in the thread-local error.
+func messageCount(slice C.struct_TssSlice, blobLen int) (int, error) {
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
+	count := int(C.tss_message_count(slice))
+	if count == 0 && blobLen > 0 {
+		return 0, statusErr(C.TSS_ERR_DESERIALIZE)
+	}
+	return count, nil
 }
 
 func BuildMessages(messages []Message) ([]byte, error) {

@@ -26,6 +26,7 @@ constexpr TssStatus TSS_OK = 0;
 constexpr TssStatus TSS_ERR_ABORT = 10;
 constexpr TssStatus TSS_ERR_ABORT_BAN = 11;
 constexpr jint ANDROID_BASE64_NO_WRAP = 2;
+constexpr uint8_t TSS_NO_RECOVERY_ID = 255;
 
 extern "C" {
 const char* tss_last_error(void);
@@ -70,10 +71,11 @@ TssStatus tss_sign_new(
     size_t sign_id_len,
     TssHandle* out_session,
     TssBuffer* out_messages);
-TssStatus tss_sign_next(
+TssStatus tss_sign_next_recoverable(
     TssHandle session,
     TssSlice messages,
     TssBuffer* out_signature,
+    uint8_t* out_recovery_id,
     TssBuffer* out_messages,
     bool* out_complete);
 TssStatus tss_refresh_new(
@@ -262,7 +264,92 @@ jclass require_class(JNIEnv* env, const char* name) {
     return cls;
 }
 
-bool decode_base64(JNIEnv* env, jstring value, std::vector<uint8_t>* out) {
+void wipe(std::vector<uint8_t>& bytes) {
+    volatile uint8_t* p = bytes.data();
+    for (size_t i = 0; i < bytes.size(); ++i) {
+        p[i] = 0;
+    }
+}
+
+// Byte vector that zeroes its contents on destruction. Bridge payloads
+// (protocol messages, key shares, repair terms, BOLT 3 secrets) all pass
+// through it.
+struct WipedBytes : std::vector<uint8_t> {
+    WipedBytes() = default;
+    WipedBytes(const WipedBytes&) = delete;
+    WipedBytes& operator=(const WipedBytes&) = delete;
+    ~WipedBytes() { wipe(*this); }
+};
+
+// Zeroes a Java byte array in place.
+void wipe_java_array(JNIEnv* env, jbyteArray array) {
+    if (array == nullptr) {
+        return;
+    }
+    jsize len = env->GetArrayLength(array);
+    if (len <= 0) {
+        return;
+    }
+    void* data = env->GetPrimitiveArrayCritical(array, nullptr);
+    if (data != nullptr) {
+        volatile uint8_t* p = static_cast<volatile uint8_t*>(data);
+        for (jsize i = 0; i < len; ++i) {
+            p[i] = 0;
+        }
+        env->ReleasePrimitiveArrayCritical(array, data, 0);
+    }
+}
+
+bool require_non_null(JNIEnv* env, const void* value, const char* name) {
+    if (value != nullptr) {
+        return true;
+    }
+    throw_with_message(env, "java/lang/IllegalArgumentException", std::string(name) + " is required");
+    return false;
+}
+
+// Range-checks an integer argument before it is narrowed for the C API.
+bool check_range(JNIEnv* env, jint value, jint min, jint max, const char* name) {
+    if (value >= min && value <= max) {
+        return true;
+    }
+    throw_with_message(
+        env,
+        "java/lang/IllegalArgumentException",
+        std::string(name) + " must be in [" + std::to_string(min) + ", " + std::to_string(max) + "]");
+    return false;
+}
+
+// Copies a Java int[] of identifiers into a uint16 vector, rejecting values
+// outside [1, 0xFFFF].
+bool read_identifiers(JNIEnv* env, jintArray values, const char* name, std::vector<uint16_t>* out) {
+    if (!require_non_null(env, values, name)) {
+        return false;
+    }
+    jsize n = env->GetArrayLength(values);
+    std::vector<jint> tmp(static_cast<size_t>(n));
+    if (n > 0) {
+        env->GetIntArrayRegion(values, 0, n, tmp.data());
+        if (env->ExceptionCheck()) {
+            return false;
+        }
+    }
+    out->clear();
+    out->reserve(static_cast<size_t>(n));
+    for (jint value : tmp) {
+        if (!check_range(env, value, 1, 0xFFFF, name)) {
+            return false;
+        }
+        out->push_back(static_cast<uint16_t>(value));
+    }
+    return true;
+}
+
+// Decodes base64 into `out` and zeroes the intermediate Java byte array.
+bool decode_base64(JNIEnv* env, jstring value, WipedBytes* out) {
+    if (!require_non_null(env, value, "base64 input")) {
+        return false;
+    }
     jclass base64_class = require_class(env, "android/util/Base64");
     if (base64_class == nullptr) {
         return false;
@@ -288,22 +375,14 @@ bool decode_base64(JNIEnv* env, jstring value, std::vector<uint8_t>* out) {
     if (len > 0) {
         env->GetByteArrayRegion(bytes, 0, len, reinterpret_cast<jbyte*>(out->data()));
     }
-    return !env->ExceptionCheck();
+    bool ok = !env->ExceptionCheck();
+    wipe_java_array(env, bytes);
+    env->DeleteLocalRef(bytes);
+    return ok;
 }
 
+// Encodes to base64 and zeroes the intermediate Java byte array.
 jstring encode_base64(JNIEnv* env, const uint8_t* data, size_t len) {
-    jbyteArray bytes = env->NewByteArray(static_cast<jsize>(len));
-    if (bytes == nullptr) {
-        return nullptr;
-    }
-
-    if (len > 0) {
-        env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(len), reinterpret_cast<const jbyte*>(data));
-        if (env->ExceptionCheck()) {
-            return nullptr;
-        }
-    }
-
     jclass base64_class = require_class(env, "android/util/Base64");
     if (base64_class == nullptr) {
         return nullptr;
@@ -315,8 +394,22 @@ jstring encode_base64(JNIEnv* env, const uint8_t* data, size_t len) {
         return nullptr;
     }
 
-    return static_cast<jstring>(
-        env->CallStaticObjectMethod(base64_class, encode_to_string, bytes, ANDROID_BASE64_NO_WRAP));
+    jbyteArray bytes = env->NewByteArray(static_cast<jsize>(len));
+    if (bytes == nullptr) {
+        return nullptr;
+    }
+
+    jstring encoded = nullptr;
+    if (len > 0) {
+        env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(len), reinterpret_cast<const jbyte*>(data));
+    }
+    if (!env->ExceptionCheck()) {
+        encoded = static_cast<jstring>(
+            env->CallStaticObjectMethod(base64_class, encode_to_string, bytes, ANDROID_BASE64_NO_WRAP));
+    }
+    wipe_java_array(env, bytes);
+    env->DeleteLocalRef(bytes);
+    return encoded;
 }
 
 jstring take_base64(JNIEnv* env, TssBuffer& buffer) {
@@ -350,6 +443,18 @@ jobject boolean_object(JNIEnv* env, bool value) {
     return env->CallStaticObjectMethod(boolean_class, value_of, static_cast<jboolean>(value));
 }
 
+jobject integer_object(JNIEnv* env, jint value) {
+    jclass integer_class = require_class(env, "java/lang/Integer");
+    if (integer_class == nullptr) {
+        return nullptr;
+    }
+    jmethodID value_of = env->GetStaticMethodID(integer_class, "valueOf", "(I)Ljava/lang/Integer;");
+    if (value_of == nullptr) {
+        return nullptr;
+    }
+    return env->CallStaticObjectMethod(integer_class, value_of, value);
+}
+
 jobjectArray make_session_init_result(JNIEnv* env, TssHandle handle, jstring messages) {
     jclass string_class = require_class(env, "java/lang/String");
     if (string_class == nullptr) {
@@ -377,13 +482,14 @@ jobjectArray make_round_result(
     jstring messages,
     jstring key_share_handle,
     jstring pubkey_package,
-    jstring signature) {
+    jstring signature,
+    jobject recovery_id = nullptr) {
     jclass object_class = require_class(env, "java/lang/Object");
     if (object_class == nullptr) {
         return nullptr;
     }
 
-    jobjectArray result = env->NewObjectArray(5, object_class, nullptr);
+    jobjectArray result = env->NewObjectArray(6, object_class, nullptr);
     if (result == nullptr) {
         return nullptr;
     }
@@ -398,6 +504,7 @@ jobjectArray make_round_result(
     env->SetObjectArrayElement(result, 2, key_share_handle);
     env->SetObjectArrayElement(result, 3, pubkey_package);
     env->SetObjectArrayElement(result, 4, signature);
+    env->SetObjectArrayElement(result, 5, recovery_id);
     return result;
 }
 
@@ -421,7 +528,12 @@ Java_com_libtss_LibtssModule_nativeDkgNew(
     jint maxSigners,
     jint minSigners,
     jstring sessionId) {
-    std::vector<uint8_t> session_id_bytes;
+    if (!check_range(env, suite, 0, 0xFF, "suite") || !check_range(env, selfId, 1, 0xFFFF, "selfId") ||
+        !check_range(env, maxSigners, 1, 0xFFFF, "maxSigners") ||
+        !check_range(env, minSigners, 1, 0xFFFF, "minSigners")) {
+        return nullptr;
+    }
+    WipedBytes session_id_bytes;
     const uint8_t* session_id_ptr = nullptr;
     size_t session_id_len = 0;
     if (sessionId != nullptr) {
@@ -462,7 +574,7 @@ Java_com_libtss_LibtssModule_nativeDkgNext(JNIEnv* env, jclass, jstring handle, 
         return nullptr;
     }
 
-    std::vector<uint8_t> message_bytes;
+    WipedBytes message_bytes;
     if (!decode_base64(env, messages, &message_bytes)) {
         return nullptr;
     }
@@ -513,7 +625,7 @@ Java_com_libtss_LibtssModule_nativeSignNew(
         return nullptr;
     }
 
-    std::vector<uint8_t> message_bytes;
+    WipedBytes message_bytes;
     if (!decode_base64(env, message, &message_bytes)) {
         return nullptr;
     }
@@ -522,21 +634,14 @@ Java_com_libtss_LibtssModule_nativeSignNew(
     const uint16_t* cp_ptr = nullptr;
     size_t cp_len = 0;
     if (counterparties != nullptr) {
-        jsize n = env->GetArrayLength(counterparties);
-        std::vector<jint> tmp(static_cast<size_t>(n));
-        env->GetIntArrayRegion(counterparties, 0, n, tmp.data());
-        if (env->ExceptionCheck()) {
+        if (!read_identifiers(env, counterparties, "counterparty", &cp_vec)) {
             return nullptr;
         }
-        cp_vec.reserve(static_cast<size_t>(n));
-        for (jsize i = 0; i < n; ++i) {
-            cp_vec.push_back(static_cast<uint16_t>(tmp[static_cast<size_t>(i)]));
-        }
-        cp_ptr = cp_vec.data();
+        cp_ptr = cp_vec.empty() ? nullptr : cp_vec.data();
         cp_len = cp_vec.size();
     }
 
-    std::vector<uint8_t> sign_id_bytes;
+    WipedBytes sign_id_bytes;
     const uint8_t* sign_id_ptr = nullptr;
     size_t sign_id_len = 0;
     if (signId != nullptr) {
@@ -576,15 +681,17 @@ Java_com_libtss_LibtssModule_nativeSignNext(JNIEnv* env, jclass, jstring handle,
         return nullptr;
     }
 
-    std::vector<uint8_t> message_bytes;
+    WipedBytes message_bytes;
     if (!decode_base64(env, messages, &message_bytes)) {
         return nullptr;
     }
 
     TssBuffer signature{nullptr, 0};
+    uint8_t recovery_id = TSS_NO_RECOVERY_ID;
     TssBuffer out_messages{nullptr, 0};
     bool complete = false;
-    TssStatus status = tss_sign_next(session, make_slice(message_bytes), &signature, &out_messages, &complete);
+    TssStatus status = tss_sign_next_recoverable(
+        session, make_slice(message_bytes), &signature, &recovery_id, &out_messages, &complete);
     if (!ensure_status(env, status)) {
         return nullptr;
     }
@@ -595,7 +702,14 @@ Java_com_libtss_LibtssModule_nativeSignNext(JNIEnv* env, jclass, jstring handle,
         if (env->ExceptionCheck()) {
             return nullptr;
         }
-        return make_round_result(env, true, nullptr, nullptr, nullptr, encoded_signature);
+        jobject recovery_object = nullptr;
+        if (recovery_id != TSS_NO_RECOVERY_ID) {
+            recovery_object = integer_object(env, static_cast<jint>(recovery_id));
+            if (recovery_object == nullptr || env->ExceptionCheck()) {
+                return nullptr;
+            }
+        }
+        return make_round_result(env, true, nullptr, nullptr, nullptr, encoded_signature, recovery_object);
     }
 
     release_buffer(signature);
@@ -617,17 +731,10 @@ Java_com_libtss_LibtssModule_nativeRefreshNew(JNIEnv* env, jclass, jstring keySh
     const uint16_t* p_ptr = nullptr;
     size_t p_len = 0;
     if (participants != nullptr) {
-        jsize n = env->GetArrayLength(participants);
-        std::vector<jint> tmp(static_cast<size_t>(n));
-        env->GetIntArrayRegion(participants, 0, n, tmp.data());
-        if (env->ExceptionCheck()) {
+        if (!read_identifiers(env, participants, "participant", &p_vec)) {
             return nullptr;
         }
-        p_vec.reserve(static_cast<size_t>(n));
-        for (jsize i = 0; i < n; ++i) {
-            p_vec.push_back(static_cast<uint16_t>(tmp[static_cast<size_t>(i)]));
-        }
-        p_ptr = p_vec.data();
+        p_ptr = p_vec.empty() ? nullptr : p_vec.data();
         p_len = p_vec.size();
     }
 
@@ -651,13 +758,6 @@ TssSlice slice_of(const std::vector<uint8_t>& bytes) {
     return TssSlice{bytes.empty() ? nullptr : bytes.data(), bytes.size()};
 }
 
-void wipe(std::vector<uint8_t>& bytes) {
-    volatile uint8_t* p = bytes.data();
-    for (size_t i = 0; i < bytes.size(); ++i) {
-        p[i] = 0;
-    }
-}
-
 }  // namespace
 
 extern "C" JNIEXPORT jobjectArray JNICALL
@@ -666,7 +766,7 @@ Java_com_libtss_LibtssModule_nativeRefreshNewDkls(JNIEnv* env, jclass, jstring k
     if (!parse_handle(env, keyShareHandle, &key_share)) {
         return nullptr;
     }
-    std::vector<uint8_t> sid;
+    WipedBytes sid;
     if (!decode_base64(env, sessionId, &sid)) {
         return nullptr;
     }
@@ -691,26 +791,11 @@ Java_com_libtss_LibtssModule_nativeRepairHelperTerm(
     if (!parse_handle(env, keyShareHandle, &key_share)) {
         return nullptr;
     }
-    jsize n = env->GetArrayLength(helpers);
-    std::vector<jint> tmp(static_cast<size_t>(n));
-    env->GetIntArrayRegion(helpers, 0, n, tmp.data());
-    if (env->ExceptionCheck()) {
-        return nullptr;
-    }
     std::vector<uint16_t> ids;
-    ids.reserve(static_cast<size_t>(n));
-    for (jint value : tmp) {
-        if (value < 1 || value > 0xFFFF) {
-            throw_with_message(env, "java/lang/IllegalArgumentException", "helper identifier out of range");
-            return nullptr;
-        }
-        ids.push_back(static_cast<uint16_t>(value));
-    }
-    if (target < 1 || target > 0xFFFF) {
-        throw_with_message(env, "java/lang/IllegalArgumentException", "target out of range");
+    if (!read_identifiers(env, helpers, "helper", &ids) || !check_range(env, target, 1, 0xFFFF, "target")) {
         return nullptr;
     }
-    std::vector<uint8_t> repair_id;
+    WipedBytes repair_id;
     if (!decode_base64(env, repairId, &repair_id)) {
         return nullptr;
     }
@@ -726,12 +811,11 @@ Java_com_libtss_LibtssModule_nativeRepairHelperTerm(
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_libtss_LibtssModule_nativeRepairAssemble(
     JNIEnv* env, jclass, jint suite, jstring pubkeyPackage, jint target, jstring messages) {
-    if (target < 1 || target > 0xFFFF) {
-        throw_with_message(env, "java/lang/IllegalArgumentException", "target out of range");
+    if (!check_range(env, suite, 0, 0xFF, "suite") || !check_range(env, target, 1, 0xFFFF, "target")) {
         return nullptr;
     }
-    std::vector<uint8_t> package;
-    std::vector<uint8_t> blob;
+    WipedBytes package;
+    WipedBytes blob;
     if (!decode_base64(env, pubkeyPackage, &package) || !decode_base64(env, messages, &blob)) {
         return nullptr;
     }
@@ -750,7 +834,7 @@ Java_com_libtss_LibtssModule_nativeBolt3Derive(JNIEnv* env, jclass, jstring keyS
     if (!parse_handle(env, keyShareHandle, &key_share)) {
         return nullptr;
     }
-    std::vector<uint8_t> point;
+    WipedBytes point;
     if (!decode_base64(env, perCommitmentPoint, &point)) {
         return nullptr;
     }
@@ -769,8 +853,8 @@ Java_com_libtss_LibtssModule_nativeBolt3DeriveRevocation(
     if (!parse_handle(env, keyShareHandle, &key_share)) {
         return nullptr;
     }
-    std::vector<uint8_t> point;
-    std::vector<uint8_t> secret;
+    WipedBytes point;
+    WipedBytes secret;
     if (!decode_base64(env, perCommitmentPoint, &point) || !decode_base64(env, perCommitmentSecret, &secret)) {
         wipe(secret);
         return nullptr;
@@ -787,8 +871,8 @@ Java_com_libtss_LibtssModule_nativeBolt3DeriveRevocation(
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_libtss_LibtssModule_nativeBolt3DerivePubkeyPackage(
     JNIEnv* env, jclass, jstring pubkeyPackage, jstring perCommitmentPoint, jboolean revocation) {
-    std::vector<uint8_t> package;
-    std::vector<uint8_t> point;
+    WipedBytes package;
+    WipedBytes point;
     if (!decode_base64(env, pubkeyPackage, &package) || !decode_base64(env, perCommitmentPoint, &point)) {
         return nullptr;
     }
@@ -825,7 +909,7 @@ Java_com_libtss_LibtssModule_nativeRefreshNext(JNIEnv* env, jclass, jstring hand
         return nullptr;
     }
 
-    std::vector<uint8_t> message_bytes;
+    WipedBytes message_bytes;
     if (!decode_base64(env, messages, &message_bytes)) {
         return nullptr;
     }
@@ -871,6 +955,16 @@ Java_com_libtss_LibtssModule_nativeHandleFree(JNIEnv* env, jclass, jstring handl
     }
 
     tss_handle_free(parsed);
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_libtss_LibtssModule_nativeSessionFree(JNIEnv* env, jclass, jstring handle) {
+    TssHandle parsed = 0;
+    if (!parse_handle(env, handle, &parsed)) {
+        return;
+    }
+
+    tss_session_free(parsed);
 }
 
 extern "C" JNIEXPORT jdouble JNICALL
@@ -981,7 +1075,10 @@ Java_com_libtss_LibtssModule_nativeExportKeyShare(JNIEnv* env, jclass, jstring h
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_libtss_LibtssModule_nativeImportKeyShare(JNIEnv* env, jclass, jint suite, jstring data) {
-    std::vector<uint8_t> bytes;
+    if (!check_range(env, suite, 0, 0xFF, "suite")) {
+        return nullptr;
+    }
+    WipedBytes bytes;
     if (!decode_base64(env, data, &bytes)) {
         return nullptr;
     }
@@ -1011,6 +1108,9 @@ Java_com_libtss_LibtssModule_nativeVersion(JNIEnv* env, jclass) {
 
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_libtss_LibtssModule_nativeVerify(JNIEnv* env, jclass, jint suite, jstring message, jstring signature, jstring publicKey) {
+    if (!check_range(env, suite, 0, 0xFF, "suite")) {
+        return JNI_FALSE;
+    }
     auto decode = [env](jstring str) -> std::vector<uint8_t> {
         if (!str) return {};
         jclass base64_class = env->FindClass("android/util/Base64");
@@ -1072,11 +1172,15 @@ Java_com_libtss_LibtssModule_nativeExportKeyShareRaw(JNIEnv* env, jclass, jstrin
 
 extern "C" JNIEXPORT jstring JNICALL
 Java_com_libtss_LibtssModule_nativeImportKeyShareRaw(JNIEnv* env, jclass, jint suite, jbyteArray data) {
+    if (!check_range(env, suite, 0, 0xFF, "suite") || !require_non_null(env, data, "data")) {
+        return nullptr;
+    }
     jsize len = env->GetArrayLength(data);
     std::vector<uint8_t> vec(static_cast<size_t>(len));
     if (len > 0) {
         env->GetByteArrayRegion(data, 0, len, reinterpret_cast<jbyte*>(vec.data()));
         if (env->ExceptionCheck()) {
+            explicit_bzero(vec.data(), vec.size());
             return nullptr;
         }
     }

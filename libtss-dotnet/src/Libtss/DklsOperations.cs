@@ -39,7 +39,7 @@ public static class DklsOperations
         {
             var handles = new ulong[maxSigners];
             nuint handleCount;
-            var outPkg = new NativeTssBuffer();
+            using var outPkg = new NativeTssBuffer();
             int status;
 
             fixed (byte* pKey = secretKey)
@@ -91,6 +91,7 @@ public static class DklsOperations
             var point = new TssSlice { Data = pPoint, Len = (nuint)perCommitmentPoint.Length };
             status = Native.tss_bolt3_derive(keyShare.Handle, point, &handle);
         }
+        GC.KeepAlive(keyShare);
         TssException.ThrowIfError(status);
         return new KeyShareHandle(handle);
     }
@@ -119,6 +120,7 @@ public static class DklsOperations
                 var secret = new TssSlice { Data = pSecret, Len = (nuint)perCommitmentSecret.Length };
                 status = Native.tss_bolt3_derive_revocation(keyShare.Handle, point, secret, &handle);
             }
+            GC.KeepAlive(keyShare);
             TssException.ThrowIfError(status);
             return new KeyShareHandle(handle);
         }
@@ -140,7 +142,7 @@ public static class DklsOperations
     {
         ArgumentNullException.ThrowIfNull(publicKeyPackage);
         ArgumentNullException.ThrowIfNull(perCommitmentPoint);
-        var outPkg = new NativeTssBuffer();
+        using var outPkg = new NativeTssBuffer();
         int status;
         fixed (byte* pPkg = publicKeyPackage)
         fixed (byte* pPoint = perCommitmentPoint)
@@ -175,7 +177,7 @@ public static class DklsOperations
         ArgumentNullException.ThrowIfNull(keyShare);
         ArgumentNullException.ThrowIfNull(helpers);
         ArgumentNullException.ThrowIfNull(repairId);
-        var outMessages = new NativeTssBuffer();
+        using var outMessages = new NativeTssBuffer();
         int status;
         fixed (ushort* pHelpers = helpers)
         fixed (byte* pId = repairId)
@@ -185,8 +187,17 @@ public static class DklsOperations
             status = Native.tss_repair_helper_term(
                 keyShare.Handle, pHelpers, (nuint)helpers.Length, target, id, pOut);
         }
+        GC.KeepAlive(keyShare);
         TssException.ThrowIfError(status);
-        return MessageCodec.Decode(outMessages.ToArray());
+        byte[] raw = outMessages.ToArray();
+        try
+        {
+            return MessageCodec.Decode(raw);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(raw);
+        }
     }
 
     /// <summary>
@@ -203,16 +214,23 @@ public static class DklsOperations
         ArgumentNullException.ThrowIfNull(publicKeyPackage);
         ArgumentNullException.ThrowIfNull(messages);
         byte[] blob = MessageCodec.Encode(messages);
-        ulong handle;
-        int status;
-        fixed (byte* pPkg = publicKeyPackage)
-        fixed (byte* pBlob = blob)
+        try
         {
-            var pkg = new TssSlice { Data = pPkg, Len = (nuint)publicKeyPackage.Length };
-            var msgs = new TssSlice { Data = pBlob, Len = (nuint)blob.Length };
-            status = Native.tss_repair_assemble((byte)suite, pkg, target, msgs, &handle);
+            ulong handle;
+            int status;
+            fixed (byte* pPkg = publicKeyPackage)
+            fixed (byte* pBlob = blob)
+            {
+                var pkg = new TssSlice { Data = pPkg, Len = (nuint)publicKeyPackage.Length };
+                var msgs = new TssSlice { Data = pBlob, Len = (nuint)blob.Length };
+                status = Native.tss_repair_assemble((byte)suite, pkg, target, msgs, &handle);
+            }
+            TssException.ThrowIfError(status);
+            return new KeyShareHandle(handle);
         }
-        TssException.ThrowIfError(status);
-        return new KeyShareHandle(handle);
+        finally
+        {
+            CryptographicOperations.ZeroMemory(blob);
+        }
     }
 }

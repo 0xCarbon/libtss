@@ -11,6 +11,7 @@ pub mod memory;
 pub mod messages;
 pub mod registry;
 pub mod session;
+pub mod sign_recoverable;
 pub mod types;
 
 #[macro_export]

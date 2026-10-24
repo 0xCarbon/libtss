@@ -3,10 +3,12 @@
 #import <React/RCTBridgeModule.h>
 
 #include <cerrno>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -26,6 +28,7 @@ struct TssSlice {
 constexpr TssStatus TSS_OK = 0;
 constexpr TssStatus TSS_ERR_ABORT = 10;
 constexpr TssStatus TSS_ERR_ABORT_BAN = 11;
+constexpr uint8_t TSS_NO_RECOVERY_ID = 255;
 
 extern "C" {
 const char *tss_last_error(void);
@@ -69,10 +72,11 @@ TssStatus tss_sign_new(
     size_t sign_id_len,
     TssHandle *out_session,
     TssBuffer *out_messages);
-TssStatus tss_sign_next(
+TssStatus tss_sign_next_recoverable(
     TssHandle session,
     TssSlice messages,
     TssBuffer *out_signature,
+    uint8_t *out_recovery_id,
     TssBuffer *out_messages,
     bool *out_complete);
 TssStatus tss_refresh_new(
@@ -206,29 +210,129 @@ BOOL ParseHandle(NSString *handle, TssHandle *outHandle, RCTPromiseRejectBlock r
   return YES;
 }
 
-NSData *DecodeBase64(NSString *value, RCTPromiseRejectBlock reject) {
+void WipeData(NSMutableData *data) {
+  if (data != nil && data.length > 0) {
+    memset_s(data.mutableBytes, data.length, 0, data.length);
+  }
+}
+
+// Zeroes the decoded bytes when the enclosing scope exits. Every payload
+// decoded from the bridge (protocol messages, key shares, repair terms,
+// BOLT 3 secrets) is held in one of these.
+struct WipeOnExit {
+  NSMutableData *data;
+  ~WipeOnExit() { WipeData(data); }
+};
+
+int Base64Value(unichar c) {
+  if (c >= 'A' && c <= 'Z') return c - 'A';
+  if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+  if (c >= '0' && c <= '9') return c - '0' + 52;
+  if (c == '+') return 62;
+  if (c == '/') return 63;
+  return -1;
+}
+
+// Decodes standard padded base64 straight into a mutable buffer so the only
+// plaintext copy is one the caller can wipe.
+NSMutableData *DecodeBase64(NSString *value, RCTPromiseRejectBlock reject) {
   if (value == nil) {
     RejectBridgeError(reject, @"base64 input is required");
     return nil;
   }
 
-  NSData *decoded = [[NSData alloc] initWithBase64EncodedString:value options:0];
-  if (decoded == nil && value.length > 0) {
+  NSUInteger length = value.length;
+  if (length % 4 != 0) {
     RejectBridgeError(reject, @"invalid base64 input");
     return nil;
   }
+  NSUInteger padding = 0;
+  if (length > 0 && [value characterAtIndex:length - 1] == '=') padding++;
+  if (length > 1 && [value characterAtIndex:length - 2] == '=') padding++;
 
-  return decoded ?: [NSData data];
+  NSMutableData *out = [NSMutableData dataWithLength:length / 4 * 3 - padding];
+  uint8_t *bytes = static_cast<uint8_t *>(out.mutableBytes);
+  NSUInteger written = 0;
+  for (NSUInteger i = 0; i < length; i += 4) {
+    uint32_t quad = 0;
+    for (NSUInteger j = 0; j < 4; ++j) {
+      unichar c = [value characterAtIndex:i + j];
+      int v;
+      if (c == '=' && i + j >= length - padding) {
+        v = 0;
+      } else {
+        v = Base64Value(c);
+      }
+      if (v < 0) {
+        WipeData(out);
+        RejectBridgeError(reject, @"invalid base64 input");
+        return nil;
+      }
+      quad = (quad << 6) | static_cast<uint32_t>(v);
+    }
+    uint8_t chunk[3] = {static_cast<uint8_t>(quad >> 16), static_cast<uint8_t>(quad >> 8),
+                        static_cast<uint8_t>(quad)};
+    for (int k = 0; k < 3 && written < out.length; ++k) {
+      bytes[written++] = chunk[k];
+    }
+    memset_s(chunk, sizeof chunk, 0, sizeof chunk);
+    quad = 0;
+  }
+  return out;
 }
 
 TssSlice MakeSlice(NSData *data) {
   return TssSlice{static_cast<const uint8_t *>(data.bytes), static_cast<size_t>(data.length)};
 }
 
+// Encodes the native buffer without an intermediate NSData copy, then frees
+// (and thereby zeroes) it.
 NSString *TakeBase64(TssBuffer &buffer) {
-  NSData *data = [NSData dataWithBytes:buffer.data length:buffer.len];
+  NSData *view = [NSData dataWithBytesNoCopy:buffer.data length:buffer.len freeWhenDone:NO];
+  NSString *encoded = [view base64EncodedStringWithOptions:0];
+  view = nil;
   tss_buffer_free(&buffer);
-  return [data base64EncodedStringWithOptions:0];
+  return encoded;
+}
+
+// Reads an integer argument, rejecting fractional and out-of-range values
+// instead of letting NSNumber accessors truncate them.
+BOOL CheckedInteger(NSNumber *number, long min, long max, NSString *name, long *out, RCTPromiseRejectBlock reject) {
+  double value = number == nil ? NAN : number.doubleValue;
+  if (!(value >= static_cast<double>(min) && value <= static_cast<double>(max)) ||
+      value != static_cast<double>(static_cast<long>(value))) {
+    RejectBridgeError(reject, [NSString stringWithFormat:@"%@ must be an integer in [%ld, %ld]", name, min, max]);
+    return NO;
+  }
+  *out = static_cast<long>(value);
+  return YES;
+}
+
+BOOL CheckedSuite(NSNumber *number, uint8_t *out, RCTPromiseRejectBlock reject) {
+  long value = 0;
+  if (!CheckedInteger(number, 0, 0xFF, @"suite", &value, reject)) {
+    return NO;
+  }
+  *out = static_cast<uint8_t>(value);
+  return YES;
+}
+
+BOOL CheckedIdentifiers(NSArray<NSNumber *> *values, NSString *name, std::vector<uint16_t> *out,
+                        RCTPromiseRejectBlock reject) {
+  out->clear();
+  out->reserve(values.count);
+  for (id item in values) {
+    if (![item isKindOfClass:[NSNumber class]]) {
+      RejectBridgeError(reject, [NSString stringWithFormat:@"%@ must be a number", name]);
+      return NO;
+    }
+    long value = 0;
+    if (!CheckedInteger(item, 1, 0xFFFF, name, &value, reject)) {
+      return NO;
+    }
+    out->push_back(static_cast<uint16_t>(value));
+  }
+  return YES;
 }
 
 void ReleaseBuffer(TssBuffer &buffer) {
@@ -250,7 +354,8 @@ NSDictionary *RoundResult(
     NSString *messages,
     NSString *keyShareHandle,
     NSString *pubkeyPackage,
-    NSString *signature) {
+    NSString *signature,
+    NSNumber *recoveryId = nil) {
   NSMutableDictionary *result = [NSMutableDictionary dictionaryWithObject:@(complete) forKey:@"complete"];
   if (messages != nil) {
     result[@"messages"] = messages;
@@ -263,6 +368,9 @@ NSDictionary *RoundResult(
   }
   if (signature != nil) {
     result[@"signature"] = signature;
+  }
+  if (recoveryId != nil) {
+    result[@"recoveryId"] = recoveryId;
   }
   return result;
 }
@@ -284,7 +392,18 @@ RCT_EXPORT_METHOD(dkgNew:(nonnull NSNumber *)suite
                   resolve:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject)
 {
-  NSData *sessionData = nil;
+  uint8_t suiteValue = 0;
+  long selfValue = 0;
+  long maxValue = 0;
+  long minValue = 0;
+  if (!CheckedSuite(suite, &suiteValue, reject) ||
+      !CheckedInteger(selfId, 1, 0xFFFF, @"selfId", &selfValue, reject) ||
+      !CheckedInteger(maxSigners, 1, 0xFFFF, @"maxSigners", &maxValue, reject) ||
+      !CheckedInteger(minSigners, 1, 0xFFFF, @"minSigners", &minValue, reject)) {
+    return;
+  }
+
+  NSMutableData *sessionData = nil;
   if (sessionId != nil) {
     sessionData = DecodeBase64(sessionId, reject);
     if (sessionData == nil) {
@@ -295,10 +414,10 @@ RCT_EXPORT_METHOD(dkgNew:(nonnull NSNumber *)suite
   TssHandle session = 0;
   TssBuffer messages{nullptr, 0};
   TssStatus status = tss_dkg_new(
-      suite.unsignedCharValue,
-      selfId.unsignedShortValue,
-      maxSigners.unsignedShortValue,
-      minSigners.unsignedShortValue,
+      suiteValue,
+      static_cast<uint16_t>(selfValue),
+      static_cast<uint16_t>(maxValue),
+      static_cast<uint16_t>(minValue),
       sessionData == nil ? nullptr : static_cast<const uint8_t *>(sessionData.bytes),
       sessionData == nil ? 0 : static_cast<size_t>(sessionData.length),
       &session,
@@ -321,10 +440,11 @@ RCT_EXPORT_METHOD(dkgNext:(NSString *)handle
     return;
   }
 
-  NSData *messageData = DecodeBase64(messages, reject);
+  NSMutableData *messageData = DecodeBase64(messages, reject);
   if (messageData == nil) {
     return;
   }
+  WipeOnExit messageGuard{messageData};
 
   TssHandle keyShare = 0;
   TssBuffer pubkeyPackage{nullptr, 0};
@@ -364,22 +484,22 @@ RCT_EXPORT_METHOD(signNew:(NSString *)keyShareHandle
     return;
   }
 
-  NSData *messageData = DecodeBase64(message, reject);
-  if (messageData == nil) {
-    return;
-  }
-
   std::vector<uint16_t> cpVec;
   const uint16_t *cpPtr = nullptr;
   size_t cpLen = 0;
   if (counterparties != nil && counterparties.count > 0) {
-    cpVec.reserve(counterparties.count);
-    for (NSNumber *n in counterparties) {
-      cpVec.push_back(n.unsignedShortValue);
+    if (!CheckedIdentifiers(counterparties, @"counterparty", &cpVec, reject)) {
+      return;
     }
     cpPtr = cpVec.data();
     cpLen = cpVec.size();
   }
+
+  NSMutableData *messageData = DecodeBase64(message, reject);
+  if (messageData == nil) {
+    return;
+  }
+  WipeOnExit messageGuard{messageData};
 
   NSData *signIdData = nil;
   const uint8_t *signIdPtr = nullptr;
@@ -422,15 +542,18 @@ RCT_EXPORT_METHOD(signNext:(NSString *)handle
     return;
   }
 
-  NSData *messageData = DecodeBase64(messages, reject);
+  NSMutableData *messageData = DecodeBase64(messages, reject);
   if (messageData == nil) {
     return;
   }
+  WipeOnExit messageGuard{messageData};
 
   TssBuffer signature{nullptr, 0};
+  uint8_t recoveryId = TSS_NO_RECOVERY_ID;
   TssBuffer outMessages{nullptr, 0};
   bool complete = false;
-  TssStatus status = tss_sign_next(session, MakeSlice(messageData), &signature, &outMessages, &complete);
+  TssStatus status = tss_sign_next_recoverable(
+      session, MakeSlice(messageData), &signature, &recoveryId, &outMessages, &complete);
   if (status != TSS_OK) {
     RejectStatus(reject, status);
     return;
@@ -438,7 +561,8 @@ RCT_EXPORT_METHOD(signNext:(NSString *)handle
 
   if (complete) {
     ReleaseBuffer(outMessages);
-    resolve(RoundResult(YES, nil, nil, nil, TakeBase64(signature)));
+    NSNumber *recovery = recoveryId == TSS_NO_RECOVERY_ID ? nil : @(recoveryId);
+    resolve(RoundResult(YES, nil, nil, nil, TakeBase64(signature), recovery));
     return;
   }
 
@@ -460,9 +584,8 @@ RCT_EXPORT_METHOD(refreshNew:(NSString *)keyShareHandle
   const uint16_t *pPtr = nullptr;
   size_t pLen = 0;
   if (participants != nil && participants.count > 0) {
-    pVec.reserve(participants.count);
-    for (NSNumber *n in participants) {
-      pVec.push_back(n.unsignedShortValue);
+    if (!CheckedIdentifiers(participants, @"participant", &pVec, reject)) {
+      return;
     }
     pPtr = pVec.data();
     pLen = pVec.size();
@@ -520,18 +643,14 @@ RCT_EXPORT_METHOD(repairHelperTerm:(NSString *)keyShareHandle
   if (!ParseHandle(keyShareHandle, &keyShare, reject)) {
     return;
   }
-  std::vector<uint16_t> ids;
-  ids.reserve(helpers.count);
-  for (NSNumber *n in helpers) {
-    long value = n.longValue;
-    if (value < 1 || value > 0xFFFF) {
-      RejectBridgeError(reject, @"helper identifier out of range");
-      return;
-    }
-    ids.push_back(static_cast<uint16_t>(value));
+  if (helpers == nil) {
+    RejectBridgeError(reject, @"helpers is required");
+    return;
   }
-  if (target.longValue < 1 || target.longValue > 0xFFFF) {
-    RejectBridgeError(reject, @"target out of range");
+  std::vector<uint16_t> ids;
+  long targetValue = 0;
+  if (!CheckedIdentifiers(helpers, @"helper", &ids, reject) ||
+      !CheckedInteger(target, 1, 0xFFFF, @"target", &targetValue, reject)) {
     return;
   }
   NSData *idData = DecodeBase64(repairId, reject);
@@ -541,7 +660,7 @@ RCT_EXPORT_METHOD(repairHelperTerm:(NSString *)keyShareHandle
 
   TssBuffer out{nullptr, 0};
   TssStatus status = tss_repair_helper_term(
-      keyShare, ids.data(), ids.size(), target.unsignedShortValue, MakeSlice(idData), &out);
+      keyShare, ids.data(), ids.size(), static_cast<uint16_t>(targetValue), MakeSlice(idData), &out);
   if (status != TSS_OK) {
     RejectStatus(reject, status);
     return;
@@ -557,22 +676,25 @@ RCT_EXPORT_METHOD(repairAssemble:(nonnull NSNumber *)suite
                   resolve:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject)
 {
-  if (target.longValue < 1 || target.longValue > 0xFFFF) {
-    RejectBridgeError(reject, @"target out of range");
+  uint8_t suiteValue = 0;
+  long targetValue = 0;
+  if (!CheckedSuite(suite, &suiteValue, reject) ||
+      !CheckedInteger(target, 1, 0xFFFF, @"target", &targetValue, reject)) {
     return;
   }
   NSData *package = DecodeBase64(pubkeyPackage, reject);
   if (package == nil) {
     return;
   }
-  NSData *blob = DecodeBase64(messages, reject);
+  NSMutableData *blob = DecodeBase64(messages, reject);
   if (blob == nil) {
     return;
   }
+  WipeOnExit blobGuard{blob};
 
   TssHandle out = 0;
   TssStatus status = tss_repair_assemble(
-      suite.unsignedCharValue, MakeSlice(package), target.unsignedShortValue, MakeSlice(blob), &out);
+      suiteValue, MakeSlice(package), static_cast<uint16_t>(targetValue), MakeSlice(blob), &out);
   if (status != TSS_OK) {
     RejectStatus(reject, status);
     return;
@@ -619,18 +741,14 @@ RCT_EXPORT_METHOD(bolt3DeriveRevocation:(NSString *)keyShareHandle
   if (point == nil) {
     return;
   }
-  NSData *decodedSecret = DecodeBase64(perCommitmentSecret, reject);
-  if (decodedSecret == nil) {
+  NSMutableData *secret = DecodeBase64(perCommitmentSecret, reject);
+  if (secret == nil) {
     return;
   }
-  NSMutableData *secret = [decodedSecret mutableCopy];
 
   TssHandle out = 0;
   TssStatus status = tss_bolt3_derive_revocation(keyShare, MakeSlice(point), MakeSlice(secret), &out);
-  volatile uint8_t *bytes = static_cast<volatile uint8_t *>(secret.mutableBytes);
-  for (NSUInteger i = 0; i < secret.length; ++i) {
-    bytes[i] = 0;
-  }
+  WipeData(secret);
   if (status != TSS_OK) {
     RejectStatus(reject, status);
     return;
@@ -716,10 +834,11 @@ RCT_EXPORT_METHOD(refreshNext:(NSString *)handle
     return;
   }
 
-  NSData *messageData = DecodeBase64(messages, reject);
+  NSMutableData *messageData = DecodeBase64(messages, reject);
   if (messageData == nil) {
     return;
   }
+  WipeOnExit messageGuard{messageData};
 
   TssHandle keyShare = 0;
   TssBuffer pubkeyPackage{nullptr, 0};
@@ -757,6 +876,19 @@ RCT_EXPORT_METHOD(handleFree:(NSString *)handle
   }
 
   tss_handle_free(parsed);
+  resolve(nil);
+}
+
+RCT_EXPORT_METHOD(sessionFree:(NSString *)handle
+                  resolve:(RCTPromiseResolveBlock)resolve
+                  reject:(RCTPromiseRejectBlock)reject)
+{
+  TssHandle parsed = 0;
+  if (!ParseHandle(handle, &parsed, reject)) {
+    return;
+  }
+
+  tss_session_free(parsed);
   resolve(nil);
 }
 
@@ -891,16 +1023,21 @@ RCT_EXPORT_METHOD(importKeyShare:(nonnull NSNumber *)suite
                   resolve:(RCTPromiseResolveBlock)resolve
                   reject:(RCTPromiseRejectBlock)reject)
 {
-  NSData *decoded = DecodeBase64(data, reject);
+  uint8_t suiteValue = 0;
+  if (!CheckedSuite(suite, &suiteValue, reject)) {
+    return;
+  }
+  NSMutableData *decoded = DecodeBase64(data, reject);
   if (decoded == nil) {
     return;
   }
+  WipeOnExit decodedGuard{decoded};
 
   TssHandle out = 0;
   TssStatus status = tss_handle_import(
       static_cast<const uint8_t *>(decoded.bytes),
       static_cast<size_t>(decoded.length),
-      suite.unsignedCharValue,
+      suiteValue,
       &out);
   if (status != TSS_OK) {
     RejectStatus(reject, status);
@@ -931,6 +1068,8 @@ RCT_REMAP_METHOD(verify,
                  withResolver:(RCTPromiseResolveBlock)resolve
                  withRejecter:(RCTPromiseRejectBlock)reject)
 {
+    uint8_t suiteValue = 0;
+    if (!CheckedSuite(suite, &suiteValue, reject)) { return; }
     NSData *msgData = DecodeBase64(message, reject);
     if (msgData == nil) { return; }
     NSData *sigData = DecodeBase64(signature, reject);
@@ -942,7 +1081,7 @@ RCT_REMAP_METHOD(verify,
     TssSlice sigSlice = { .data = (const uint8_t *)sigData.bytes, .len = sigData.length };
     TssSlice pkSlice = { .data = (const uint8_t *)pkData.bytes, .len = pkData.length };
 
-    bool result = tss_verify([suite unsignedCharValue], msgSlice, sigSlice, pkSlice);
+    bool result = tss_verify(suiteValue, msgSlice, sigSlice, pkSlice);
     resolve(@(result));
 }
 
@@ -1030,10 +1169,8 @@ RCT_EXPORT_METHOD(importKeyShareSecure:(nonnull NSNumber *)suite
   NSMutableData *mutableCopy = [keychainData mutableCopy];
   keychainData = nil;  // release immutable copy early
 
-  double suiteDouble = suite.doubleValue;
-  int suiteValue = (int)suiteDouble;
-  if (suiteDouble != (double)suiteValue || suiteValue < 0 || suiteValue > 255) {
-    RejectBridgeError(reject, @"invalid ciphersuite value");
+  uint8_t suiteValue = 0;
+  if (!CheckedSuite(suite, &suiteValue, reject)) {
     memset_s(mutableCopy.mutableBytes, mutableCopy.length, 0, mutableCopy.length);
     return;
   }
@@ -1042,7 +1179,7 @@ RCT_EXPORT_METHOD(importKeyShareSecure:(nonnull NSNumber *)suite
   TssStatus status = tss_handle_import(
       static_cast<const uint8_t *>(mutableCopy.bytes),
       static_cast<size_t>(mutableCopy.length),
-      static_cast<uint8_t>(suiteValue),
+      suiteValue,
       &out);
 
   memset_s(mutableCopy.mutableBytes, mutableCopy.length, 0, mutableCopy.length);

@@ -28,6 +28,7 @@ export interface NativeLibtssModule {
 		complete: boolean;
 		messages?: string;
 		signature?: string;
+		recoveryId?: number;
 	}>;
 	refreshNew(
 		keyShareHandle: string,
@@ -74,6 +75,7 @@ export interface NativeLibtssModule {
 		perCommitmentPoint: string,
 	): Promise<string>;
 	handleFree(handle: string): Promise<void>;
+	sessionFree(handle: string): Promise<void>;
 	handleIdentifier(handle: string): Promise<number>;
 	handleVerifyingShare(handle: string): Promise<string>;
 	handleGroupKey(handle: string): Promise<string>;
