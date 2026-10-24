@@ -1,5 +1,5 @@
 import { fromByteArray, toByteArray } from "base64-js";
-import { identifier, identifiers, u8, u16 } from "./checks";
+import { identifier, identifiers, signerCount, u8 } from "./checks";
 import { TssError } from "./error";
 import { KeyShareHandle } from "./handle";
 import { decodeMessages, encodeMessages } from "./message";
@@ -76,8 +76,8 @@ export class DkgSession extends SessionHandle {
 	): Promise<[DkgSession, Message[]]> {
 		const suite = u8(config.suite, "suite");
 		const self = identifier(selfId, "selfId");
-		const maxSigners = u16(config.maxSigners, "maxSigners");
-		const minSigners = u16(config.minSigners, "minSigners");
+		const maxSigners = signerCount(config.maxSigners, "maxSigners");
+		const minSigners = signerCount(config.minSigners, "minSigners");
 		const result = await callNative(() =>
 			NativeLibtss.dkgNew(
 				suite,
@@ -95,8 +95,10 @@ export class DkgSession extends SessionHandle {
 	}
 
 	async next(received: Message[]): Promise<DkgOutput> {
+		// Encode first so envelope validation errors surface as RangeError.
+		const encoded = encodeMessageBuffer(received);
 		const result = await callNative(() =>
-			NativeLibtss.dkgNext(this.handle, encodeMessageBuffer(received)),
+			NativeLibtss.dkgNext(this.handle, encoded),
 		);
 		if (!result.complete) {
 			return {
@@ -150,8 +152,10 @@ export class SignSession extends SessionHandle {
 	}
 
 	async next(received: Message[]): Promise<SignOutput> {
+		// Encode first so envelope validation errors surface as RangeError.
+		const encoded = encodeMessageBuffer(received);
 		const result = await callNative(() =>
-			NativeLibtss.signNext(this.handle, encodeMessageBuffer(received)),
+			NativeLibtss.signNext(this.handle, encoded),
 		);
 		if (!result.complete) {
 			return {
@@ -238,8 +242,10 @@ export class RefreshSession extends SessionHandle {
 	}
 
 	async next(received: Message[]): Promise<RefreshOutput> {
+		// Encode first so envelope validation errors surface as RangeError.
+		const encoded = encodeMessageBuffer(received);
 		const result = await callNative(() =>
-			NativeLibtss.refreshNext(this.handle, encodeMessageBuffer(received)),
+			NativeLibtss.refreshNext(this.handle, encoded),
 		);
 		if (!result.complete) {
 			return {

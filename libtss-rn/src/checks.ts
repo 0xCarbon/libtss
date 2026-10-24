@@ -16,6 +16,14 @@ export function u16(value: number, name: string): number {
 	return checkInteger(value, name, 0xffff);
 }
 
+/** Signer count (maxSigners / minSigners): integer in [1, 65535], as the native bridges require. */
+export function signerCount(value: number, name: string): number {
+	if (!Number.isInteger(value) || value < 1 || value > 0xffff) {
+		throw new RangeError(`${name} must be an integer in [1, 65535]`);
+	}
+	return value;
+}
+
 /** Party identifier: integer in [1, 65535]. */
 export function identifier(value: number, name: string): number {
 	if (!Number.isInteger(value) || value < 1 || value > 0xffff) {

@@ -35,7 +35,7 @@ func ParseMessages(blob []byte) ([]Message, error) {
 		out = append(out, Message{
 			From: Identifier(from),
 			To:   Identifier(to),
-			Data: append([]byte(nil), sliceToBytes(data)...),
+			Data: sliceToBytes(data),
 		})
 	}
 	return out, nil
@@ -51,6 +51,14 @@ func messageCount(slice C.struct_TssSlice, blobLen int) (int, error) {
 		return 0, statusErr(C.TSS_ERR_DESERIALIZE)
 	}
 	return count, nil
+}
+
+// parseNativeMessages parses a native message buffer and wipes the
+// intermediate copy.
+func parseNativeMessages(buf *C.struct_TssBuffer) ([]Message, error) {
+	raw := bufferToBytes(buf)
+	defer WipeBytes(raw)
+	return ParseMessages(raw)
 }
 
 func BuildMessages(messages []Message) ([]byte, error) {

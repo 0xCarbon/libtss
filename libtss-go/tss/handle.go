@@ -39,7 +39,9 @@ func (h *nativeHandle) use(fn func(C.TssHandle) error) error {
 	if h.handle == 0 {
 		return invalidLocalHandle()
 	}
-	return fn(h.handle)
+	handle := h.handle
+	afterHandleRead()
+	return fn(handle)
 }
 
 func (h *nativeHandle) free() {

@@ -33,6 +33,15 @@ class Ciphersuite(enum.IntEnum):
             return Protocol.DKLS23
         return Protocol.FROST
 
+    @property
+    def signature_length(self) -> int:
+        """Length in bytes of a signature produced under this ciphersuite."""
+        if self in (Ciphersuite.SECP256K1, Ciphersuite.P256):
+            return 65
+        if self == Ciphersuite.ED448:
+            return 114
+        return 64
+
 
 @dataclass(frozen=True, slots=True)
 class Message:
@@ -62,10 +71,15 @@ class DkgResult:
 
 @dataclass(frozen=True, slots=True)
 class SignResult:
-    """Result of a signing session round."""
+    """Result of a signing session round.
+
+    ``recovery_id`` is the ECDSA recovery identifier (0 or 1) of a completed
+    DKLs23 signature, and ``None`` for FROST signatures and incomplete rounds.
+    """
     complete: bool
     messages: list[Message] | None = None
     signature: bytes | None = None
+    recovery_id: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

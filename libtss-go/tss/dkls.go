@@ -154,7 +154,7 @@ func DKLsRepairHelperTerm(keyShare *KeyShareHandle, helpers []Identifier, target
 	}); err != nil {
 		return nil, err
 	}
-	return ParseMessages(bufferToBytes(&out))
+	return parseNativeMessages(&out)
 }
 
 // DKLsRepairAssemble assembles the helpers' repair messages into the target's
@@ -166,6 +166,7 @@ func DKLsRepairAssemble(suite Ciphersuite, pubkeyPackage []byte, target Identifi
 	if err != nil {
 		return nil, err
 	}
+	defer WipeBytes(blob)
 	var out C.TssHandle
 	if err := callStatus(func() C.TssStatus {
 		return C.tss_repair_assemble(

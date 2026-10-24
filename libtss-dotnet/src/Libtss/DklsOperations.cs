@@ -86,12 +86,12 @@ public static class DklsOperations
         ArgumentNullException.ThrowIfNull(perCommitmentPoint);
         ulong handle;
         int status;
+        using var share = keyShare.Lease();
         fixed (byte* pPoint = perCommitmentPoint)
         {
             var point = new TssSlice { Data = pPoint, Len = (nuint)perCommitmentPoint.Length };
-            status = Native.tss_bolt3_derive(keyShare.Handle, point, &handle);
+            status = Native.tss_bolt3_derive(share.Value, point, &handle);
         }
-        GC.KeepAlive(keyShare);
         TssException.ThrowIfError(status);
         return new KeyShareHandle(handle);
     }
@@ -113,14 +113,14 @@ public static class DklsOperations
         {
             ulong handle;
             int status;
+            using var share = keyShare.Lease();
             fixed (byte* pPoint = perCommitmentPoint)
             fixed (byte* pSecret = perCommitmentSecret)
             {
                 var point = new TssSlice { Data = pPoint, Len = (nuint)perCommitmentPoint.Length };
                 var secret = new TssSlice { Data = pSecret, Len = (nuint)perCommitmentSecret.Length };
-                status = Native.tss_bolt3_derive_revocation(keyShare.Handle, point, secret, &handle);
+                status = Native.tss_bolt3_derive_revocation(share.Value, point, secret, &handle);
             }
-            GC.KeepAlive(keyShare);
             TssException.ThrowIfError(status);
             return new KeyShareHandle(handle);
         }
@@ -179,15 +179,15 @@ public static class DklsOperations
         ArgumentNullException.ThrowIfNull(repairId);
         using var outMessages = new NativeTssBuffer();
         int status;
+        using var share = keyShare.Lease();
         fixed (ushort* pHelpers = helpers)
         fixed (byte* pId = repairId)
         fixed (TssBuffer* pOut = &outMessages.Raw)
         {
             var id = new TssSlice { Data = pId, Len = (nuint)repairId.Length };
             status = Native.tss_repair_helper_term(
-                keyShare.Handle, pHelpers, (nuint)helpers.Length, target, id, pOut);
+                share.Value, pHelpers, (nuint)helpers.Length, target, id, pOut);
         }
-        GC.KeepAlive(keyShare);
         TssException.ThrowIfError(status);
         byte[] raw = outMessages.ToArray();
         try

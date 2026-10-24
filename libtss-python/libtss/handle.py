@@ -6,7 +6,7 @@ import ctypes
 import threading
 from typing import TYPE_CHECKING
 
-from libtss._ffi import TssBuffer, buffer_to_bytes, get_lib, wipe_ctypes_array
+from libtss._ffi import TssBuffer, buffer_to_bytes, check_u8, get_lib, wipe_ctypes_array
 from libtss.errors import check_status
 from libtss.types import Ciphersuite, Protocol
 
@@ -169,15 +169,17 @@ class KeyShareHandle:
     def import_bytes(cls, data: bytes | bytearray, suite: Ciphersuite) -> KeyShareHandle:
         """Import a previously exported key share from serialized bytes.
 
-        If ``data`` is a ``bytearray``, it is zeroed after import.
+        If ``data`` is a ``bytearray``, it is zeroed after import, also when
+        the arguments are rejected.
         """
-        if not data:
-            raise ValueError("data must not be empty")
-
         out = ctypes.c_uint64()
-        arr = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
+        arr = None
         try:
-            status = get_lib().tss_handle_import(arr, len(data), int(suite), ctypes.byref(out))
+            suite = check_u8(suite, "suite")
+            if not data:
+                raise ValueError("data must not be empty")
+            arr = (ctypes.c_uint8 * len(data)).from_buffer_copy(data)
+            status = get_lib().tss_handle_import(arr, len(data), suite, ctypes.byref(out))
             check_status(status)
         finally:
             wipe_ctypes_array(arr)
@@ -194,6 +196,7 @@ class KeyShareHandle:
         The data is read from locked memory via ``memoryview``.  A temporary
         ctypes array copy is created for the FFI call and wiped afterwards.
         """
+        suite = check_u8(suite, "suite")
         mv = secure.memoryview()
         if len(mv) == 0:
             raise ValueError("SecureBytes must not be empty")
@@ -201,7 +204,7 @@ class KeyShareHandle:
         out = ctypes.c_uint64()
         arr = (ctypes.c_uint8 * len(mv)).from_buffer_copy(mv)
         try:
-            status = get_lib().tss_handle_import(arr, len(mv), int(suite), ctypes.byref(out))
+            status = get_lib().tss_handle_import(arr, len(mv), suite, ctypes.byref(out))
             check_status(status)
         finally:
             wipe_ctypes_array(arr)

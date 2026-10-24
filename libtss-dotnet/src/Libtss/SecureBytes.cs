@@ -86,10 +86,16 @@ public sealed class SecureBytes : IDisposable
         GC.KeepAlive(this);
     }
 
+    /// <summary>
+    /// The unmanaged pointer. Callers must keep this object reachable
+    /// (<c>GC.KeepAlive</c>) until they no longer use the pointer.
+    /// </summary>
     internal IntPtr DangerousGetPtr()
     {
         ThrowIfDisposed();
-        return _ptr;
+        IntPtr ptr = _ptr;
+        TestHooks.RunAfterHandleAcquired();
+        return ptr;
     }
 
     private void ThrowIfDisposed()

@@ -1268,6 +1268,7 @@ dependencies = [
  "k256 0.14.0",
  "libc",
  "libtss",
+ "p256 0.14.0",
  "sha2 0.10.9",
  "zeroize",
 ]

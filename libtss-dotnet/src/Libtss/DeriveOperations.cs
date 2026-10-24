@@ -21,8 +21,8 @@ public static class DeriveOperations
             throw new ArgumentOutOfRangeException(nameof(childNumber), "Must be less than 2^31 (non-hardened).");
 
         ulong outHandle;
-        int status = Native.tss_derive_child(keyShare.Handle, childNumber, &outHandle);
-        GC.KeepAlive(keyShare);
+        using var share = keyShare.Lease();
+        int status = Native.tss_derive_child(share.Value, childNumber, &outHandle);
         TssException.ThrowIfError(status);
         return new KeyShareHandle(outHandle);
     }
@@ -43,8 +43,8 @@ public static class DeriveOperations
             throw new ArgumentException("Path must not contain NUL bytes.", nameof(path));
 
         ulong outHandle;
-        int status = Native.tss_derive_path(keyShare.Handle, path, &outHandle);
-        GC.KeepAlive(keyShare);
+        using var share = keyShare.Lease();
+        int status = Native.tss_derive_path(share.Value, path, &outHandle);
         TssException.ThrowIfError(status);
         return new KeyShareHandle(outHandle);
     }

@@ -1,4 +1,4 @@
-import { u8, u16, u16Array } from "./checks";
+import { identifier, identifierArray, u8 } from "./checks";
 import { checkStatus } from "./error";
 import { TSS_INIT_MLOCK, allocBuffer, lib, makeSlice, readBuffer } from "./ffi";
 import { KeyShareHandle } from "./handle";
@@ -250,8 +250,8 @@ export function dklsRepairHelperTerm(
 	target: number,
 	repairId: Uint8Array,
 ): Message[] {
-	const helperIds = u16Array(helpers, "helper");
-	const targetId = u16(target, "target");
+	const helperIds = identifierArray(helpers, "helper");
+	const targetId = identifier(target, "target");
 	const out = allocBuffer();
 	checkStatus(
 		lib.tss_repair_helper_term(
@@ -282,7 +282,7 @@ export function dklsRepairAssemble(
 		lib.tss_repair_assemble(
 			u8(suite, "suite"),
 			makeSlice(publicKeys),
-			u16(target, "target"),
+			identifier(target, "target"),
 			makeSlice(encodeMessages(messages)),
 			outHandle,
 		),

@@ -195,6 +195,7 @@ func FrostRepairPart1(keyShare *KeyShareHandle, helpers []Identifier, participan
 		return nil, err
 	}
 	blob := bufferToBytes(&outDeltas)
+	defer WipeBytes(blob)
 	return parseTLVBlobs(blob, int(deltaCount))
 }
 

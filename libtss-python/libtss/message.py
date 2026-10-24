@@ -9,6 +9,7 @@ from libtss._ffi import (
     TssSlice,
     buffer_to_bytes,
     get_lib,
+    check_identifier,
     make_slice,
     wipe_ctypes_array,
 )
@@ -17,22 +18,33 @@ from libtss.types import Message
 
 
 def encode(messages: list[Message]) -> bytes:
-    """Encode messages into the native concatenated TLV format."""
+    """Encode messages into the native concatenated TLV format.
+
+    ``sender`` must be an identifier in [1, 65535]; ``to`` is ``None``
+    (broadcast) or an identifier in [1, 65535]. Raises ``TypeError`` or
+    ``ValueError`` otherwise.
+    """
     if not messages:
         return b""
+    routes = [
+        (
+            check_identifier(m.sender, "sender"),
+            0 if m.to is None else check_identifier(m.to, "to"),
+        )
+        for m in messages
+    ]
 
     lib = get_lib()
     buf = TssBuffer()
     success = False
 
     try:
-        for msg in messages:
-            to = msg.to if msg.to is not None else 0
+        for msg, (sender, to) in zip(messages, routes):
             data_arr = (ctypes.c_uint8 * len(msg.data)).from_buffer_copy(msg.data)
             try:
                 status = lib.tss_message_build(
                     ctypes.byref(buf),
-                    msg.sender,
+                    sender,
                     to,
                     data_arr,
                     len(msg.data),

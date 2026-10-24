@@ -112,6 +112,18 @@ internal static unsafe class Native
         TssBuffer* out_messages,
         byte* out_complete);
 
+    /// <summary>Written to <c>out_recovery_id</c> when there is no recovery id.</summary>
+    public const byte TSS_NO_RECOVERY_ID = 255;
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_sign_next_recoverable(
+        ulong session,
+        TssSlice messages,
+        TssBuffer* out_signature,
+        byte* out_recovery_id,
+        TssBuffer* out_messages,
+        byte* out_complete);
+
     // --- Refresh Session ---
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]

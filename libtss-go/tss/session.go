@@ -131,7 +131,7 @@ func NewDKGSession(config ThresholdConfig, self Identifier, sessionID []byte) (*
 	}); err != nil {
 		return nil, nil, err
 	}
-	msgs, err := ParseMessages(bufferToBytes(&out))
+	msgs, err := parseNativeMessages(&out)
 	if err != nil {
 		C.tss_session_free(native)
 		return nil, nil, err
@@ -144,6 +144,7 @@ func (s *DKGSession) Next(messages []Message) (DKGStep, error) {
 	if err != nil {
 		return DKGStep{}, err
 	}
+	defer WipeBytes(blob)
 	var outKey C.TssHandle
 	var outPkg C.struct_TssBuffer
 	var outMsgs C.struct_TssBuffer
@@ -173,7 +174,7 @@ func (s *DKGSession) Next(messages []Message) (DKGStep, error) {
 		}
 		return step, err
 	}
-	step.Messages, err = ParseMessages(bufferToBytes(&outMsgs))
+	step.Messages, err = parseNativeMessages(&outMsgs)
 	return step, err
 }
 
@@ -211,7 +212,7 @@ func NewSignSession(keyShare *KeyShareHandle, message []byte, counterparties []I
 	}); err != nil {
 		return nil, nil, err
 	}
-	msgs, err := ParseMessages(bufferToBytes(&out))
+	msgs, err := parseNativeMessages(&out)
 	if err != nil {
 		C.tss_session_free(native)
 		return nil, nil, err
@@ -224,15 +225,18 @@ func (s *SignSession) Next(messages []Message) (SignStep, error) {
 	if err != nil {
 		return SignStep{}, err
 	}
+	defer WipeBytes(blob)
 	var outSig C.struct_TssBuffer
+	var outRecoveryID C.uint8_t = C.TSS_NO_RECOVERY_ID
 	var outMsgs C.struct_TssBuffer
 	var complete C.bool
 	if err := s.use(func(handle C.TssHandle) error {
 		return callStatus(func() C.TssStatus {
-			return C.tss_sign_next(
+			return C.tss_sign_next_recoverable(
 				handle,
 				bytesToSlice(blob),
 				&outSig,
+				&outRecoveryID,
 				&outMsgs,
 				&complete,
 			)
@@ -242,13 +246,29 @@ func (s *SignSession) Next(messages []Message) (SignStep, error) {
 	}
 	step := SignStep{Complete: bool(complete)}
 	if step.Complete {
+		bufferToBytes(&outMsgs)
+		data := bufferToBytes(&outSig)
+		if expected := s.suite.SignatureLength(); len(data) != expected {
+			return SignStep{}, fmt.Errorf(
+				"invalid signature length for ciphersuite %d: expected %d bytes, got %d",
+				s.suite, expected, len(data))
+		}
+		recoveryID := NoRecoveryID
+		if s.suite.Protocol() == ProtocolDKLs23 {
+			if outRecoveryID > 1 {
+				return SignStep{}, fmt.Errorf("DKLs23 signature is missing its recovery id")
+			}
+			recoveryID = int(outRecoveryID)
+		}
 		step.Signature = Signature{
-			Protocol: s.suite.Protocol(),
-			Data:     bufferToBytes(&outSig),
+			Protocol:   s.suite.Protocol(),
+			Data:       data,
+			RecoveryID: recoveryID,
 		}
 		return step, nil
 	}
-	step.Messages, err = ParseMessages(bufferToBytes(&outMsgs))
+	bufferToBytes(&outSig)
+	step.Messages, err = parseNativeMessages(&outMsgs)
 	return step, err
 }
 
@@ -275,7 +295,7 @@ func NewRefreshSession(keyShare *KeyShareHandle, participants []Identifier) (*Re
 	}); err != nil {
 		return nil, nil, err
 	}
-	msgs, err := ParseMessages(bufferToBytes(&out))
+	msgs, err := parseNativeMessages(&out)
 	if err != nil {
 		C.tss_session_free(native)
 		return nil, nil, err
@@ -313,7 +333,7 @@ func NewRefreshSessionDKLs(keyShare *KeyShareHandle, sessionID []byte) (*Refresh
 	}); err != nil {
 		return nil, nil, err
 	}
-	msgs, err := ParseMessages(bufferToBytes(&out))
+	msgs, err := parseNativeMessages(&out)
 	if err != nil {
 		C.tss_session_free(native)
 		return nil, nil, err
@@ -341,6 +361,7 @@ func (s *RefreshSession) Next(messages []Message) (RefreshStep, error) {
 	if err != nil {
 		return RefreshStep{}, err
 	}
+	defer WipeBytes(blob)
 	var outKey C.TssHandle
 	var outPkg C.struct_TssBuffer
 	var outMsgs C.struct_TssBuffer
@@ -369,6 +390,6 @@ func (s *RefreshSession) Next(messages []Message) (RefreshStep, error) {
 		}
 		return step, err
 	}
-	step.Messages, err = ParseMessages(bufferToBytes(&outMsgs))
+	step.Messages, err = parseNativeMessages(&outMsgs)
 	return step, err
 }
