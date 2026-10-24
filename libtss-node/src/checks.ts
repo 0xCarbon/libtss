@@ -16,6 +16,18 @@ export function u16(value: number, name: string): number {
 	return checkInteger(value, name, 0xffff);
 }
 
-export function u16Array(values: readonly number[], name: string): Uint16Array {
-	return Uint16Array.from(values, (value) => u16(value, name));
+/** Party identifier: integer in [1, 65535]. */
+export function identifier(value: number, name: string): number {
+	if (!Number.isInteger(value) || value < 1 || value > 0xffff) {
+		throw new RangeError(`${name} must be an integer in [1, 65535]`);
+	}
+	return value;
+}
+
+/** Party identifiers, each an integer in [1, 65535]. */
+export function identifierArray(
+	values: readonly number[],
+	name: string,
+): Uint16Array {
+	return Uint16Array.from(values, (value) => identifier(value, name));
 }

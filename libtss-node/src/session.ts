@@ -1,4 +1,4 @@
-import { u8, u16, u16Array } from "./checks";
+import { identifier, identifierArray, u8, u16 } from "./checks";
 import { checkStatus } from "./error";
 import { allocBuffer, lib, makeSlice, readBuffer } from "./ffi";
 import { KeyShareHandle } from "./handle";
@@ -50,7 +50,7 @@ export class DkgSession extends SessionHandle {
 		checkStatus(
 			lib.tss_dkg_new(
 				u8(config.suite, "suite"),
-				u16(selfId, "selfId"),
+				identifier(selfId, "selfId"),
 				u16(config.maxSigners, "maxSigners"),
 				u16(config.minSigners, "minSigners"),
 				sessionId ?? null,
@@ -112,14 +112,13 @@ export class SignSession extends SessionHandle {
 		counterparties?: number[],
 		signId?: Uint8Array,
 	): [SignSession, Message[]] {
+		const cpBuf =
+			counterparties && counterparties.length > 0
+				? identifierArray(counterparties, "counterparty")
+				: null;
 		const suite = keyShare.ciphersuite();
 		const outSession: [bigint] = [0n];
 		const outMessages = allocBuffer();
-
-		const cpBuf =
-			counterparties && counterparties.length > 0
-				? u16Array(counterparties, "counterparty")
-				: null;
 
 		checkStatus(
 			lib.tss_sign_new(
@@ -198,7 +197,7 @@ export class RefreshSession extends SessionHandle {
 
 		const pBuf =
 			participants && participants.length > 0
-				? u16Array(participants, "participant")
+				? identifierArray(participants, "participant")
 				: null;
 
 		checkStatus(
