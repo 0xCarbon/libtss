@@ -1,21 +1,15 @@
 //! DKLs23-specific operations: key import, BOLT 3 derivation and share repair.
 
 use js_sys::{Array, Uint8Array};
-use libtss::{Ciphersuite, Identifier, PublicKeyPackage, ThresholdConfig};
+use libtss::{PublicKeyPackage, ThresholdConfig};
 use wasm_bindgen::prelude::*;
 use zeroize::Zeroizing;
 
+use crate::args::{identifier_arg, identifiers_arg, suite_arg, u16_arg};
 use crate::error::map_err;
 use crate::handle::WasmKeyShareHandle;
 use crate::message::{decode_messages, encode_messages};
 
-fn suite(value: u8) -> Result<Ciphersuite, JsValue> {
-    map_err(Ciphersuite::try_from(value))
-}
-
-fn identifier(value: u16) -> Result<Identifier, JsValue> {
-    map_err(Identifier::new(value))
-}
 
 /// Imports an existing ECDSA key as DKLs23 shares (trusted dealer).
 ///
@@ -28,19 +22,19 @@ fn identifier(value: u16) -> Result<Identifier, JsValue> {
 /// Returns `[shares: WasmKeyShareHandle[], publicKeyPackage: Uint8Array]`.
 #[wasm_bindgen(js_name = "dklsSplitKey")]
 pub fn dkls_split_key(
-    suite_id: u8,
+    #[wasm_bindgen(unchecked_param_type = "number")] suite_id: JsValue,
     secret_key: &Uint8Array,
     chain_code: &Uint8Array,
-    max_signers: u16,
-    min_signers: u16,
+    #[wasm_bindgen(unchecked_param_type = "number")] max_signers: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "number")] min_signers: JsValue,
 ) -> Result<Array, JsValue> {
     let secret = Zeroizing::new(secret_key.to_vec());
     secret_key.fill(0, 0, secret_key.length());
     let chain_code = chain_code.to_vec();
     let config = ThresholdConfig {
-        min_signers,
-        max_signers,
-        suite: suite(suite_id)?,
+        min_signers: u16_arg(&min_signers, "minSigners")?,
+        max_signers: u16_arg(&max_signers, "maxSigners")?,
+        suite: suite_arg(&suite_id)?,
     };
     let (handles, public_keys) = map_err(libtss::dkls_import::dkls_split_key(
         &config,
@@ -127,18 +121,15 @@ pub fn bolt3_derive_revocation_public_keys(
 #[wasm_bindgen(js_name = "dklsRepairHelperTerm")]
 pub fn dkls_repair_helper_term(
     key_share: &WasmKeyShareHandle,
-    helpers: &[u16],
-    target: u16,
+    #[wasm_bindgen(unchecked_param_type = "number[] | Uint16Array")] helpers: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "number")] target: JsValue,
     repair_id: &[u8],
 ) -> Result<Uint8Array, JsValue> {
-    let helpers = helpers
-        .iter()
-        .map(|&h| identifier(h))
-        .collect::<Result<Vec<_>, _>>()?;
+    let helpers = identifiers_arg(&helpers, "helper")?;
     let message = map_err(libtss::dkls_repair::repair_helper_term(
         &key_share.inner,
         &helpers,
-        identifier(target)?,
+        identifier_arg(&target, "target")?,
         repair_id,
     ))?;
     encode_messages(&[message])
@@ -150,17 +141,17 @@ pub fn dkls_repair_helper_term(
 /// `WasmRefreshSession.createDkls`.
 #[wasm_bindgen(js_name = "dklsRepairAssemble")]
 pub fn dkls_repair_assemble(
-    suite_id: u8,
+    #[wasm_bindgen(unchecked_param_type = "number")] suite_id: JsValue,
     public_keys: &[u8],
-    target: u16,
+    #[wasm_bindgen(unchecked_param_type = "number")] target: JsValue,
     messages: &Uint8Array,
 ) -> Result<WasmKeyShareHandle, JsValue> {
     let package = map_err(PublicKeyPackage::deserialize(public_keys))?;
     let received = decode_messages(messages)?;
     let inner = map_err(libtss::dkls_repair::repair_assemble(
-        suite(suite_id)?,
+        suite_arg(&suite_id)?,
         &package,
-        identifier(target)?,
+        identifier_arg(&target, "target")?,
         &received,
     ))?;
     Ok(WasmKeyShareHandle { inner })

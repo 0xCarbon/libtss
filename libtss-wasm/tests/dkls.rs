@@ -15,9 +15,18 @@ use libtss_wasm::dkls::{
 };
 use libtss_wasm::session::WasmRefreshSession;
 use libtss_wasm::WasmKeyShareHandle;
+use wasm_bindgen::JsValue;
 use wasm_bindgen_test::*;
 
 const SUITE_K1: u8 = 6;
+
+fn n(value: impl Into<f64>) -> JsValue {
+    JsValue::from_f64(value.into())
+}
+
+fn ids(values: &[u16]) -> JsValue {
+    js_sys::Uint16Array::from(values).into()
+}
 
 fn hex(value: &str) -> Vec<u8> {
     (0..value.len())
@@ -38,13 +47,14 @@ fn shares(secret: &[u8]) -> (Vec<KeyShareHandle>, Vec<u8>) {
 
 fn to_wasm(handle: &KeyShareHandle) -> WasmKeyShareHandle {
     let export = Uint8Array::from(handle.export().unwrap().as_slice());
-    WasmKeyShareHandle::import_share(&export, SUITE_K1).unwrap()
+    WasmKeyShareHandle::import_share(&export, n(SUITE_K1)).unwrap()
 }
 
 #[wasm_bindgen_test]
 fn split_key_returns_shares_and_wipes_the_secret() {
     let secret = Uint8Array::from([0x42u8; 32].as_slice());
-    let result = wasm_split_key(SUITE_K1, &secret, &Uint8Array::new_with_length(0), 3, 2).unwrap();
+    let result =
+        wasm_split_key(n(SUITE_K1), &secret, &Uint8Array::new_with_length(0), n(3), n(2)).unwrap();
     assert_eq!(result.length(), 2);
     assert_eq!(Array::from(&result.get(0)).length(), 3);
     assert!(secret.to_vec().iter().all(|&b| b == 0));
@@ -73,13 +83,16 @@ fn repair_rebuilds_a_lost_share() {
     let helpers = [1u16, 3];
     let mut blob = Vec::new();
     for i in [0usize, 2] {
-        let term = dkls_repair_helper_term(&to_wasm(&handles[i]), &helpers, 2, b"wasm-repair").unwrap();
+        let term = dkls_repair_helper_term(&to_wasm(&handles[i]), ids(&helpers), n(2), b"wasm-repair")
+            .unwrap();
         blob.extend(term.to_vec());
     }
     let repaired =
-        dkls_repair_assemble(SUITE_K1, &package, 2, &Uint8Array::from(blob.as_slice())).unwrap();
+        dkls_repair_assemble(n(SUITE_K1), &package, n(2), &Uint8Array::from(blob.as_slice())).unwrap();
     assert_eq!(repaired.verifying_share().to_vec(), handles[1].verifying_share());
-    assert!(dkls_repair_assemble(SUITE_K1, &package, 2, &Uint8Array::from(&blob[..10])).is_err());
+    assert!(
+        dkls_repair_assemble(n(SUITE_K1), &package, n(2), &Uint8Array::from(&blob[..10])).is_err()
+    );
 }
 
 #[wasm_bindgen_test]

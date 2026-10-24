@@ -19,6 +19,7 @@
 //! |   7   | Secp256r1ECDSA      | DKLs23   |
 
 pub mod address;
+mod args;
 pub mod derive;
 pub mod dkls;
 pub mod error;
@@ -42,7 +43,6 @@ pub use session::{
 };
 
 use js_sys::Uint8Array;
-use libtss::Ciphersuite;
 use wasm_bindgen::prelude::*;
 
 use crate::error::map_err;
@@ -99,12 +99,12 @@ pub fn protocol_dkls23() -> u8 { PROTOCOL_DKLS23 }
 /// Throws a `TssError` if inputs are malformed.
 #[wasm_bindgen]
 pub fn verify(
-    suite: u8,
+    #[wasm_bindgen(unchecked_param_type = "number")] suite: JsValue,
     message: &Uint8Array,
     signature: &Uint8Array,
     public_key: &Uint8Array,
 ) -> Result<bool, JsValue> {
-    let ciphersuite = map_err(Ciphersuite::try_from(suite))?;
+    let ciphersuite = crate::args::suite_arg(&suite)?;
     let msg = message.to_vec();
     let sig = signature.to_vec();
     let pk = public_key.to_vec();
