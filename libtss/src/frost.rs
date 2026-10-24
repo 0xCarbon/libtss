@@ -46,11 +46,20 @@ macro_rules! dispatch_frost {
 type SerializedBytes = Vec<u8>;
 type SerializedKeyPackages = Vec<(Identifier, SerializedBytes)>;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct KeyShareHandle {
     suite: Ciphersuite,
     identifier: Identifier,
     key_package_bytes: Vec<u8>,
+}
+
+impl std::fmt::Debug for KeyShareHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KeyShareHandle")
+            .field("suite", &self.suite)
+            .field("identifier", &self.identifier)
+            .finish_non_exhaustive()
+    }
 }
 
 impl KeyShareHandle {
@@ -1184,6 +1193,22 @@ mod tests {
             .expect("signature should verify");
         assert_eq!(parity, if verifying_key.has_even_y() { 0 } else { 1 });
 
+        Ok(())
+    }
+
+    #[test]
+    fn test_key_share_debug_is_redacted() -> Result<(), TssError> {
+        let (shares, _) = frost_generate_with_dealer(&config(Ciphersuite::Ed25519))?;
+        let rendered = format!("{:?}", shares[0]);
+        assert!(rendered.contains("identifier"));
+        assert!(!rendered.contains("key_package_bytes"));
+        let hex: String = shares[0]
+            .key_package_bytes
+            .iter()
+            .map(|b| b.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
+        assert!(!rendered.contains(&hex));
         Ok(())
     }
 

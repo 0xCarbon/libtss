@@ -1,3 +1,5 @@
+use zeroize::Zeroize;
+
 use crate::error::TssError;
 use crate::types::Identifier;
 
@@ -28,11 +30,30 @@ const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024; // 16 MiB
 /// assert!(p2p.for_participant(id2));
 /// assert!(!p2p.for_participant(id1));
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Some payloads are confidential (DKG shares, repair terms), so `Debug`
+/// prints only the payload length and `data` is zeroized on drop.
+#[derive(Clone, PartialEq, Eq)]
 pub struct Message {
     pub from: Identifier,
     pub to: Option<Identifier>,
     pub data: Vec<u8>,
+}
+
+impl std::fmt::Debug for Message {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Message")
+            .field("from", &self.from)
+            .field("to", &self.to)
+            .field("data_len", &self.data.len())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for Message {
+    fn drop(&mut self) {
+        self.data.zeroize();
+    }
 }
 
 impl Message {
@@ -353,6 +374,19 @@ mod tests {
         // Sender should not receive own broadcast
         let filtered_sender = filter_for_participant(&messages, id1);
         assert_eq!(filtered_sender.len(), 0);
+    }
+
+    #[test]
+    fn debug_redacts_payload() {
+        let message = Message {
+            from: Identifier::new(1).unwrap(),
+            to: Some(Identifier::new(2).unwrap()),
+            data: vec![0xde, 0xad, 0xbe, 0xef],
+        };
+        let rendered = format!("{message:?}");
+        assert!(rendered.contains("data_len: 4"));
+        assert!(!rendered.contains("222"));
+        assert!(!rendered.contains("[222, 173, 190, 239]"));
     }
 
     #[test]
