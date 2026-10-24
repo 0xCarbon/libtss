@@ -138,11 +138,46 @@ pub(crate) fn phase_output_to_messages(
 /// An error blaming `sender` (the authenticated envelope sender) for a
 /// message it should not have sent.
 fn sender_error(sender: u8, message: &str) -> TssError {
+    match Identifier::new(u16::from(sender)) {
+        Ok(id) => identifier_error(id, message),
+        Err(_) => TssError::Abort {
+            culprits: Vec::new(),
+            message: format!("party {sender}: {message}"),
+            ban: None,
+        },
+    }
+}
+
+/// An abort naming `sender` (the authenticated envelope sender).
+pub(crate) fn identifier_error(sender: Identifier, message: &str) -> TssError {
     TssError::Abort {
-        culprits: Identifier::new(u16::from(sender)).into_iter().collect(),
-        message: format!("party {sender}: {message}"),
+        culprits: vec![sender],
+        message: format!("party {}: {message}", sender.as_u16()),
         ban: None,
     }
+}
+
+/// Whether `message` is for `self_id` and from another party. Messages for
+/// other receivers and this party's own messages echoed back by the
+/// transport are skipped.
+pub(crate) fn is_inbound(message: &Message, self_id: Identifier) -> bool {
+    message.from != self_id && message.to.is_none_or(|receiver| receiver == self_id)
+}
+
+/// The zero-based position of the sender of a phase-1 fragment addressed to
+/// `self_id`, or `None` for a message to skip. A sender outside
+/// `1..=share_count` is an abort naming it.
+pub(crate) fn fragment_sender(
+    message: &Message,
+    self_id: Identifier,
+    share_count: u8,
+) -> Result<Option<usize>, TssError> {
+    if message.to != Some(self_id) || message.from == self_id {
+        return Ok(None);
+    }
+    let index = identifier_to_session_party_index(message.from, share_count)
+        .map_err(|_| identifier_error(message.from, "unexpected sender"))?;
+    Ok(Some(usize::from(index.as_u8() - 1)))
 }
 
 /// Every party in `1..=share_count` except `self_index`.
@@ -182,8 +217,9 @@ pub(crate) fn check_sender_index(index: PartyIndex, sender: u8) -> Result<(), Ts
 
 /// Groups the messages for `self_id` by sender. Every broadcast and every
 /// message addressed to `self_id` must come from one of `expected`
-/// (`from` is the authenticated sender); messages for other receivers are
-/// ignored.
+/// (`from` is the authenticated sender); any other sender is an abort naming
+/// it. Messages for other receivers and this party's own messages echoed
+/// back by the transport are ignored.
 pub(crate) fn messages_to_phase_input(
     messages: &[Message],
     self_id: Identifier,
@@ -194,25 +230,16 @@ pub(crate) fn messages_to_phase_input(
         p2p: BTreeMap::new(),
     };
 
-    for message in messages {
-        let sender =
-            u8::try_from(message.from.as_u16()).map_err(|_| TssError::InvalidIdentifier)?;
-        if message.to.is_none_or(|receiver| receiver == self_id) && !expected.contains(&sender) {
-            return Err(sender_error(sender, "unexpected sender"));
-        }
-        match message.to {
-            None => input
-                .broadcasts
-                .entry(sender)
-                .or_default()
-                .extend_from_slice(&message.data),
-            Some(receiver) if receiver == self_id => input
-                .p2p
-                .entry(sender)
-                .or_default()
-                .extend_from_slice(&message.data),
-            Some(_) => {}
-        }
+    for message in messages.iter().filter(|m| is_inbound(m, self_id)) {
+        let sender = u8::try_from(message.from.as_u16())
+            .ok()
+            .filter(|sender| expected.contains(sender))
+            .ok_or_else(|| identifier_error(message.from, "unexpected sender"))?;
+        let entry = match message.to {
+            None => input.broadcasts.entry(sender),
+            Some(_) => input.p2p.entry(sender),
+        };
+        entry.or_default().extend_from_slice(&message.data);
     }
 
     Ok(input)
@@ -348,13 +375,9 @@ pub fn dkls_dkg_phase2(
     seen[self_position] = true;
 
     for message in received {
-        if message.to != Some(state.self_id) {
+        let Some(sender) = fragment_sender(message, state.self_id, state.share_count)? else {
             continue;
-        }
-
-        let sender = usize::from(
-            identifier_to_session_party_index(message.from, state.share_count)?.as_u8() - 1,
-        );
+        };
         if seen[sender] {
             return Err(TssError::DeserializeFailed(
                 "duplicate DKG fragment from sender".into(),
@@ -780,8 +803,8 @@ mod tests {
             to: None,
             data: vec![1],
         };
-        // Sender outside the expected set, including the receiver itself.
-        for from in [3, 4] {
+        // Sender outside the expected set, including identifiers above 255.
+        for from in [4, 300] {
             let err = messages_to_phase_input(&[broadcast_from(from)], id(3), &[1, 2])
                 .expect_err("unexpected sender must be rejected");
             assert!(matches!(
@@ -789,13 +812,18 @@ mod tests {
                 TssError::Abort { ref culprits, .. } if culprits == &[id(from)]
             ));
         }
+        // The receiver's own broadcast, echoed back, is skipped.
+        let input = messages_to_phase_input(&[broadcast_from(3)], id(3), &[1, 2]).unwrap();
+        assert!(input.broadcasts.is_empty());
         // A message for another receiver is ignored, whoever sent it.
-        let other = Message {
-            from: id(4),
-            to: Some(id(1)),
-            data: vec![1],
-        };
-        assert!(messages_to_phase_input(&[other], id(3), &[1, 2]).is_ok());
+        for from in [4, 300] {
+            let other = Message {
+                from: id(from),
+                to: Some(id(1)),
+                data: vec![1],
+            };
+            assert!(messages_to_phase_input(&[other], id(3), &[1, 2]).is_ok());
+        }
     }
 
     #[test]
@@ -915,7 +943,43 @@ mod tests {
 
         let error = dkls_dkg_phase2(&mut state, &messages).unwrap_err();
 
-        assert_eq!(error, TssError::InvalidIdentifier);
+        assert!(matches!(
+            error,
+            TssError::Abort { ref culprits, .. } if culprits == &[id(3)]
+        ));
+    }
+
+    #[test]
+    fn test_dkg_phase2_names_sender_above_255_and_skips_echoes() {
+        let session_id = vec![7u8; 32];
+        let (_, messages) = dkls_dkg_phase1(2, 2, id(1), session_id.clone()).unwrap();
+        let (mut state, own) = dkls_dkg_phase1(2, 2, id(2), session_id.clone()).unwrap();
+        let mut with_echo = messages.clone();
+        with_echo.extend(own);
+        with_echo.push(Message {
+            from: id(2),
+            to: Some(id(2)),
+            data: vec![9; 32],
+        });
+        with_echo.push(Message {
+            from: id(300),
+            to: Some(id(1)),
+            data: vec![9; 32],
+        });
+        assert!(dkls_dkg_phase2(&mut state, &with_echo).is_ok());
+
+        let (mut state, _) = dkls_dkg_phase1(2, 2, id(2), session_id).unwrap();
+        let mut forged = messages;
+        forged.push(Message {
+            from: id(300),
+            to: Some(id(2)),
+            data: vec![9; 32],
+        });
+        let error = dkls_dkg_phase2(&mut state, &forged).unwrap_err();
+        assert!(matches!(
+            error,
+            TssError::Abort { ref culprits, .. } if culprits == &[id(300)]
+        ));
     }
 
     #[test]

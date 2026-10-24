@@ -221,13 +221,10 @@ pub fn dkls_r1_dkg_phase2(
     seen[self_position] = true;
 
     for message in received {
-        if message.to != Some(state.self_id) {
+        let Some(sender) = crate::dkls::fragment_sender(message, state.self_id, state.share_count)?
+        else {
             continue;
-        }
-
-        let sender = usize::from(
-            identifier_to_session_party_index(message.from, state.share_count)?.as_u8() - 1,
-        );
+        };
         if seen[sender] {
             return Err(TssError::DeserializeFailed(
                 "duplicate DKG fragment from sender".into(),

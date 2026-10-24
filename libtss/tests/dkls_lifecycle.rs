@@ -16,10 +16,20 @@ fn id(value: u16) -> Identifier {
     Identifier::new(value).unwrap()
 }
 
+thread_local! {
+    /// When set, `route` hands every party every message, including its own
+    /// and those addressed to others, as a relay that echoes would.
+    static ECHO: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 fn route(
     outputs: &BTreeMap<Identifier, Vec<Message>>,
     recipients: &[Identifier],
 ) -> BTreeMap<Identifier, Vec<Message>> {
+    if ECHO.with(|echo| echo.get()) {
+        let all: Vec<Message> = outputs.values().flatten().cloned().collect();
+        return recipients.iter().map(|&r| (r, all.clone())).collect();
+    }
     let mut routed: BTreeMap<Identifier, Vec<Message>> =
         recipients.iter().map(|&r| (r, Vec::new())).collect();
     for (&sender, messages) in outputs {
@@ -158,6 +168,25 @@ fn verifies(suite: Ciphersuite, group_key: &[u8], hash: &[u8; 32], signature: &[
 
 fn same_id(parties: &[Identifier], sid: &'static [u8]) -> BTreeMap<Identifier, &'static [u8]> {
     parties.iter().map(|&p| (p, sid)).collect()
+}
+
+#[test]
+#[cfg_attr(tarpaulin, ignore)]
+fn dkg_refresh_and_sign_skip_echoed_and_foreign_messages() {
+    ECHO.with(|echo| echo.set(true));
+    for suite in [Ciphersuite::Secp256k1ECDSA, Ciphersuite::Secp256r1ECDSA] {
+        let shares = dkg(suite);
+        let parties: Vec<_> = shares.keys().copied().collect();
+        let refreshed = refresh(&shares, &same_id(&parties, b"echo-refresh")).unwrap();
+        let group_key = refreshed[&id(1)].group_verifying_key();
+        let hash = [7u8; 32];
+        let signers: BTreeMap<_, _> = [id(1), id(3)]
+            .into_iter()
+            .map(|p| (p, &refreshed[&p]))
+            .collect();
+        let signature = sign(suite, &signers, hash).unwrap();
+        assert!(verifies(suite, &group_key, &hash, &signature));
+    }
 }
 
 #[test]

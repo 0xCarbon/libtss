@@ -651,9 +651,14 @@ the `serde` feature is enabled.
 Before calling DKLs23, libtss checks every DKG, signing and refresh round on both
 curves:
 
-- Every broadcast and every message addressed to the local party must come from
-  an expected party: the other group members (DKG, refresh) or the session's
-  counterparties (signing). Messages for other receivers are ignored.
+- Messages addressed to another receiver are ignored before `from` is
+  examined, whoever sent them. Messages with `from ==` the local party (its own
+  broadcasts echoed back by a relay) are ignored too.
+- Every remaining broadcast and every message addressed to the local party must
+  come from an expected party: the other group members (DKG, refresh, including
+  the phase-1 fragments) or the session's counterparties (signing). Any other
+  sender, including an identifier outside `1..=n` or above 255, is an abort
+  naming that sender.
 - Payload identity fields must match the envelope: `ProofCommitment.index` and
   `BroadcastDerivation*.sender_index` must equal `from`, and every
   `PartiesMessage` must have `sender == from` and `receiver ==` the local party.
