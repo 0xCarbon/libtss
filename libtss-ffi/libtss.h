@@ -14,6 +14,10 @@
 // Requires `CAP_IPC_LOCK` or `ulimit -l unlimited`.
 #define TSS_INIT_MLOCK 1
 
+// Value written to `out_recovery_id` when the signature has no recovery
+// identifier (FROST suites) or signing has not completed.
+#define TSS_NO_RECOVERY_ID 255
+
 typedef struct TssSlice {
     const uint8_t *data;
     size_t len;
@@ -388,5 +392,15 @@ TssStatus tss_refresh_next(TssHandle session,
                            bool *out_complete);
 
 void tss_session_free(TssHandle session);
+
+// Same as `tss_sign_next`, and additionally writes the recovery identifier
+// of a completed DKLs23 ECDSA signature (0 or 1) to `out_recovery_id`.
+// FROST signatures and incomplete steps write `TSS_NO_RECOVERY_ID`.
+TssStatus tss_sign_next_recoverable(TssHandle session,
+                                    struct TssSlice messages,
+                                    struct TssBuffer *out_signature,
+                                    uint8_t *out_recovery_id,
+                                    struct TssBuffer *out_messages,
+                                    bool *out_complete);
 
 #endif  /* LIBTSS_H */
