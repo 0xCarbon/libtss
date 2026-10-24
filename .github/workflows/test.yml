@@ -70,6 +70,78 @@ jobs:
             -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/linux" \
             libtss-rn/android/src/main/cpp/libtss-jni.cpp
 
+  bindings:
+    # Runs each language binding's tests against a release build of
+    # libtss-ffi (debug builds make the DKLs23 tests slow).
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        binding: [node, python, dotnet, go]
+    env:
+      LIBTSS_LIB: ${{ github.workspace }}/target/release/liblibtss_ffi.so
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: bindings-release
+
+      - name: Build libtss-ffi (release)
+        run: |
+          cargo build --release -p libtss-ffi
+          # Go links target/debug before target/release; drop any cached
+          # debug archive so the fresh release build is used.
+          rm -f target/debug/liblibtss_ffi.a target/debug/liblibtss_ffi.so
+
+      - if: matrix.binding == 'node'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - if: matrix.binding == 'node'
+        name: Node tests
+        working-directory: libtss-node
+        run: |
+          npm ci
+          npx tsc --noEmit -p tsconfig.json
+          npx jest --runInBand
+
+      - if: matrix.binding == 'python'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - if: matrix.binding == 'python'
+        name: Python tests
+        run: |
+          python -m pip install pytest
+          python -m pytest -q libtss-python/tests
+
+      - if: matrix.binding == 'dotnet'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+      - if: matrix.binding == 'dotnet'
+        name: .NET tests
+        # Release: optimized JIT, as shipped; the collection-based lifetime
+        # tests can only observe early finalization there.
+        run: dotnet test libtss-dotnet/tests/Libtss.Tests -c Release
+
+      - if: matrix.binding == 'go'
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: libtss-go/go.mod
+      - if: matrix.binding == 'go'
+        name: Go tests
+        working-directory: libtss-go
+        run: |
+          go vet ./...
+          go vet -tags libtss_testhooks ./...
+          go test -tags libtss_testhooks -timeout 30m ./...
+
   audit:
     runs-on: ubuntu-latest
     steps:
