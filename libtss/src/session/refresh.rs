@@ -352,7 +352,10 @@ mod tests {
         assert_eq!(dealer_messages.len(), 2);
 
         let mut refreshed = Vec::new();
-        for ks in key_shares.iter().filter(|ks| subset.contains(&ks.identifier())) {
+        for ks in key_shares
+            .iter()
+            .filter(|ks| subset.contains(&ks.identifier()))
+        {
             let mut session = RefreshSession::new_frost_receiver(ks)?;
             let mine: Vec<_> = dealer_messages
                 .iter()

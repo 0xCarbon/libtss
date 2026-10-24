@@ -759,9 +759,7 @@ fn serialize_key_share(inner: &KeyShareInner) -> Result<Vec<u8>, TssError> {
         KeyShareInner::FrostEd448(key_package, public_keys) => {
             serialize_secret(&(key_package, public_keys))
         }
-        KeyShareInner::DKLs23(party, public_keys) => {
-            serialize_secret(&(party, public_keys))
-        }
+        KeyShareInner::DKLs23(party, public_keys) => serialize_secret(&(party, public_keys)),
         KeyShareInner::DKLs23Secp256r1(party, public_keys) => {
             serialize_secret(&(party, public_keys))
         }
@@ -772,8 +770,7 @@ fn serialize_key_share(inner: &KeyShareInner) -> Result<Vec<u8>, TssError> {
 /// the buffer would leave copies of the plaintext payload in freed memory.
 fn wrap_export(suite: Ciphersuite, payload: &[u8]) -> Vec<u8> {
     let header = build_header(suite);
-    let mut output =
-        Vec::with_capacity(EXPORT_HEADER_SIZE + payload.len() + EXPORT_CHECKSUM_SIZE);
+    let mut output = Vec::with_capacity(EXPORT_HEADER_SIZE + payload.len() + EXPORT_CHECKSUM_SIZE);
     output.extend_from_slice(&header);
     output.extend_from_slice(payload);
     output.extend_from_slice(&export_checksum(&header, payload));
