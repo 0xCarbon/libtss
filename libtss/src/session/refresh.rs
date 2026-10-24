@@ -18,6 +18,8 @@ pub enum RefreshOutput {
 enum RefreshInner {
     FrostApply {
         key_share: crate::frost::KeyShareHandle,
+        self_id: Identifier,
+        group_key: Vec<u8>,
     },
     Dkls(Box<Option<DklsRefreshState<k256::Secp256k1>>>),
     DklsR1(Box<Option<DklsRefreshState<p256::NistP256>>>),
@@ -73,6 +75,8 @@ impl RefreshSession {
             Self {
                 inner: RefreshInner::FrostApply {
                     key_share: frost_key,
+                    self_id,
+                    group_key: key_share.group_verifying_key(),
                 },
                 round: 1,
             },
@@ -82,8 +86,10 @@ impl RefreshSession {
 
     /// Create a receive-only FROST refresh session (non-dealer participants).
     ///
-    /// The participant calls `next()` with the message received from the dealer.
-    /// The refreshed public key package is extracted from the message.
+    /// The participant calls `next()` with the dealer's messages; exactly one
+    /// must be addressed to it, from the authenticated dealer. The refreshed
+    /// public key package is taken from that message and must keep the group
+    /// key and match this party's refreshed verifying share.
     pub fn new_frost_receiver(key_share: &KeyShareHandle) -> Result<Self, TssError> {
         if key_share.ciphersuite().protocol() != Protocol::Frost {
             return Err(TssError::ProtocolMismatch);
@@ -93,6 +99,8 @@ impl RefreshSession {
         Ok(Self {
             inner: RefreshInner::FrostApply {
                 key_share: frost_key,
+                self_id: key_share.identifier(),
+                group_key: key_share.group_verifying_key(),
             },
             round: 1,
         })
@@ -176,10 +184,25 @@ impl RefreshSession {
         match state {
             RefreshInner::Complete => Err(TssError::SessionComplete),
             RefreshInner::Dkls(_) | RefreshInner::DklsR1(_) => Err(TssError::ProtocolMismatch),
-            RefreshInner::FrostApply { key_share } => {
-                let msg = received.first().ok_or_else(|| {
-                    TssError::DeserializeFailed("no refresh data received".into())
-                })?;
+            RefreshInner::FrostApply {
+                key_share,
+                self_id,
+                group_key,
+            } => {
+                let mut addressed = received.iter().filter(|m| m.to == Some(self_id));
+                let msg = match (addressed.next(), addressed.next()) {
+                    (Some(msg), None) => msg,
+                    (None, _) => {
+                        return Err(TssError::DeserializeFailed(
+                            "no refresh data addressed to this party".into(),
+                        ))
+                    }
+                    (Some(_), Some(_)) => {
+                        return Err(TssError::InvalidConfig(
+                            "more than one refresh message addressed to this party".into(),
+                        ))
+                    }
+                };
 
                 // Parse message: [pubkey_len:u32 LE][pubkey_bytes][refresh_data]
                 if msg.data.len() < 4 {
@@ -201,9 +224,17 @@ impl RefreshSession {
                     })?;
                 let (pubkey_bytes, refresh_data) = body.split_at(pubkey_len);
                 let pubkey_package = PublicKeyPackage::deserialize(pubkey_bytes)?;
+                if pubkey_package.verifying_key() != group_key.as_slice() {
+                    return Err(TssError::InvalidShare);
+                }
 
                 let refreshed = frost_apply_refresh(&key_share, refresh_data)?;
                 let registry_handle = keyshare::from_frost_dkg(refreshed, &pubkey_package)?;
+                if pubkey_package.verifying_share(self_id)
+                    != Some(registry_handle.verifying_share().as_slice())
+                {
+                    return Err(TssError::InvalidShare);
+                }
                 self.round = 2;
                 Ok(RefreshOutput::Complete {
                     key_share: registry_handle,

@@ -621,6 +621,66 @@ fn frost_refresh_preserves_signing() {
 }
 
 #[test]
+fn frost_refresh_receiver_uses_only_its_own_consistent_message() {
+    use libtss::session::refresh::{RefreshOutput, RefreshSession};
+
+    let shares = run_frost_dkg_session(Ciphersuite::Ed25519, 2, 3).unwrap();
+    let participants = [id(1), id(2), id(3)];
+    let (_, dealer_messages) =
+        RefreshSession::new_frost(shares.get(&id(1)).unwrap(), &participants).unwrap();
+    let party = shares.get(&id(2)).unwrap();
+    let own = dealer_messages
+        .iter()
+        .find(|m| m.to == Some(id(2)))
+        .unwrap()
+        .clone();
+
+    // The whole bundle: messages to other parties are ignored.
+    let mut session = RefreshSession::new_frost_receiver(party).unwrap();
+    assert!(matches!(
+        session.next(&dealer_messages).unwrap(),
+        RefreshOutput::Complete { .. }
+    ));
+
+    // Two messages addressed to this party.
+    let mut session = RefreshSession::new_frost_receiver(party).unwrap();
+    assert!(matches!(
+        session.next(&[own.clone(), own.clone()]),
+        Err(TssError::InvalidConfig(_))
+    ));
+
+    // No message addressed to this party.
+    let mut session = RefreshSession::new_frost_receiver(party).unwrap();
+    let others: Vec<_> = dealer_messages
+        .iter()
+        .filter(|m| m.to != Some(id(2)))
+        .cloned()
+        .collect();
+    assert!(session.next(&others).is_err());
+
+    // A package with another group key.
+    let other = run_frost_dkg_session(Ciphersuite::Ed25519, 2, 3).unwrap();
+    let foreign = other
+        .values()
+        .next()
+        .unwrap()
+        .public_key_package()
+        .serialize()
+        .unwrap();
+    let len = u32::from_le_bytes(own.data[..4].try_into().unwrap()) as usize;
+    let mut data = (foreign.len() as u32).to_le_bytes().to_vec();
+    data.extend_from_slice(&foreign);
+    data.extend_from_slice(&own.data[4 + len..]);
+    let mut tampered = own.clone();
+    tampered.data = data;
+    let mut session = RefreshSession::new_frost_receiver(party).unwrap();
+    assert!(matches!(
+        session.next(&[tampered]),
+        Err(TssError::InvalidShare)
+    ));
+}
+
+#[test]
 fn frost_old_shares_cannot_sign_after_refresh() {
     use libtss::session::refresh::{RefreshOutput, RefreshSession};
 
