@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.util
+import operator
 import os
 import platform
 from ctypes import (
@@ -20,10 +21,50 @@ from ctypes import (
 )
 
 
+def checked_int(value: object, name: str, lo: int, hi: int) -> int:
+    """Return ``value`` as a Python int in ``[lo, hi]``.
+
+    Accepts ``int`` and integer-like objects (``operator.index``, e.g. numpy
+    integers). Raises ``TypeError`` for ``bool``, ``float``, ``str`` and other
+    non-integers, and ``ValueError`` when out of range. Public wrappers call
+    this before any native call so callers see these exception types rather
+    than ``ctypes.ArgumentError``.
+    """
+    if isinstance(value, bool):
+        raise TypeError(f"{name} must be an integer, not bool")
+    try:
+        result = operator.index(value)
+    except TypeError:
+        raise TypeError(
+            f"{name} must be an integer, got {type(value).__name__}"
+        ) from None
+    if not lo <= result <= hi:
+        raise ValueError(f"{name} must be in [{lo}, {hi}], got {result}")
+    return result
+
+
+def check_u8(value: object, name: str) -> int:
+    """``value`` as an int in [0, 255] (e.g. a ciphersuite)."""
+    return checked_int(value, name, 0, 0xFF)
+
+
+def check_u16(value: object, name: str) -> int:
+    """``value`` as an int in [0, 65535] (e.g. a threshold)."""
+    return checked_int(value, name, 0, 0xFFFF)
+
+
+def check_identifier(value: object, name: str) -> int:
+    """A party identifier: an int in [1, 65535]."""
+    return checked_int(value, name, 1, 0xFFFF)
+
+
 class _CheckedInt:
     """ctypes argument type that rejects values out of range.
 
     Plain ``c_uint8``/``c_uint16`` arguments wrap silently (65539 becomes 3).
+    This is a second line of defense: public wrappers validate first with
+    :func:`checked_int`, so errors from here (wrapped in
+    ``ctypes.ArgumentError``) indicate a missing wrapper check.
     """
 
     _ctype: type
@@ -31,11 +72,7 @@ class _CheckedInt:
 
     @classmethod
     def from_param(cls, value):
-        if isinstance(value, bool) or not isinstance(value, int):
-            raise TypeError(f"expected an int, got {type(value).__name__}")
-        if not 0 <= value <= cls._max:
-            raise ValueError(f"{value} is out of range [0, {cls._max}]")
-        return cls._ctype(value)
+        return cls._ctype(checked_int(value, "argument", 0, cls._max))
 
 
 class CheckedU8(_CheckedInt):
@@ -48,12 +85,11 @@ class CheckedU16(_CheckedInt):
     _max = 0xFFFF
 
 
-def u16_array(values) -> ctypes.Array:
-    """A ``c_uint16`` array of ``values``, each range-checked."""
-    values = list(values)
-    for value in values:
-        CheckedU16.from_param(value)
-    return (c_uint16 * len(values))(*values)
+def identifier_array(values, name: str) -> ctypes.Array:
+    """A ``c_uint16`` array of party identifiers, each checked to be in
+    [1, 65535]."""
+    checked = [check_identifier(value, name) for value in values]
+    return (c_uint16 * len(checked))(*checked)
 
 
 # Capture at module level so __del__ can use them during interpreter shutdown.
@@ -124,6 +160,9 @@ TSS_ERR_ABORT_BAN = 11
 TSS_ERR_TWEAK = 13
 TSS_ERR_SESSION_COMPLETE = 14
 TSS_ERR_INTERNAL_PANIC = 255
+
+# Written by tss_sign_next_recoverable when there is no recovery id.
+TSS_NO_RECOVERY_ID = 255
 
 
 # ── Library loading ──────────────────────────────────────────────────────────
@@ -297,6 +336,13 @@ def _declare_signatures(lib: ctypes.CDLL) -> None:
     lib.tss_sign_next.argtypes = [
         c_uint64, TssSlice,
         POINTER(TssBuffer), POINTER(TssBuffer),
+        POINTER(c_bool),
+    ]
+
+    lib.tss_sign_next_recoverable.restype = TssStatus
+    lib.tss_sign_next_recoverable.argtypes = [
+        c_uint64, TssSlice,
+        POINTER(TssBuffer), POINTER(c_uint8), POINTER(TssBuffer),
         POINTER(c_bool),
     ]
 

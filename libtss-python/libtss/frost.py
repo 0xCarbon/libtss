@@ -10,8 +10,11 @@ from libtss._ffi import (
     TssSlice,
     buffer_to_bytes,
     get_lib,
+    check_identifier,
+    check_u8,
+    check_u16,
+    identifier_array,
     make_slice,
-    u16_array,
     wipe_ctypes_array,
 )
 from libtss.errors import check_status
@@ -31,9 +34,10 @@ def aggregate(
     For coordinator-only deployments where a non-signing coordinator
     aggregates shares.
     """
+    suite = check_u8(suite, "suite")
     out_sig = TssBuffer()
     status = get_lib().tss_frost_aggregate(
-        int(suite),
+        suite,
         make_slice(message),
         make_slice(commitments),
         make_slice(shares),
@@ -102,12 +106,15 @@ def generate_dealer(
 
     Returns (handles, public_key_package).
     """
+    suite = check_u8(suite, "suite")
+    max_signers = check_u16(max_signers, "max_signers")
+    min_signers = check_u16(min_signers, "min_signers")
     handles_arr = (ctypes.c_uint64 * max_signers)()
     handle_count = ctypes.c_size_t()
     out_pkg = TssBuffer()
 
     status = get_lib().tss_frost_generate_dealer(
-        int(suite), max_signers, min_signers,
+        suite, max_signers, min_signers,
         handles_arr, ctypes.byref(handle_count), ctypes.byref(out_pkg),
     )
     check_status(status)
@@ -134,18 +141,17 @@ def split_key(
     """
     sl = None
     try:
-        if (
-            not isinstance(min_signers, int)
-            or not isinstance(max_signers, int)
-            or not 2 <= min_signers <= max_signers <= 0xFFFF
-        ):
+        suite = check_u8(suite, "suite")
+        max_signers = check_u16(max_signers, "max_signers")
+        min_signers = check_u16(min_signers, "min_signers")
+        if not 2 <= min_signers <= max_signers:
             raise ValueError("requires 2 <= min_signers <= max_signers <= 65535")
         handles_arr = (ctypes.c_uint64 * max_signers)()
         handle_count = ctypes.c_size_t()
         out_pkg = TssBuffer()
         sl = make_slice(secret_key)
         status = get_lib().tss_frost_split_key(
-            int(suite), sl, max_signers, min_signers,
+            suite, sl, max_signers, min_signers,
             handles_arr, ctypes.byref(handle_count), ctypes.byref(out_pkg),
         )
         check_status(status)
@@ -197,7 +203,7 @@ def refresh_dealer(
 
     Returns (refresh_shares_by_participant_id, updated_public_key_package).
     """
-    p_arr = u16_array(participants)
+    p_arr = identifier_array(participants, "participant")
     out_shares = TssBuffer()
     share_count = ctypes.c_size_t()
     out_pkg = TssBuffer()
@@ -242,7 +248,8 @@ def repair_part1(
 
     Returns per-helper delta blobs keyed by helper ID.
     """
-    h_arr = u16_array(helpers)
+    h_arr = identifier_array(helpers, "helper")
+    participant = check_identifier(participant, "participant")
     out_deltas = TssBuffer()
     delta_count = ctypes.c_size_t()
 
@@ -260,6 +267,7 @@ def repair_part1(
 
 def repair_part2(suite: Ciphersuite, deltas: list[bytes]) -> bytes:
     """Share repair part 2: sum received deltas into sigma."""
+    suite = check_u8(suite, "suite")
     slices = (TssSlice * len(deltas))()
     # Keep references to prevent GC of backing arrays
     backing = []
@@ -272,7 +280,7 @@ def repair_part2(suite: Ciphersuite, deltas: list[bytes]) -> bytes:
     out_sigma = TssBuffer()
     try:
         status = get_lib().tss_frost_repair_part2(
-            int(suite), slices, len(deltas), ctypes.byref(out_sigma),
+            suite, slices, len(deltas), ctypes.byref(out_sigma),
         )
         check_status(status)
         return buffer_to_bytes(out_sigma)
@@ -287,6 +295,7 @@ def repair_part3(
     pubkey_package: bytes,
 ) -> KeyShareHandle:
     """Share repair part 3: reconstruct key share from sigmas."""
+    participant = check_identifier(participant, "participant")
     slices = (TssSlice * len(sigmas))()
     backing = []
     for i, s in enumerate(sigmas):
