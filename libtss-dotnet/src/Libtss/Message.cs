@@ -101,7 +101,8 @@ public static class MessageCodec
             {
                 // Non-empty input that parses to zero messages indicates malformed TLV data.
                 // The FFI count helper returns 0 on parse errors rather than surfacing them.
-                throw new InvalidOperationException(
+                throw new TssException(
+                    TssStatus.Deserialize,
                     "Failed to parse message bundle: malformed TLV data");
             }
 
@@ -141,5 +142,20 @@ public static class MessageCodec
     internal static byte[] EncodeForNative(Message[] messages)
     {
         return Encode(messages);
+    }
+
+    /// <summary>
+    /// Decodes a native message bundle and wipes the intermediate copy.
+    /// </summary>
+    internal static Message[] DecodeAndWipe(byte[] data)
+    {
+        try
+        {
+            return Decode(data);
+        }
+        finally
+        {
+            Tss.WipeBytes(data);
+        }
     }
 }

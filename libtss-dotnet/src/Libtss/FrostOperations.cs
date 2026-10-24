@@ -70,15 +70,15 @@ public static class FrostOperations
         ulong outHandle;
         int status;
 
+        using var share = keyShare.Lease();
         fixed (byte* pMerkle = merkleRoot)
         {
             status = Native.tss_frost_tweak_key_share(
-                keyShare.Handle,
+                share.Value,
                 merkleRoot.Length > 0 ? pMerkle : null,
                 (nuint)merkleRoot.Length,
                 &outHandle);
         }
-        GC.KeepAlive(keyShare);
         TssException.ThrowIfError(status);
         return new KeyShareHandle(outHandle);
     }
@@ -284,6 +284,7 @@ public static class FrostOperations
         ulong outHandle;
         int status;
 
+        using var share = keyShare.Lease();
         fixed (byte* pRefresh = refreshData)
         fixed (byte* pPkg = pubkeyPackage)
         {
@@ -291,9 +292,8 @@ public static class FrostOperations
             var pkgSlice = new TssSlice { Data = pPkg, Len = (nuint)pubkeyPackage.Length };
 
             status = Native.tss_frost_apply_refresh(
-                keyShare.Handle, refreshSlice, pkgSlice, &outHandle);
+                share.Value, refreshSlice, pkgSlice, &outHandle);
         }
-        GC.KeepAlive(keyShare);
         TssException.ThrowIfError(status);
         return new KeyShareHandle(outHandle);
     }
@@ -320,16 +320,16 @@ public static class FrostOperations
         nuint deltaCount;
         int status;
 
+        using var share = keyShare.Lease();
         fixed (ushort* pHelpers = helpers)
         fixed (TssBuffer* pOutDeltas = &outDeltas.Raw)
         {
             status = Native.tss_frost_repair_part1(
-                keyShare.Handle,
+                share.Value,
                 pHelpers, (nuint)helpers.Length,
                 participant,
                 pOutDeltas, &deltaCount);
         }
-        GC.KeepAlive(keyShare);
         TssException.ThrowIfError(status);
 
         // Parse directly from native memory — no intermediate managed byte[].
