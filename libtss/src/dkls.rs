@@ -7,7 +7,9 @@ use dkls23_secp256k1::protocols::dkg::{
 use dkls23_secp256k1::protocols::messages::{MessageTag, PhaseInput, PhaseOutput};
 use dkls23_secp256k1::protocols::signature::EcdsaSignature;
 use dkls23_secp256k1::protocols::signing::SignData;
-use dkls23_secp256k1::protocols::{Abort, AbortKind, AbortReason, Parameters, PartyIndex};
+use dkls23_secp256k1::protocols::{
+    Abort, AbortKind, AbortReason, Parameters, PartiesMessage, PartyIndex,
+};
 use dkls23_secp256k1::{Party, PublicKeyPackage as DklsPublicKeyPackage};
 use k256::elliptic_curve::sec1::ToSec1Point;
 use k256::elliptic_curve::PrimeField;
@@ -43,6 +45,7 @@ pub struct DklsDkgState {
 pub struct DklsSignState<'a> {
     pub(crate) session: SignSession<'a>,
     pub(crate) self_id: Identifier,
+    pub(crate) counterparties: Vec<u8>,
     pub(crate) self_broadcast: Option<Broadcast3to4>,
 }
 
@@ -132,9 +135,59 @@ pub(crate) fn phase_output_to_messages(
     Ok(messages)
 }
 
+/// An error blaming `sender` (the authenticated envelope sender) for a
+/// message it should not have sent.
+fn sender_error(sender: u8, message: &str) -> TssError {
+    TssError::Abort {
+        culprits: Identifier::new(u16::from(sender)).into_iter().collect(),
+        message: format!("party {sender}: {message}"),
+        ban: None,
+    }
+}
+
+/// Every party in `1..=share_count` except `self_index`.
+pub(crate) fn other_parties(share_count: u8, self_index: PartyIndex) -> Vec<u8> {
+    (1..=share_count)
+        .filter(|&party| party != self_index.as_u8())
+        .collect()
+}
+
+/// Checks a payload's internal sender and receiver against the authenticated
+/// envelope sender and the local party.
+pub(crate) fn check_parties(
+    parties: &PartiesMessage,
+    sender: u8,
+    receiver: PartyIndex,
+) -> Result<(), TssError> {
+    if parties.sender.as_u8() != sender || parties.receiver != receiver {
+        return Err(sender_error(
+            sender,
+            "payload sender or receiver does not match the message envelope",
+        ));
+    }
+    Ok(())
+}
+
+/// Checks a payload's internal party index against the authenticated
+/// envelope sender.
+pub(crate) fn check_sender_index(index: PartyIndex, sender: u8) -> Result<(), TssError> {
+    if index.as_u8() != sender {
+        return Err(sender_error(
+            sender,
+            "payload party index does not match the message envelope",
+        ));
+    }
+    Ok(())
+}
+
+/// Groups the messages for `self_id` by sender. Every broadcast and every
+/// message addressed to `self_id` must come from one of `expected`
+/// (`from` is the authenticated sender); messages for other receivers are
+/// ignored.
 pub(crate) fn messages_to_phase_input(
     messages: &[Message],
     self_id: Identifier,
+    expected: &[u8],
 ) -> Result<PhaseInput, TssError> {
     let mut input = PhaseInput {
         broadcasts: BTreeMap::new(),
@@ -144,6 +197,9 @@ pub(crate) fn messages_to_phase_input(
     for message in messages {
         let sender =
             u8::try_from(message.from.as_u16()).map_err(|_| TssError::InvalidIdentifier)?;
+        if message.to.is_none_or(|receiver| receiver == self_id) && !expected.contains(&sender) {
+            return Err(sender_error(sender, "unexpected sender"));
+        }
         match message.to {
             None => input
                 .broadcasts
@@ -339,7 +395,12 @@ pub fn dkls_dkg_phase3(
     state: &mut DklsDkgState,
     received: &[Message],
 ) -> Result<Vec<Message>, TssError> {
-    let phase2_input = messages_to_phase_input(received, state.self_id)?;
+    let self_index = identifier_to_session_party_index(state.self_id, state.share_count)?;
+    let phase2_input = messages_to_phase_input(
+        received,
+        state.self_id,
+        &other_parties(state.share_count, self_index),
+    )?;
     let (zero_transmit, mul_transmit, bip_broadcast) =
         state.session.phase3().map_err(abort_to_error)?;
     let mut output = PhaseOutput::new();
@@ -368,8 +429,12 @@ pub fn dkls_dkg_phase4(
     received: &[Message],
 ) -> Result<(Party, DklsPublicKeyPackage, UnifiedPublicKeyPackage), TssError> {
     let phase2_input = state.phase2_input.take().ok_or(TssError::SessionComplete)?;
-    let phase3_input = messages_to_phase_input(received, state.self_id)?;
     let self_index = identifier_to_party_index(state.self_id)?;
+    let phase3_input = messages_to_phase_input(
+        received,
+        state.self_id,
+        &other_parties(state.share_count, self_index),
+    )?;
 
     let mut proofs_commitments = vec![state
         .self_proof_commitment
@@ -398,30 +463,24 @@ pub fn dkls_dkg_phase4(
             continue;
         }
         let sender_index = PartyIndex::new(sender).map_err(|_| TssError::InvalidIdentifier)?;
-        proofs_commitments.push(phase_input_broadcast::<ProofCommitment>(
-            &phase2_input,
-            sender,
-        )?);
-        zero_received_phase2.push(phase_input_p2p::<TransmitInitZeroSharePhase2to4>(
-            &phase2_input,
-            sender,
-        )?);
-        zero_received_phase3.push(phase_input_p2p::<TransmitInitZeroSharePhase3to4>(
-            &phase3_input,
-            sender,
-        )?);
-        mul_received.push(phase_input_p2p::<TransmitInitMulPhase3to4>(
-            &phase3_input,
-            sender,
-        )?);
-        bip_received_phase2.insert(
-            sender_index,
-            phase_input_broadcast::<BroadcastDerivationPhase2to4>(&phase2_input, sender)?,
-        );
-        bip_received_phase3.insert(
-            sender_index,
-            phase_input_broadcast::<BroadcastDerivationPhase3to4>(&phase3_input, sender)?,
-        );
+        let proof = phase_input_broadcast::<ProofCommitment>(&phase2_input, sender)?;
+        check_sender_index(proof.index, sender)?;
+        proofs_commitments.push(proof);
+        let zero2 = phase_input_p2p::<TransmitInitZeroSharePhase2to4>(&phase2_input, sender)?;
+        check_parties(&zero2.parties, sender, self_index)?;
+        zero_received_phase2.push(zero2);
+        let zero3 = phase_input_p2p::<TransmitInitZeroSharePhase3to4>(&phase3_input, sender)?;
+        check_parties(&zero3.parties, sender, self_index)?;
+        zero_received_phase3.push(zero3);
+        let mul = phase_input_p2p::<TransmitInitMulPhase3to4>(&phase3_input, sender)?;
+        check_parties(&mul.parties, sender, self_index)?;
+        mul_received.push(mul);
+        let bip2 = phase_input_broadcast::<BroadcastDerivationPhase2to4>(&phase2_input, sender)?;
+        check_sender_index(bip2.sender_index, sender)?;
+        bip_received_phase2.insert(sender_index, bip2);
+        let bip3 = phase_input_broadcast::<BroadcastDerivationPhase3to4>(&phase3_input, sender)?;
+        check_sender_index(bip3.sender_index, sender)?;
+        bip_received_phase3.insert(sender_index, bip3);
     }
 
     let (party, package) = state
@@ -451,6 +510,10 @@ pub fn dkls_sign_new<'a>(
     for counterparty in counterparties {
         converted_counterparties.push(identifier_to_party_index(*counterparty)?);
     }
+    let counterparty_indices = converted_counterparties
+        .iter()
+        .map(PartyIndex::as_u8)
+        .collect();
 
     let (session, phase1_messages) = SignSession::new(
         party,
@@ -473,6 +536,7 @@ pub fn dkls_sign_new<'a>(
         DklsSignState {
             session,
             self_id,
+            counterparties: counterparty_indices,
             self_broadcast: None,
         },
         phase_output_to_messages(&output, self_id)?,
@@ -483,10 +547,13 @@ pub fn dkls_sign_phase2(
     state: &mut DklsSignState<'_>,
     received: &[Message],
 ) -> Result<Vec<Message>, TssError> {
-    let input = messages_to_phase_input(received, state.self_id)?;
-    let mut decoded = Vec::with_capacity(input.p2p.len());
-    for &sender in input.p2p.keys() {
-        decoded.push(phase_input_p2p::<TransmitPhase1to2>(&input, sender)?);
+    let input = messages_to_phase_input(received, state.self_id, &state.counterparties)?;
+    let self_index = identifier_to_party_index(state.self_id)?;
+    let mut decoded = Vec::with_capacity(state.counterparties.len());
+    for &sender in &state.counterparties {
+        let message = phase_input_p2p::<TransmitPhase1to2>(&input, sender)?;
+        check_parties(&message.parties, sender, self_index)?;
+        decoded.push(message);
     }
 
     let phase2_messages = state.session.phase2(&decoded).map_err(abort_to_error)?;
@@ -504,10 +571,13 @@ pub fn dkls_sign_phase3(
     state: &mut DklsSignState<'_>,
     received: &[Message],
 ) -> Result<Vec<Message>, TssError> {
-    let input = messages_to_phase_input(received, state.self_id)?;
-    let mut decoded = Vec::with_capacity(input.p2p.len());
-    for &sender in input.p2p.keys() {
-        decoded.push(phase_input_p2p::<TransmitPhase2to3>(&input, sender)?);
+    let input = messages_to_phase_input(received, state.self_id, &state.counterparties)?;
+    let self_index = identifier_to_party_index(state.self_id)?;
+    let mut decoded = Vec::with_capacity(state.counterparties.len());
+    for &sender in &state.counterparties {
+        let message = phase_input_p2p::<TransmitPhase2to3>(&input, sender)?;
+        check_parties(&message.parties, sender, self_index)?;
+        decoded.push(message);
     }
 
     let broadcast = state.session.phase3(&decoded).map_err(abort_to_error)?;
@@ -522,12 +592,12 @@ pub fn dkls_sign_phase4(
     mut state: DklsSignState<'_>,
     received: &[Message],
 ) -> Result<Signature, TssError> {
-    let input = messages_to_phase_input(received, state.self_id)?;
+    let input = messages_to_phase_input(received, state.self_id, &state.counterparties)?;
     let mut broadcasts = vec![state
         .self_broadcast
         .take()
         .ok_or(TssError::SessionComplete)?];
-    for &sender in input.broadcasts.keys() {
+    for &sender in &state.counterparties {
         broadcasts.push(phase_input_broadcast::<Broadcast3to4>(&input, sender)?);
     }
 
@@ -696,11 +766,36 @@ mod tests {
             },
         ];
 
-        let input = messages_to_phase_input(&messages, id(3)).unwrap();
+        let input = messages_to_phase_input(&messages, id(3), &[1, 2]).unwrap();
 
         assert_eq!(input.broadcasts.get(&1).unwrap(), &vec![1, 2, 3]);
         assert_eq!(input.p2p.get(&2).unwrap(), &vec![4, 5]);
         assert!(!input.p2p.contains_key(&1));
+    }
+
+    #[test]
+    fn test_messages_to_phase_input_rejects_unexpected_senders() {
+        let broadcast_from = |from: u16| Message {
+            from: id(from),
+            to: None,
+            data: vec![1],
+        };
+        // Sender outside the expected set, including the receiver itself.
+        for from in [3, 4] {
+            let err = messages_to_phase_input(&[broadcast_from(from)], id(3), &[1, 2])
+                .expect_err("unexpected sender must be rejected");
+            assert!(matches!(
+                err,
+                TssError::Abort { ref culprits, .. } if culprits == &[id(from)]
+            ));
+        }
+        // A message for another receiver is ignored, whoever sent it.
+        let other = Message {
+            from: id(4),
+            to: Some(id(1)),
+            data: vec![1],
+        };
+        assert!(messages_to_phase_input(&[other], id(3), &[1, 2]).is_ok());
     }
 
     #[test]

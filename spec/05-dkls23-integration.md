@@ -645,6 +645,24 @@ the `MessageTag` trait. This replaces the need for libtss to manually serialize/
 The `MessageTag` trait is implemented on all `Transmit*` and `Broadcast*` types when
 the `serde` feature is enabled.
 
+### Sender Validation
+
+`Message.from` is the authenticated sender (the transport must guarantee it).
+Before calling DKLs23, libtss checks every DKG, signing and refresh round on both
+curves:
+
+- Every broadcast and every message addressed to the local party must come from
+  an expected party: the other group members (DKG, refresh) or the session's
+  counterparties (signing). Messages for other receivers are ignored.
+- Payload identity fields must match the envelope: `ProofCommitment.index` and
+  `BroadcastDerivation*.sender_index` must equal `from`, and every
+  `PartiesMessage` must have `sender == from` and `receiver ==` the local party.
+- Signing decodes exactly one message per counterparty in each round; a missing
+  counterparty message is an error, and the final `Broadcast3to4` values are
+  summed only over the counterparties.
+
+A violation returns `TssError::Abort` naming the envelope sender as the culprit.
+
 ## `PublicKeyPackage`
 
 Bundles the group public key with per-party verification shares (since v0.3.0, generic
