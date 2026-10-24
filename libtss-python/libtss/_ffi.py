@@ -327,6 +327,17 @@ def _declare_signatures(lib: ctypes.CDLL) -> None:
         TssSlice, TssSlice, POINTER(TssBuffer),
     ]
 
+    lib.tss_repair_helper_term.restype = TssStatus
+    lib.tss_repair_helper_term.argtypes = [
+        c_uint64, POINTER(c_uint16), c_size_t, c_uint16, TssSlice,
+        POINTER(TssBuffer),
+    ]
+
+    lib.tss_repair_assemble.restype = TssStatus
+    lib.tss_repair_assemble.argtypes = [
+        c_uint8, TssSlice, c_uint16, TssSlice, POINTER(c_uint64),
+    ]
+
     lib.tss_dkls_split_key.restype = TssStatus
     lib.tss_dkls_split_key.argtypes = [
         c_uint8, TssSlice, TssSlice, c_uint16, c_uint16,

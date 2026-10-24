@@ -258,6 +258,23 @@ internal static unsafe class Native
         TssBuffer* out_pubkey_package);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_repair_helper_term(
+        ulong key_share,
+        ushort* helpers,
+        nuint helpers_len,
+        ushort target,
+        TssSlice repair_id,
+        TssBuffer* out_messages);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_repair_assemble(
+        byte suite,
+        TssSlice pubkey_package,
+        ushort target,
+        TssSlice messages,
+        ulong* out_handle);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int tss_dkls_split_key(
         byte suite,
         TssSlice secret_key,

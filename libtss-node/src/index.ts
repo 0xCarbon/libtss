@@ -3,7 +3,8 @@ import { TSS_INIT_MLOCK, allocBuffer, lib, makeSlice, readBuffer } from "./ffi";
 import { KeyShareHandle } from "./handle";
 import { SecureBuffer, wipeBytes } from "./secure";
 import { DkgSession, RefreshSession, SignSession } from "./session";
-import type { Ciphersuite } from "./types";
+import { decodeMessages, encodeMessages } from "./message";
+import type { Ciphersuite, Message } from "./types";
 
 export * from "./error";
 export * from "./handle";
@@ -221,6 +222,59 @@ export function bolt3DeriveRevocationPublicKeys(
 		),
 	);
 	return readBuffer(out);
+}
+
+/**
+ * This helper's DKLs23 repair term for `target`, as messages to send to the
+ * target only, over a confidential, authenticated channel. `helpers` lists
+ * the helper identifiers (no duplicates, at least `minSigners`, including this
+ * party, not the target); every helper uses the same list and `repairId`. The
+ * helpers must authenticate the target: repair hands index `target`'s share
+ * to whoever receives the terms.
+ */
+export function dklsRepairHelperTerm(
+	keyShare: KeyShareHandle,
+	helpers: number[],
+	target: number,
+	repairId: Uint8Array,
+): Message[] {
+	const out = allocBuffer();
+	const helperIds = new Uint16Array(helpers);
+	checkStatus(
+		lib.tss_repair_helper_term(
+			keyShare.handle,
+			helperIds,
+			helperIds.length,
+			target,
+			makeSlice(repairId),
+			out,
+		),
+	);
+	return decodeMessages(readBuffer(out));
+}
+
+/**
+ * Assembles the helpers' repair messages into the target's repaired DKLs23
+ * share. Each message's `from` must be its authenticated sender. The share
+ * cannot sign until all parties run `RefreshSession.createDkls`.
+ */
+export function dklsRepairAssemble(
+	suite: Ciphersuite,
+	publicKeys: Uint8Array,
+	target: number,
+	messages: Message[],
+): KeyShareHandle {
+	const outHandle: [bigint] = [0n];
+	checkStatus(
+		lib.tss_repair_assemble(
+			suite,
+			makeSlice(publicKeys),
+			target,
+			makeSlice(encodeMessages(messages)),
+			outHandle,
+		),
+	);
+	return new KeyShareHandle(outHandle[0]);
 }
 
 export function frostAggregate(

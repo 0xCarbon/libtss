@@ -123,3 +123,50 @@ def bolt3_derive_revocation_public_keys(
         make_slice(public_keys), make_slice(per_commitment_point), ctypes.byref(out),
     ))
     return buffer_to_bytes(out)
+
+
+def repair_helper_term(
+    key_share: KeyShareHandle,
+    helpers: list[int],
+    target: int,
+    repair_id: bytes,
+) -> list:
+    """This helper's DKLs23 repair term for ``target``, as messages to send to
+    the target only, over a confidential, authenticated channel.
+
+    ``helpers`` lists the helper identifiers (no duplicates, at least
+    ``min_signers``, including this party, not the target); every helper uses
+    the same list and ``repair_id``. The helpers must authenticate the target:
+    repair hands index ``target``'s share to whoever receives the terms.
+    """
+    from libtss import message as _msg
+
+    if not helpers:
+        raise ValueError("helpers must not be empty")
+    arr = (ctypes.c_uint16 * len(helpers))(*helpers)
+    out = TssBuffer()
+    check_status(get_lib().tss_repair_helper_term(
+        key_share.raw, arr, len(helpers), target, make_slice(repair_id),
+        ctypes.byref(out),
+    ))
+    return _msg.decode(buffer_to_bytes(out))
+
+
+def repair_assemble(
+    suite: Ciphersuite,
+    public_keys: bytes,
+    target: int,
+    messages: list,
+) -> KeyShareHandle:
+    """Assembles the helpers' repair messages into the target's repaired
+    DKLs23 share. Each message's ``sender`` must be its authenticated sender.
+    The share cannot sign until all parties run
+    :meth:`RefreshSession.create_dkls`."""
+    from libtss import message as _msg
+
+    out = ctypes.c_uint64()
+    check_status(get_lib().tss_repair_assemble(
+        int(suite), make_slice(public_keys), target,
+        make_slice(_msg.encode(messages)), ctypes.byref(out),
+    ))
+    return KeyShareHandle(out.value)

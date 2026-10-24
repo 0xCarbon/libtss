@@ -155,4 +155,64 @@ public static class DklsOperations
         TssException.ThrowIfError(status);
         return outPkg.ToArray();
     }
+
+    /// <summary>
+    /// This helper's DKLs23 repair term for <paramref name="target"/>, as messages to send to
+    /// the target only, over a confidential, authenticated channel.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="helpers"/> lists the helper identifiers (no duplicates, at least
+    /// min_signers, including this party, not the target); every helper uses the same list and
+    /// <paramref name="repairId"/>. The helpers must authenticate the target: repair hands the
+    /// target index's share to whoever receives the terms.
+    /// </remarks>
+    public static unsafe Message[] RepairHelperTerm(
+        KeyShareHandle keyShare,
+        ushort[] helpers,
+        ushort target,
+        byte[] repairId)
+    {
+        ArgumentNullException.ThrowIfNull(keyShare);
+        ArgumentNullException.ThrowIfNull(helpers);
+        ArgumentNullException.ThrowIfNull(repairId);
+        var outMessages = new NativeTssBuffer();
+        int status;
+        fixed (ushort* pHelpers = helpers)
+        fixed (byte* pId = repairId)
+        fixed (TssBuffer* pOut = &outMessages.Raw)
+        {
+            var id = new TssSlice { Data = pId, Len = (nuint)repairId.Length };
+            status = Native.tss_repair_helper_term(
+                keyShare.Handle, pHelpers, (nuint)helpers.Length, target, id, pOut);
+        }
+        TssException.ThrowIfError(status);
+        return MessageCodec.Decode(outMessages.ToArray());
+    }
+
+    /// <summary>
+    /// Assembles the helpers' repair messages into the target's repaired DKLs23 share. Each
+    /// message's <c>From</c> must be its authenticated sender. The share cannot sign until all
+    /// parties run <see cref="RefreshSession.CreateDkls"/>.
+    /// </summary>
+    public static unsafe KeyShareHandle RepairAssemble(
+        Ciphersuite suite,
+        byte[] publicKeyPackage,
+        ushort target,
+        Message[] messages)
+    {
+        ArgumentNullException.ThrowIfNull(publicKeyPackage);
+        ArgumentNullException.ThrowIfNull(messages);
+        byte[] blob = MessageCodec.Encode(messages);
+        ulong handle;
+        int status;
+        fixed (byte* pPkg = publicKeyPackage)
+        fixed (byte* pBlob = blob)
+        {
+            var pkg = new TssSlice { Data = pPkg, Len = (nuint)publicKeyPackage.Length };
+            var msgs = new TssSlice { Data = pBlob, Len = (nuint)blob.Length };
+            status = Native.tss_repair_assemble((byte)suite, pkg, target, msgs, &handle);
+        }
+        TssException.ThrowIfError(status);
+        return new KeyShareHandle(handle);
+    }
 }

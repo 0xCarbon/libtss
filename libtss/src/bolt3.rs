@@ -10,7 +10,6 @@
 //! key derived from it.
 
 use dkls23_secp256k1::protocols::bolt3::Bolt3Error;
-use dkls23_secp256k1::protocols::{Parameters, PartyIndex};
 use dkls23_secp256k1::PublicKeyPackage as DklsPublicKeyPackage;
 use k256::elliptic_curve::ff::PrimeField;
 use k256::{AffinePoint, PublicKey, Scalar};
@@ -128,42 +127,5 @@ fn parse_scalar(bytes: &[u8]) -> Result<Scalar, TssError> {
 
 fn to_dkls_package(package: &PublicKeyPackage) -> Result<DklsPublicKeyPackage, TssError> {
     require_secp256k1(package.suite())?;
-    let point = |bytes: &[u8]| {
-        PublicKey::from_sec1_bytes(bytes)
-            .map(|key| *key.as_affine())
-            .map_err(|_| TssError::DeserializeFailed("invalid public key package point".into()))
-    };
-    let verifying_shares = package
-        .verifying_shares()
-        .iter()
-        .map(|(id, share)| {
-            let index = u8::try_from(id.as_u16())
-                .ok()
-                .and_then(|i| PartyIndex::new(i).ok())
-                .ok_or(TssError::InvalidIdentifier)?;
-            Ok((index, point(share)?))
-        })
-        .collect::<Result<_, TssError>>()?;
-    let expected: Vec<u16> = (1..=package.verifying_shares().len())
-        .map(|i| u16::try_from(i).unwrap_or(u16::MAX))
-        .collect();
-    let actual: Vec<u16> = package
-        .verifying_shares()
-        .keys()
-        .map(|id| id.as_u16())
-        .collect();
-    if actual != expected {
-        return Err(TssError::InvalidIdentifier);
-    }
-    let threshold = u8::try_from(package.min_signers())
-        .map_err(|_| TssError::InvalidConfig("threshold exceeds DKLs23 limits".into()))?;
-    let share_count = u8::try_from(package.verifying_shares().len())
-        .map_err(|_| TssError::InvalidConfig("share count exceeds DKLs23 limits".into()))?;
-    let parameters = Parameters::new(threshold, share_count)
-        .map_err(|_| TssError::InvalidConfig("invalid DKLs23 parameters".into()))?;
-    Ok(DklsPublicKeyPackage::new(
-        point(package.verifying_key())?,
-        verifying_shares,
-        parameters,
-    ))
+    crate::dkls_package::to_dkls_package::<k256::Secp256k1>(package)
 }

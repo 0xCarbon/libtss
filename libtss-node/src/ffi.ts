@@ -182,6 +182,12 @@ export const lib: Record<string, (...args: any[]) => any> = {
 	tss_bolt3_derive_revocation_pubkey_package: native.func(
 		"int32_t tss_bolt3_derive_revocation_pubkey_package(TssSlice pubkey_package, TssSlice per_commitment_point, _Out_ TssBuffer *out_pubkey_package)",
 	),
+	tss_repair_helper_term: native.func(
+		"int32_t tss_repair_helper_term(uint64_t key_share, const uint16_t *helpers, size_t helpers_len, uint16_t target, TssSlice repair_id, _Out_ TssBuffer *out_messages)",
+	),
+	tss_repair_assemble: native.func(
+		"int32_t tss_repair_assemble(uint8_t suite, TssSlice pubkey_package, uint16_t target, TssSlice messages, _Out_ uint64_t *out_handle)",
+	),
 	tss_dkls_split_key: native.func(
 		"int32_t tss_dkls_split_key(uint8_t suite, TssSlice secret_key, TssSlice chain_code, uint16_t max_signers, uint16_t min_signers, uint64_t *out_handles, _Out_ size_t *out_handle_count, _Out_ TssBuffer *out_pubkey_package)",
 	),

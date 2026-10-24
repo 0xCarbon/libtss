@@ -133,6 +133,33 @@ TssStatus tss_bolt3_derive_revocation_pubkey_package(struct TssSlice pubkey_pack
                                                      struct TssSlice per_commitment_point,
                                                      struct TssBuffer *out_pubkey_package);
 
+// This helper's DKLs23 repair term for `target`, as a message blob (one
+// message from this party to `target`). Send it to the target only, over
+// a confidential, authenticated channel.
+//
+// `helpers` lists the helper identifiers (any order, no duplicates, at least
+// `min_signers`, including this party, not the target); every helper uses
+// the same list and `repair_id`. The helpers must authenticate the target:
+// repair hands index `target`'s share to whoever receives the terms.
+TssStatus tss_repair_helper_term(TssHandle key_share,
+                                 const uint16_t *helpers,
+                                 size_t helpers_len,
+                                 uint16_t target,
+                                 struct TssSlice repair_id,
+                                 struct TssBuffer *out_messages);
+
+// Assembles the helpers' repair messages (a message blob) into the target's
+// repaired DKLs23 share. `pubkey_package` is the group's serialized public
+// key package. Each term must come from the helper it names, so the `from`
+// of each message must be its authenticated sender. The repaired share
+// cannot sign until all parties run a complete refresh
+// (`tss_refresh_new_dkls`).
+TssStatus tss_repair_assemble(uint8_t suite,
+                              struct TssSlice pubkey_package,
+                              uint16_t target,
+                              struct TssSlice messages,
+                              TssHandle *out_handle);
+
 // Return a pointer to the last error message (NUL-terminated).
 //
 // **Lifetime:** The returned pointer is only valid until the next libtss FFI

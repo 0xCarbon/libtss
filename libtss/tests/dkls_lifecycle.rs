@@ -583,3 +583,112 @@ fn bolt3_package_derivation_requires_indices_one_to_n() {
         Err(TssError::InvalidIdentifier)
     ));
 }
+
+/// A lost share is repaired by two helpers, cannot sign until a complete
+/// refresh across all parties, and then signs under the same group key.
+#[test]
+#[cfg_attr(tarpaulin, ignore)]
+fn repaired_share_signs_after_a_complete_refresh() {
+    use libtss::dkls_repair::{repair_assemble, repair_helper_term};
+
+    for suite in SUITES {
+        let shares = dkg(suite);
+        let group_key = shares[&id(1)].group_verifying_key();
+        let public_keys = shares[&id(1)].public_key_package().clone();
+        let helpers = [id(1), id(2)];
+        let messages: Vec<Message> = helpers
+            .iter()
+            .map(|h| repair_helper_term(&shares[h], &helpers, id(3), b"repair-1").unwrap())
+            .collect();
+        let repaired = repair_assemble(suite, &public_keys, id(3), &messages).unwrap();
+        assert_eq!(repaired.group_verifying_key(), group_key);
+        assert_eq!(repaired.verifying_share(), shares[&id(3)].verifying_share());
+        assert_eq!(
+            repaired.chain_code().unwrap(),
+            shares[&id(3)].chain_code().unwrap()
+        );
+
+        // The repaired share cannot sign yet.
+        let pair = BTreeMap::from([(id(1), &shares[&id(1)]), (id(3), &repaired)]);
+        assert!(sign(suite, &pair, [2u8; 32]).is_err(), "{suite:?}");
+
+        // After a complete refresh with the repaired share, it signs.
+        let group = BTreeMap::from([
+            (
+                id(1),
+                libtss::import_key_share(&shares[&id(1)].export().unwrap(), suite).unwrap(),
+            ),
+            (
+                id(2),
+                libtss::import_key_share(&shares[&id(2)].export().unwrap(), suite).unwrap(),
+            ),
+            (id(3), repaired),
+        ]);
+        let parties: Vec<_> = group.keys().copied().collect();
+        let refreshed = refresh(&group, &same_id(&parties, b"after-repair")).unwrap();
+        let hash = [2u8; 32];
+        let pair = BTreeMap::from([(id(2), &refreshed[&id(2)]), (id(3), &refreshed[&id(3)])]);
+        assert!(verifies(
+            suite,
+            &group_key,
+            &hash,
+            &sign(suite, &pair, hash).unwrap()
+        ));
+    }
+}
+
+#[test]
+fn repair_rejects_forged_and_invalid_input() {
+    use libtss::dkls_repair::{repair_assemble, repair_helper_term};
+
+    let suite = Ciphersuite::Secp256k1ECDSA;
+    let shares = import(suite, &[0x42u8; 32], None);
+    let public_keys = shares[&id(1)].public_key_package().clone();
+    let helpers = [id(1), id(2)];
+    let messages: Vec<Message> = helpers
+        .iter()
+        .map(|h| repair_helper_term(&shares[h], &helpers, id(3), b"r").unwrap())
+        .collect();
+    assert!(repair_assemble(suite, &public_keys, id(3), &messages).is_ok());
+
+    // A term whose sender is not the helper it names.
+    let mut relayed = messages.clone();
+    relayed[1].from = id(3);
+    assert!(matches!(
+        repair_assemble(suite, &public_keys, id(3), &relayed),
+        Err(TssError::InvalidConfig(_))
+    ));
+
+    // A corrupted term.
+    let mut corrupted = messages.clone();
+    let last = corrupted[1].data.len() - 40;
+    corrupted[1].data[last] ^= 1;
+    assert!(repair_assemble(suite, &public_keys, id(3), &corrupted).is_err());
+
+    // Trailing bytes.
+    let mut trailing = messages.clone();
+    trailing[1].data.push(0);
+    assert!(matches!(
+        repair_assemble(suite, &public_keys, id(3), &trailing),
+        Err(TssError::DeserializeFailed(_))
+    ));
+
+    // Too few terms, another suite, invalid requests.
+    assert!(repair_assemble(suite, &public_keys, id(3), &messages[..1]).is_err());
+    assert!(matches!(
+        repair_assemble(Ciphersuite::Secp256r1ECDSA, &public_keys, id(3), &messages),
+        Err(TssError::ProtocolMismatch)
+    ));
+    assert!(matches!(
+        repair_helper_term(&shares[&id(1)], &[id(1), id(1), id(2)], id(3), b"r"),
+        Err(TssError::InvalidConfig(_))
+    ));
+    assert!(matches!(
+        repair_helper_term(&shares[&id(1)], &[id(1)], id(3), b"r"),
+        Err(TssError::InvalidConfig(_))
+    ));
+    assert!(matches!(
+        repair_helper_term(&shares[&id(1)], &[id(1), id(2)], id(3), b""),
+        Err(TssError::InvalidConfig(_))
+    ));
+}

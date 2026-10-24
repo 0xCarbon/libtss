@@ -5,6 +5,8 @@ import {
 	bolt3DerivePublicKeys,
 	bolt3DeriveRevocation,
 	bolt3DeriveRevocationPublicKeys,
+	dklsRepairAssemble,
+	dklsRepairHelperTerm,
 	dklsSplitKey,
 } from "../index";
 import { RefreshSession } from "../session";
@@ -182,6 +184,29 @@ describe("BOLT 3 derivation", () => {
 			).toThrow();
 		} finally {
 			freeAll([...keyShares, local, revocation]);
+		}
+	});
+});
+
+describe("DKLs23 share repair", () => {
+	it.each(SUITES)("repairs a lost share (suite %i)", (suite) => {
+		const { keyShares, publicKeys } = dklsSplitKey(
+			suite,
+			new Uint8Array(32).fill(0x42),
+			3,
+			2,
+		);
+		const repairId = new TextEncoder().encode("node-repair");
+		const received = [keyShares[0], keyShares[2]].flatMap((share) =>
+			dklsRepairHelperTerm(share, [1, 3], 2, repairId),
+		);
+		const repaired = dklsRepairAssemble(suite, publicKeys, 2, received);
+		try {
+			expect(repaired.verifyingShare()).toEqual(keyShares[1].verifyingShare());
+			const forged = received.map((m, i) => (i === 1 ? { ...m, from: 2 } : m));
+			expect(() => dklsRepairAssemble(suite, publicKeys, 2, forged)).toThrow();
+		} finally {
+			freeAll([...keyShares, repaired]);
 		}
 	});
 });
