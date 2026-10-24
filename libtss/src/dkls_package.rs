@@ -31,9 +31,11 @@ fn point<C: DklsCurve>(bytes: &[u8]) -> Result<C::AffinePoint, TssError> {
 /// Points `P_i` at distinct `x_i` lie on such a polynomial if and only if
 /// `sum_i c_i f(x_i) P_i = 0` for every polynomial `f` of degree below
 /// `m - threshold`, where `m` is the number of points and
-/// `c_i = prod_{j != i} (x_i - x_j)^-1`. One `f` with coefficients hashed
-/// from the package makes a wrong package pass with probability below
-/// `m / 2^128`.
+/// `c_i = prod_{j != i} (x_i - x_j)^-1`. The sum is linear in the
+/// coefficients of `f`; for a wrong package at least one coefficient
+/// multiplies a non-identity point, so one `f` with 128-bit coefficients
+/// hashed from the package lets it pass with probability about `2^-128` per
+/// check (per hash query when the hash is modeled as a random oracle).
 fn on_one_polynomial<C: DklsCurve>(
     verifying_key: C::AffinePoint,
     verifying_shares: &[C::AffinePoint],
@@ -90,6 +92,12 @@ fn on_one_polynomial<C: DklsCurve>(
 pub(crate) fn to_dkls_package<C: DklsCurve>(
     package: &UnifiedPublicKeyPackage,
 ) -> Result<PublicKeyPackage<C>, TssError> {
+    let threshold = u8::try_from(package.min_signers())
+        .map_err(|_| TssError::InvalidConfig("threshold exceeds DKLs23 limits".into()))?;
+    let share_count = u8::try_from(package.verifying_shares().len())
+        .map_err(|_| TssError::InvalidConfig("share count exceeds DKLs23 limits".into()))?;
+    let parameters = Parameters::new(threshold, share_count)
+        .map_err(|_| TssError::InvalidConfig("invalid DKLs23 parameters".into()))?;
     let expected: Vec<u16> = (1..=package.verifying_shares().len())
         .map(|i| u16::try_from(i).unwrap_or(u16::MAX))
         .collect();
@@ -117,15 +125,76 @@ pub(crate) fn to_dkls_package<C: DklsCurve>(
     if !on_one_polynomial::<C>(verifying_key, &shares, usize::from(package.min_signers())) {
         return Err(TssError::InvalidShare);
     }
-    let threshold = u8::try_from(package.min_signers())
-        .map_err(|_| TssError::InvalidConfig("threshold exceeds DKLs23 limits".into()))?;
-    let share_count = u8::try_from(package.verifying_shares().len())
-        .map_err(|_| TssError::InvalidConfig("share count exceeds DKLs23 limits".into()))?;
-    let parameters = Parameters::new(threshold, share_count)
-        .map_err(|_| TssError::InvalidConfig("invalid DKLs23 parameters".into()))?;
     Ok(PublicKeyPackage::new(
         verifying_key,
         verifying_shares.into_iter().collect(),
         parameters,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::{Ciphersuite, ThresholdConfig};
+
+    fn package() -> UnifiedPublicKeyPackage {
+        let config = ThresholdConfig {
+            min_signers: 2,
+            max_signers: 3,
+            suite: Ciphersuite::Secp256k1ECDSA,
+        };
+        crate::dkls_import::dkls_split_key(&config, &[0x42; 32], None)
+            .unwrap()
+            .1
+    }
+
+    fn with_min_signers(package: &UnifiedPublicKeyPackage, min: u16) -> UnifiedPublicKeyPackage {
+        UnifiedPublicKeyPackage::new(
+            package.suite(),
+            package.verifying_key().to_vec(),
+            package.verifying_shares().clone(),
+            min,
+        )
+    }
+
+    #[test]
+    fn accepts_a_consistent_package() {
+        assert!(to_dkls_package::<k256::Secp256k1>(&package()).is_ok());
+    }
+
+    #[test]
+    fn rejects_bad_thresholds_as_config_errors() {
+        let package = package();
+        for min in [0, 1, 4, 300] {
+            assert!(
+                matches!(
+                    to_dkls_package::<k256::Secp256k1>(&with_min_signers(&package, min)),
+                    Err(TssError::InvalidConfig(_))
+                ),
+                "min_signers {min}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_a_package_off_the_polynomial() {
+        let package = package();
+        // Three points always lie on a polynomial of degree below 3.
+        assert!(to_dkls_package::<k256::Secp256k1>(&with_min_signers(&package, 3)).is_ok());
+        let mut shares = package.verifying_shares().clone();
+        let first = shares.keys().next().copied().unwrap();
+        let last = shares.keys().last().copied().unwrap();
+        let swapped = shares[&last].clone();
+        shares.insert(first, swapped);
+        let broken = UnifiedPublicKeyPackage::new(
+            package.suite(),
+            package.verifying_key().to_vec(),
+            shares,
+            2,
+        );
+        assert_eq!(
+            to_dkls_package::<k256::Secp256k1>(&broken).err(),
+            Some(TssError::InvalidShare)
+        );
+    }
 }
