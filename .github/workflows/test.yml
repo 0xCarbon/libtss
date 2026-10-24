@@ -53,9 +53,17 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r26c
+
       - name: Syntax-check libtss-jni.cpp with the NDK
+        env:
+          NDK_PATH: ${{ steps.setup-ndk.outputs.ndk-path }}
         run: |
-          ndk="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}"
+          ndk="$NDK_PATH"
           clang="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin/clang++"
           test -x "$clang" || { echo "NDK clang++ not found under '$ndk'"; exit 1; }
           for target in aarch64-linux-android23 x86_64-linux-android23; do

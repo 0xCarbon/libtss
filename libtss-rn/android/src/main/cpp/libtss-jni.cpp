@@ -1018,15 +1018,15 @@ Java_com_libtss_LibtssModule_nativeRefreshReceiver(
         return nullptr;
     }
 
-    TssHandle session = 0;
-    TssStatus status = tss_refresh_receiver(key_share, static_cast<uint16_t>(dealer), &session);
+    OwnedSession session;
+    TssStatus status = tss_refresh_receiver(key_share, static_cast<uint16_t>(dealer), &session.value);
     if (!ensure_status(env, status)) {
         return nullptr;
     }
 
-    jstring result = handle_to_jstring(env, session);
-    if (result == nullptr) {
-        tss_session_free(session);
+    jstring result = handle_to_jstring(env, session.value);
+    if (result != nullptr) {
+        session.release();
     }
     return result;
 }
