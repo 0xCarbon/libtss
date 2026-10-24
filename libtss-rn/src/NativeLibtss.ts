@@ -38,7 +38,7 @@ export interface NativeLibtssModule {
 		keyShareHandle: string,
 		sessionId: string,
 	): Promise<{ handle: string; messages: string }>;
-	refreshReceiver(keyShareHandle: string): Promise<string>;
+	refreshReceiver(keyShareHandle: string, dealer: number): Promise<string>;
 	refreshNext(
 		handle: string,
 		messages: string,

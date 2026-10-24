@@ -222,8 +222,8 @@ public final class LibtssModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
-    public void refreshReceiver(String keyShareHandle, Promise promise) {
-        resolve(promise, () -> nativeRefreshReceiver(keyShareHandle));
+    public void refreshReceiver(String keyShareHandle, double dealer, Promise promise) {
+        resolve(promise, () -> nativeRefreshReceiver(keyShareHandle, identifierValue(dealer, "dealer")));
     }
 
     @ReactMethod
@@ -390,7 +390,7 @@ public final class LibtssModule extends ReactContextBaseJavaModule {
     private static native String[] nativeSignNew(String keyShareHandle, String message, @Nullable int[] counterparties, @Nullable String signId);
     private static native Object[] nativeSignNext(String handle, String messages);
     private static native String[] nativeRefreshNew(String keyShareHandle, @Nullable int[] participants);
-    private static native String nativeRefreshReceiver(String keyShareHandle);
+    private static native String nativeRefreshReceiver(String keyShareHandle, int dealer);
     private static native String[] nativeRefreshNewDkls(String keyShareHandle, String sessionId);
     private static native String nativeRepairHelperTerm(String keyShareHandle, int[] helpers, int target, String repairId);
     private static native String nativeRepairAssemble(int suite, String pubkeyPackage, int target, String messages);

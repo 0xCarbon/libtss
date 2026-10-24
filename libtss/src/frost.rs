@@ -3,6 +3,7 @@ use std::collections::BTreeMap;
 use rand_core::OsRng;
 use zeroize::{Zeroize, Zeroizing};
 
+use crate::keyshare::serialize_secret;
 use crate::{
     message::Message,
     types::{Ciphersuite, Identifier, Protocol, PublicKeyPackage, Signature, ThresholdConfig},
@@ -45,6 +46,8 @@ macro_rules! dispatch_frost {
 
 type SerializedBytes = Vec<u8>;
 type SerializedKeyPackages = Vec<(Identifier, SerializedBytes)>;
+/// Serialized nonces, the committing share's key binding and the commitment.
+type CommitOutput = (Zeroizing<Vec<u8>>, Vec<u8>, Message);
 
 #[derive(Clone)]
 pub struct KeyShareHandle {
@@ -101,10 +104,16 @@ impl Drop for KeyShareHandle {
 ///
 /// The type is neither `Clone` nor serializable, and [`frost_sign`] takes it
 /// by value, so one nonce pair produces at most one signature share. The
-/// nonce bytes are zeroized on drop.
+/// nonces are bound to the key share that committed them (suite, identifier,
+/// verifying share and group key); [`frost_sign`] rejects any other share,
+/// including one of another group or refresh epoch with the same identifier.
+/// The nonce bytes are zeroized on drop.
 pub struct SigningNonces {
     suite: Ciphersuite,
     identifier: Identifier,
+    /// Public fingerprint of the committing key share: its verifying share
+    /// (derived from the signing share) followed by the group key.
+    key_binding: Vec<u8>,
     bytes: Zeroizing<Vec<u8>>,
 }
 
@@ -302,7 +311,7 @@ fn part1_inner<C: frost_core::Ciphersuite>(
         frost_core::keys::dkg::part1::<C, _>(identifier, max_signers, min_signers, OsRng)
             .map_err(TssError::from)?;
     Ok((
-        Zeroizing::new(secret.serialize().map_err(TssError::from)?),
+        Zeroizing::new(serialize_secret(&secret)?),
         vec![Message {
             from: self_id,
             to: None,
@@ -330,14 +339,11 @@ fn part2_inner<C: frost_core::Ciphersuite>(
         messages.push(Message {
             from: self_id,
             to: Some(from_frost_id(suite, recipient)?),
-            data: package.serialize().map_err(TssError::from)?,
+            data: serialize_secret(&package)?,
         });
     }
 
-    Ok((
-        Zeroizing::new(secret.serialize().map_err(TssError::from)?),
-        messages,
-    ))
+    Ok((Zeroizing::new(serialize_secret(&secret)?), messages))
 }
 
 fn part3_inner<C: frost_core::Ciphersuite>(
@@ -358,7 +364,7 @@ fn part3_inner<C: frost_core::Ciphersuite>(
         frost_core::keys::dkg::part3::<C>(&secret, &round1_packages, &round2_packages)
             .map_err(TssError::from)?;
     Ok((
-        key_package.serialize().map_err(TssError::from)?,
+        serialize_secret(&key_package)?,
         frost_pubkey_to_libtss(suite, &public_key_package)?,
     ))
 }
@@ -366,14 +372,15 @@ fn part3_inner<C: frost_core::Ciphersuite>(
 fn commit_inner<C: frost_core::Ciphersuite>(
     suite: Ciphersuite,
     key_package_bytes: &[u8],
-) -> Result<(Zeroizing<Vec<u8>>, Message), TssError> {
+) -> Result<CommitOutput, TssError> {
     let key_package = frost_core::keys::KeyPackage::<C>::deserialize(key_package_bytes)
         .map_err(TssError::from)?;
     let identifier = from_frost_id(suite, *key_package.identifier())?;
     let (nonces, commitments) =
         frost_core::round1::commit::<C, _>(key_package.signing_share(), &mut OsRng);
     Ok((
-        Zeroizing::new(nonces.serialize().map_err(TssError::from)?),
+        Zeroizing::new(serialize_secret(&nonces)?),
+        key_binding(&key_package)?,
         Message {
             from: identifier,
             to: None,
@@ -382,15 +389,39 @@ fn commit_inner<C: frost_core::Ciphersuite>(
     ))
 }
 
+/// Public fingerprint of a key package: the verifying share derived from its
+/// signing share (the cached one goes stale after a refresh) and the group
+/// key.
+fn key_binding<C: frost_core::Ciphersuite>(
+    key_package: &frost_core::keys::KeyPackage<C>,
+) -> Result<Vec<u8>, TssError> {
+    let mut binding = frost_core::keys::VerifyingShare::<C>::from(*key_package.signing_share())
+        .serialize()
+        .map_err(TssError::from)?;
+    binding.extend_from_slice(
+        &key_package
+            .verifying_key()
+            .serialize()
+            .map_err(TssError::from)?,
+    );
+    Ok(binding)
+}
+
 fn sign_inner<C: frost_core::Ciphersuite>(
     suite: Ciphersuite,
     key_package_bytes: &[u8],
-    nonces: &[u8],
+    nonces: &SigningNonces,
     commitments: &[Message],
     msg: &[u8],
 ) -> Result<Message, TssError> {
     let key_package = frost_core::keys::KeyPackage::<C>::deserialize(key_package_bytes)
         .map_err(TssError::from)?;
+    if key_binding(&key_package)? != nonces.key_binding {
+        return Err(TssError::InvalidConfig(
+            "nonces were committed with another key share".into(),
+        ));
+    }
+    let nonces = nonces.bytes.as_slice();
     let identifier = from_frost_id(suite, *key_package.identifier())?;
     let nonces =
         frost_core::round1::SigningNonces::<C>::deserialize(nonces).map_err(TssError::from)?;
@@ -445,7 +476,7 @@ fn generate_with_dealer_inner<C: frost_core::Ciphersuite>(
     for (id, share) in shares {
         let identifier = from_frost_id(suite, id)?;
         let key_package = frost_core::keys::KeyPackage::try_from(share).map_err(TssError::from)?;
-        key_packages.push((identifier, key_package.serialize().map_err(TssError::from)?));
+        key_packages.push((identifier, serialize_secret(&key_package)?));
     }
 
     Ok((
@@ -475,7 +506,7 @@ fn split_key_inner<C: frost_core::Ciphersuite>(
     for (id, share) in shares {
         let identifier = from_frost_id(suite, id)?;
         let key_package = frost_core::keys::KeyPackage::try_from(share).map_err(TssError::from)?;
-        key_packages.push((identifier, key_package.serialize().map_err(TssError::from)?));
+        key_packages.push((identifier, serialize_secret(&key_package)?));
     }
 
     Ok((
@@ -538,10 +569,13 @@ fn repair_part3_inner<C: frost_core::Ciphersuite>(
         .collect::<Result<Vec<_>, _>>()?;
     let participant = to_frost_id::<C>(participant)?;
     let public_key_package = libtss_pubkey_to_frost::<C>(suite, pubkey_package)?;
-    frost_core::keys::repairable::repair_share_part3::<C>(&sigmas, participant, &public_key_package)
-        .map_err(TssError::from)?
-        .serialize()
-        .map_err(TssError::from)
+    let key_package = frost_core::keys::repairable::repair_share_part3::<C>(
+        &sigmas,
+        participant,
+        &public_key_package,
+    )
+    .map_err(TssError::from)?;
+    serialize_secret(&key_package)
 }
 
 fn refresh_with_dealer_inner<C: frost_core::Ciphersuite>(
@@ -569,7 +603,7 @@ fn refresh_with_dealer_inner<C: frost_core::Ciphersuite>(
         .map(|share| {
             Ok((
                 from_frost_id(suite, *share.identifier())?,
-                share.serialize().map_err(TssError::from)?,
+                serialize_secret(&share)?,
             ))
         })
         .collect::<Result<Vec<_>, TssError>>()?;
@@ -588,10 +622,9 @@ fn apply_refresh_inner<C: frost_core::Ciphersuite>(
         .map_err(TssError::from)?;
     let refresh_data =
         frost_core::keys::SecretShare::<C>::deserialize(refresh_data).map_err(TssError::from)?;
-    frost_core::keys::refresh::refresh_share::<C>(refresh_data, &key_package)
-        .map_err(TssError::from)?
-        .serialize()
-        .map_err(TssError::from)
+    let refreshed = frost_core::keys::refresh::refresh_share::<C>(refresh_data, &key_package)
+        .map_err(TssError::from)?;
+    serialize_secret(&refreshed)
 }
 
 pub fn frost_dkg_part1(
@@ -635,13 +668,14 @@ pub fn frost_dkg_part3(
 /// The returned [`SigningNonces`] must be passed to [`frost_sign`], which
 /// consumes them.
 pub fn frost_commit(key_share: &KeyShareHandle) -> Result<(SigningNonces, Message), TssError> {
-    let (bytes, commitment) = dispatch_frost!(key_share.suite, |C| {
+    let (bytes, key_binding, commitment) = dispatch_frost!(key_share.suite, |C| {
         commit_inner::<C>(key_share.suite, &key_share.key_package_bytes)
     })?;
     Ok((
         SigningNonces {
             suite: key_share.suite,
             identifier: key_share.identifier,
+            key_binding,
             bytes,
         },
         commitment,
@@ -651,7 +685,9 @@ pub fn frost_commit(key_share: &KeyShareHandle) -> Result<(SigningNonces, Messag
 /// FROST round 2: produce this signer's signature share.
 ///
 /// Consumes `nonces`; they cannot be used for another share. The nonces must
-/// come from [`frost_commit`] on the same key share.
+/// come from [`frost_commit`] on the same key share; nonces committed by a
+/// different share return [`TssError::InvalidIdentifier`] (other identifier)
+/// or [`TssError::InvalidConfig`] (same identifier, other key).
 pub fn frost_sign(
     key_share: &KeyShareHandle,
     nonces: SigningNonces,
@@ -667,7 +703,7 @@ pub fn frost_sign(
     dispatch_frost!(key_share.suite, |C| sign_inner::<C>(
         key_share.suite,
         &key_share.key_package_bytes,
-        &nonces.bytes,
+        &nonces,
         commitments,
         msg,
     ))
@@ -792,6 +828,98 @@ pub fn frost_apply_refresh(
     key_share_handle_from_bytes(key_share.suite, key_package)
 }
 
+fn group_element<C: frost_core::Ciphersuite>(
+    bytes: &[u8],
+) -> Result<frost_core::Element<C>, TssError> {
+    use frost_core::Group;
+    let serialization =
+        <C::Group as Group>::Serialization::try_from(bytes).map_err(|_| TssError::InvalidShare)?;
+    <C::Group as Group>::deserialize(&serialization).map_err(|_| TssError::InvalidShare)
+}
+
+fn verify_refreshed_package_inner<C: frost_core::Ciphersuite>(
+    self_id: Identifier,
+    old: &PublicKeyPackage,
+    new: &PublicKeyPackage,
+    refresh_data: &[u8],
+) -> Result<(), TssError> {
+    use frost_core::{Field, Group};
+
+    let share =
+        frost_core::keys::SecretShare::<C>::deserialize(refresh_data).map_err(TssError::from)?;
+    if *share.identifier() != to_frost_id::<C>(self_id)? {
+        return Err(TssError::InvalidShare);
+    }
+    // The share carries the commitments c_1..c_{t-1} of a polynomial with
+    // zero constant term; c_0 (the identity) is omitted.
+    let coefficients = share
+        .commitment()
+        .serialize()
+        .map_err(TssError::from)?
+        .iter()
+        .map(|bytes| group_element::<C>(bytes))
+        .collect::<Result<Vec<_>, _>>()?;
+    if coefficients.len() + 1 != usize::from(old.min_signers()) {
+        return Err(TssError::InvalidShare);
+    }
+
+    for (id, refreshed) in new.verifying_shares() {
+        let previous = old.verifying_share(*id).ok_or(TssError::InvalidShare)?;
+        let x_bytes = to_frost_id::<C>(*id)?.serialize();
+        let x_serialization =
+            <<C::Group as Group>::Field as Field>::Serialization::try_from(x_bytes.as_slice())
+                .map_err(|_| TssError::InvalidShare)?;
+        let x = <<C::Group as Group>::Field as Field>::deserialize(&x_serialization)
+            .map_err(|_| TssError::InvalidShare)?;
+        // C(x) = sum_{k>=1} c_k * x^k
+        let mut power = x;
+        let mut delta = <C::Group as Group>::identity();
+        for coefficient in &coefficients {
+            delta = delta + *coefficient * power;
+            power = power * x;
+        }
+        let expected = group_element::<C>(previous)? + delta;
+        if group_element::<C>(refreshed)? != expected {
+            return Err(TssError::InvalidShare);
+        }
+    }
+    Ok(())
+}
+
+/// Check a refreshed public key package received from a refresh dealer
+/// against the previous package and this party's refresh share.
+///
+/// The group key and `min_signers` must be unchanged, the refreshed
+/// identifiers must be a subset of the previous ones that includes `self_id`
+/// and has at least `min_signers` members, the share must be addressed to
+/// `self_id`, and every refreshed verifying share must equal the previous one
+/// plus the dealer's zero-constant polynomial commitment evaluated at that
+/// identifier. The dealer is trusted to keep the polynomial secret and to
+/// send every party a share of the same polynomial.
+pub fn frost_verify_refreshed_package(
+    self_id: Identifier,
+    old: &PublicKeyPackage,
+    new: &PublicKeyPackage,
+    refresh_data: &[u8],
+) -> Result<(), TssError> {
+    if old.suite() != new.suite() {
+        return Err(TssError::ProtocolMismatch);
+    }
+    if new.verifying_key() != old.verifying_key()
+        || new.min_signers() != old.min_signers()
+        || new.verifying_shares().len() < usize::from(old.min_signers())
+        || new.verifying_share(self_id).is_none()
+    {
+        return Err(TssError::InvalidShare);
+    }
+    dispatch_frost!(old.suite(), |C| verify_refreshed_package_inner::<C>(
+        self_id,
+        old,
+        new,
+        refresh_data
+    ))
+}
+
 pub fn frost_tweak_key_share(
     key_share: &KeyShareHandle,
     merkle_root: Option<&[u8]>,
@@ -814,7 +942,7 @@ pub fn frost_tweak_key_share(
     Ok((
         key_share_handle_from_bytes(
             Ciphersuite::Secp256k1Taproot,
-            key_package.serialize().map_err(TssError::from)?,
+            serialize_secret(&key_package)?,
         )?,
         parity,
     ))
@@ -1185,6 +1313,35 @@ mod tests {
         let err = frost_sign(&shares[0], nonces, &commitments, b"msg")
             .expect_err("nonces from another suite must be rejected");
         assert_eq!(err, TssError::ProtocolMismatch);
+        Ok(())
+    }
+
+    #[test]
+    fn test_nonces_rejected_by_another_group_with_the_same_identifier() -> Result<(), TssError> {
+        let suite = Ciphersuite::Ed25519;
+        let (group_a, _) = frost_generate_with_dealer(&config(suite))?;
+        let (group_b, _) = frost_generate_with_dealer(&config(suite))?;
+        assert_eq!(group_a[0].identifier(), group_b[0].identifier());
+
+        let (nonces, commitment) = frost_commit(&group_a[0])?;
+        let (_, other) = frost_commit(&group_b[1])?;
+        let err = frost_sign(&group_b[0], nonces, &[commitment, other], b"msg")
+            .expect_err("nonces from another group must be rejected");
+        assert!(matches!(err, TssError::InvalidConfig(_)));
+        Ok(())
+    }
+
+    #[test]
+    fn test_nonces_rejected_after_refresh_of_the_same_identifier() -> Result<(), TssError> {
+        let (shares, pubkey) = frost_generate_with_dealer(&config(Ciphersuite::Ed25519))?;
+        let (refresh, _) = frost_refresh_with_dealer(&pubkey, &ids())?;
+        let refreshed = frost_apply_refresh(&shares[0], &refresh[&shares[0].identifier()])?;
+
+        let (nonces, commitment) = frost_commit(&shares[0])?;
+        let (_, other) = frost_commit(&shares[1])?;
+        let err = frost_sign(&refreshed, nonces, &[commitment, other], b"msg")
+            .expect_err("nonces from the previous epoch must be rejected");
+        assert!(matches!(err, TssError::InvalidConfig(_)));
         Ok(())
     }
 

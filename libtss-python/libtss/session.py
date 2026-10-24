@@ -404,16 +404,23 @@ class RefreshSession:
         return cls(out_session.value), messages
 
     @classmethod
-    def create_receiver(cls, key_share: KeyShareHandle) -> RefreshSession:
-        """Create a refresh receiver session (no outgoing messages).
+    def create_receiver(cls, key_share: KeyShareHandle, dealer: int) -> RefreshSession:
+        """Create a FROST refresh receiver session (no outgoing messages).
+
+        ``next`` accepts only the message from ``dealer`` addressed to this
+        party and checks the refreshed public key package against the current
+        one. The dealer is trusted with the refresh.
 
         Args:
             key_share: Current key share handle.
+            dealer: Identifier of the party that called :meth:`create_dealer`.
         """
         lib = get_lib()
         out_session = ctypes.c_uint64()
 
-        status = lib.tss_refresh_receiver(key_share.raw, ctypes.byref(out_session))
+        status = lib.tss_refresh_receiver(
+            key_share.raw, dealer, ctypes.byref(out_session)
+        )
         check_status(status)
 
         return cls(out_session.value)

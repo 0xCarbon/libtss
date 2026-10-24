@@ -39,7 +39,11 @@ pub fn message_count(data: &Uint8Array) -> Result<u32, JsValue> {
 ///
 /// Returns an error if `index` is out of range or the buffer is malformed.
 #[wasm_bindgen(js_name = "messageAt")]
-pub fn message_at(data: &Uint8Array, index: u32) -> Result<WasmMessage, JsValue> {
+pub fn message_at(
+    data: &Uint8Array,
+    #[wasm_bindgen(unchecked_param_type = "number")] index: JsValue,
+) -> Result<WasmMessage, JsValue> {
+    let index = crate::args::u32_arg(&index, "index")?;
     let bytes = data.to_vec();
     let messages = map_err(deserialize_messages(&bytes))?;
     let idx = index as usize;
@@ -63,12 +67,15 @@ pub fn message_at(data: &Uint8Array, index: u32) -> Result<WasmMessage, JsValue>
 /// Set `to` to 0 for a broadcast message.
 /// Returns the serialized bytes ready for transmission.
 #[wasm_bindgen(js_name = "messageBuild")]
-pub fn message_build(from: u16, to: u16, data: &Uint8Array) -> Result<Uint8Array, JsValue> {
-    let from_id = map_err(Identifier::new(from))?;
-    let to_id = if to == 0 {
-        None
-    } else {
-        Some(map_err(Identifier::new(to))?)
+pub fn message_build(
+    #[wasm_bindgen(unchecked_param_type = "number")] from: JsValue,
+    #[wasm_bindgen(unchecked_param_type = "number")] to: JsValue,
+    data: &Uint8Array,
+) -> Result<Uint8Array, JsValue> {
+    let from_id = crate::args::identifier_arg(&from, "from")?;
+    let to_id = match crate::args::u16_arg(&to, "to")? {
+        0 => None,
+        to => Some(map_err(Identifier::new(to))?),
     };
 
     let msg = Message {

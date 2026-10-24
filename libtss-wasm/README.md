@@ -231,7 +231,12 @@ console.log("Ed25519 signature (hex):", Buffer.from(sig1.signature).toString("he
 - **`SecureKeyShare`** — opaque wrapper keeping key share plaintext in WASM linear memory (zeroed on drop)
 - **`WasmDkgSession`** — drives DKG protocol rounds; use `WasmDkgSession.create()`
 - **`WasmSignSession`** — drives signing protocol rounds; use `WasmSignSession.newFrost()` / `newDkls()` / `newDklsR1()`
-- **`WasmRefreshSession`** — drives key refresh; FROST via `WasmRefreshSession.createDealer()` / `createReceiver()`, DKLs23 complete refresh via `createDkls()`
+- **`WasmRefreshSession`** — drives key refresh; FROST via `WasmRefreshSession.createDealer()` / `createReceiver(keyShare, dealer)`, DKLs23 complete refresh via `createDkls()`
+
+Numeric arguments (suites, identifiers, thresholds, indices) must be JS numbers
+that are integers in range; identifier lists take an array or `Uint16Array` of
+such numbers. Anything else throws a `RangeError` (or a `TypeError` for a value
+that is not a number) instead of being truncated or wrapped.
 
 ### TypeScript Helpers (`src/secure.ts`)
 

@@ -210,4 +210,40 @@ public class IntegrationTests
     {
         Tss.WipeBytes((byte[]?)null);
     }
+
+    [Fact]
+    public void FrostRefreshReceiver_AcceptsOnlyTheDealer()
+    {
+        RequireNativeLibrary();
+        Tss.Init();
+
+        var (handles, _) = FrostOperations.GenerateDealer(
+            Ciphersuite.Ed25519, maxSigners: 3, minSigners: 2);
+        try
+        {
+            var (dealer, messages) = RefreshSession.Create(handles[0], new ushort[] { 1, 2, 3 });
+            dealer.Dispose();
+            var mine = messages.Where(m => m.To == 2).ToArray();
+
+            var invalid = Assert.Throws<TssException>(() => RefreshSession.CreateReceiver(handles[1], 9));
+            Assert.Equal(TssStatus.InvalidId, invalid.Code);
+
+            using (var wrongDealer = RefreshSession.CreateReceiver(handles[1], 3))
+            {
+                var abort = Assert.Throws<TssAbortException>(() => wrongDealer.Next(mine));
+                Assert.Equal(new ushort[] { 1 }, abort.Culprits);
+            }
+
+            using var receiver = RefreshSession.CreateReceiver(handles[1], 1);
+            var result = receiver.Next(mine);
+            Assert.True(result.Complete);
+            using var refreshed = result.KeyShare!;
+            Assert.Equal(handles[1].GroupVerifyingKey, refreshed.GroupVerifyingKey);
+        }
+        finally
+        {
+            foreach (var h in handles)
+                h.Dispose();
+        }
+    }
 }

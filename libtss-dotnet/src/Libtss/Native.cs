@@ -145,6 +145,7 @@ internal static unsafe class Native
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int tss_refresh_receiver(
         ulong key_share,
+        ushort dealer,
         ulong* out_session);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]

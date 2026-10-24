@@ -277,7 +277,12 @@ describe("session wrappers", () => {
 
 		const session = await RefreshSession.createReceiver(
 			new KeyShareHandle("71"),
+			1,
 		);
+		expect(NativeLibtss.refreshReceiver).toHaveBeenLastCalledWith("71", 1);
+		await expect(
+			RefreshSession.createReceiver(new KeyShareHandle("71"), 0),
+		).rejects.toThrow(RangeError);
 
 		const refreshed = await session.next([]);
 		expect(refreshed.complete).toBe(true);

@@ -249,7 +249,7 @@ uint16_t tss_abort_banned_party(void);
 // --- Memory ---
 void tss_buffer_free(TssBuffer *buf);
 void tss_handle_free(TssHandle handle);
-void tss_session_free(TssHandle session);
+void tss_session_free(TssHandle session);  // honored after a concurrent *_next returns
 
 // --- Handle Queries ---
 TssStatus tss_handle_identifier(TssHandle handle, uint16_t *out_id);
@@ -342,10 +342,11 @@ TssStatus tss_refresh_new_dkls(
 );
 
 /// Create a FROST refresh receiver session (non-dealer participant).
-/// The receiver waits for messages from the dealer refresh and does
-/// not produce initial messages. Use with tss_frost_refresh_dealer.
+/// The receiver waits for the message from the trusted `dealer` (the party
+/// that called tss_refresh_new) and does not produce initial messages.
 TssStatus tss_refresh_receiver(
     TssHandle key_share,
+    uint16_t dealer,
     TssHandle *out_session
 );
 

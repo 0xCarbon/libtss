@@ -226,9 +226,10 @@ impl RefreshSession {
         -> Result<(Self, Vec<Message>), TssError>;
 
     /// FROST refresh receiver (non-dealer participant).
-    /// Waits for messages from the dealer refresh. Does not produce
-    /// initial messages. Use with `frost_refresh_with_dealer`.
-    pub fn new_frost_receiver(key_share: &KeyShareHandle) -> Result<Self, TssError>;
+    /// Waits for the message from `dealer`. Does not produce initial
+    /// messages. C ABI: `tss_refresh_receiver`.
+    pub fn new_frost_receiver(key_share: &KeyShareHandle, dealer: Identifier)
+        -> Result<Self, TssError>;
 
     pub fn next(&mut self, received: &[Message]) -> Result<RefreshOutput, TssError>;
 }
@@ -289,6 +290,24 @@ via `RefreshSession::new_frost_receiver` (C ABI: `tss_refresh_receiver`)
 and processes the dealer's refresh data through the `next()` loop.
 This is useful when bindings want a uniform session-based API for all
 refresh paths.
+
+The receiver names the dealer when it creates the session. In `next()`:
+
+- Exactly one message must be addressed to the receiver, and its
+  authenticated `from` must equal the dealer; any other sender is an
+  `Abort` naming that sender.
+- The refresh share must be addressed to the receiver and verify against the
+  commitments it carries (`C(x) = c_1 x + ... + c_{t-1} x^{t-1}`).
+- The bundled public key package must keep the group key and `min_signers`,
+  list a subset of the current identifiers that includes the receiver and has
+  at least `min_signers` members, and satisfy `vs'_j = vs_j + C(j)` for every
+  listed `j`. A mismatch is `InvalidShare`.
+
+The dealer is trusted. It never learns the group secret, but it picks the
+refresh polynomial, chooses who is refreshed, and could give different
+parties shares of different polynomials (each receiver sees only its own
+commitment). Accept a refresh only from a party trusted with that role, or use
+the DKLs23 complete refresh where all parties contribute.
 
 ### Refresh Properties
 

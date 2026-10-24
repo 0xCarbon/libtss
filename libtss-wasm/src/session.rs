@@ -1,10 +1,11 @@
-use js_sys::{Uint16Array, Uint8Array};
+use js_sys::Uint8Array;
 use libtss::session::dkg::{DkgOutput, DkgSession};
 use libtss::session::refresh::{RefreshOutput, RefreshSession};
 use libtss::session::sign::{SignOutput, SignSession};
-use libtss::{Ciphersuite, Identifier, ThresholdConfig};
+use libtss::ThresholdConfig;
 use wasm_bindgen::prelude::*;
 
+use crate::args::{identifier_arg, identifiers_arg, suite_arg, u16_arg};
 use crate::error::map_err;
 use crate::handle::WasmKeyShareHandle;
 use crate::message::{decode_messages, encode_messages};
@@ -79,19 +80,19 @@ impl WasmDkgSession {
     /// ```
     #[wasm_bindgen(static_method_of = WasmDkgSession)]
     pub fn create(
-        suite: u8,
-        self_id: u16,
-        max_signers: u16,
-        min_signers: u16,
+        #[wasm_bindgen(unchecked_param_type = "number")] suite: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "number")] self_id: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "number")] max_signers: JsValue,
+        #[wasm_bindgen(unchecked_param_type = "number")] min_signers: JsValue,
         session_id: Option<Uint8Array>,
     ) -> Result<js_sys::Array, JsValue> {
-        let ciphersuite = map_err(Ciphersuite::try_from(suite))?;
+        let ciphersuite = suite_arg(&suite)?;
         let config = ThresholdConfig {
-            min_signers,
-            max_signers,
+            min_signers: u16_arg(&min_signers, "minSigners")?,
+            max_signers: u16_arg(&max_signers, "maxSigners")?,
             suite: ciphersuite,
         };
-        let self_identifier = map_err(Identifier::new(self_id))?;
+        let self_identifier = identifier_arg(&self_id, "selfId")?;
         let sid_bytes: Option<Vec<u8>> = session_id.map(|a| a.to_vec());
         let sid_ref: Option<&[u8]> = sid_bytes.as_deref();
 
@@ -269,7 +270,7 @@ impl WasmSignSession {
     pub fn new_dkls(
         key_share: &WasmKeyShareHandle,
         sign_id: &Uint8Array,
-        counterparties: &Uint16Array,
+        #[wasm_bindgen(unchecked_param_type = "number[] | Uint16Array")] counterparties: JsValue,
         message_hash: &Uint8Array,
     ) -> Result<js_sys::Array, JsValue> {
         let sign_id_bytes = sign_id.to_vec();
@@ -279,12 +280,7 @@ impl WasmSignSession {
         }
         let hash_arr: [u8; 32] = hash_bytes.try_into().unwrap();
 
-        let cp_vec = counterparties.to_vec();
-        let cp_ids: Result<Vec<Identifier>, _> = cp_vec
-            .iter()
-            .map(|&id| Identifier::new(id))
-            .collect::<Result<Vec<_>, _>>();
-        let cp_ids = map_err(cp_ids)?;
+        let cp_ids = identifiers_arg(&counterparties, "counterparty")?;
 
         let (session, messages) = map_err(SignSession::new_dkls(
             &key_share.inner,
@@ -322,7 +318,7 @@ impl WasmSignSession {
     pub fn new_dkls_r1(
         key_share: &WasmKeyShareHandle,
         sign_id: &Uint8Array,
-        counterparties: &Uint16Array,
+        #[wasm_bindgen(unchecked_param_type = "number[] | Uint16Array")] counterparties: JsValue,
         message_hash: &Uint8Array,
     ) -> Result<js_sys::Array, JsValue> {
         let sign_id_bytes = sign_id.to_vec();
@@ -332,12 +328,7 @@ impl WasmSignSession {
         }
         let hash_arr: [u8; 32] = hash_bytes.try_into().unwrap();
 
-        let cp_vec = counterparties.to_vec();
-        let cp_ids: Result<Vec<Identifier>, _> = cp_vec
-            .iter()
-            .map(|&id| Identifier::new(id))
-            .collect::<Result<Vec<_>, _>>();
-        let cp_ids = map_err(cp_ids)?;
+        let cp_ids = identifiers_arg(&counterparties, "counterparty")?;
 
         let (session, messages) = map_err(SignSession::new_dkls_r1(
             &key_share.inner,
@@ -482,14 +473,9 @@ impl WasmRefreshSession {
     #[wasm_bindgen(static_method_of = WasmRefreshSession, js_name = "createDealer")]
     pub fn create_dealer(
         key_share: &WasmKeyShareHandle,
-        participants: &Uint16Array,
+        #[wasm_bindgen(unchecked_param_type = "number[] | Uint16Array")] participants: JsValue,
     ) -> Result<js_sys::Array, JsValue> {
-        let ids: Result<Vec<Identifier>, _> = participants
-            .to_vec()
-            .iter()
-            .map(|&id| Identifier::new(id))
-            .collect::<Result<Vec<_>, _>>();
-        let ids = map_err(ids)?;
+        let ids = identifiers_arg(&participants, "participant")?;
 
         let (session, messages) =
             map_err(RefreshSession::new_frost(&key_share.inner, &ids))?;
@@ -541,11 +527,18 @@ impl WasmRefreshSession {
 
     /// Create a receiver (non-dealer) refresh session.
     ///
-    /// `keyShare` is the participant's current FROST key share.
-    /// Call `next()` with the refresh-share message received from the dealer.
+    /// `keyShare` is the participant's current FROST key share and `dealer`
+    /// the identifier of the trusted party that called `createDealer()`.
+    /// Call `next()` with the dealer's messages: only the message from `dealer`
+    /// addressed to this party is accepted, and the refreshed public key
+    /// package is checked against the current one.
     #[wasm_bindgen(static_method_of = WasmRefreshSession, js_name = "createReceiver")]
-    pub fn create_receiver(key_share: &WasmKeyShareHandle) -> Result<WasmRefreshSession, JsValue> {
-        let session = map_err(RefreshSession::new_frost_receiver(&key_share.inner))?;
+    pub fn create_receiver(
+        key_share: &WasmKeyShareHandle,
+        #[wasm_bindgen(unchecked_param_type = "number")] dealer: JsValue,
+    ) -> Result<WasmRefreshSession, JsValue> {
+        let dealer = identifier_arg(&dealer, "dealer")?;
+        let session = map_err(RefreshSession::new_frost_receiver(&key_share.inner, dealer))?;
         Ok(WasmRefreshSession {
             inner: Some(session),
         })

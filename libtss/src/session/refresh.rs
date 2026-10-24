@@ -1,7 +1,9 @@
 use zeroize::Zeroize;
 
 use crate::dkls_refresh::{self, DklsRefreshState};
-use crate::frost::{frost_apply_refresh, frost_refresh_with_dealer};
+use crate::frost::{
+    frost_apply_refresh, frost_refresh_with_dealer, frost_verify_refreshed_package,
+};
 use crate::keyshare::{self, KeyShareHandle};
 use crate::message::Message;
 use crate::types::{Ciphersuite, Identifier, Protocol, PublicKeyPackage};
@@ -19,7 +21,8 @@ enum RefreshInner {
     FrostApply {
         key_share: crate::frost::KeyShareHandle,
         self_id: Identifier,
-        group_key: Vec<u8>,
+        dealer: Identifier,
+        public_keys: PublicKeyPackage,
     },
     Dkls(Box<Option<DklsRefreshState<k256::Secp256k1>>>),
     DklsR1(Box<Option<DklsRefreshState<p256::NistP256>>>),
@@ -76,7 +79,8 @@ impl RefreshSession {
                 inner: RefreshInner::FrostApply {
                     key_share: frost_key,
                     self_id,
-                    group_key: key_share.group_verifying_key(),
+                    dealer: self_id,
+                    public_keys: pubkey_package,
                 },
                 round: 1,
             },
@@ -87,12 +91,31 @@ impl RefreshSession {
     /// Create a receive-only FROST refresh session (non-dealer participants).
     ///
     /// The participant calls `next()` with the dealer's messages; exactly one
-    /// must be addressed to it, from the authenticated dealer. The refreshed
-    /// public key package is taken from that message and must keep the group
-    /// key and match this party's refreshed verifying share.
-    pub fn new_frost_receiver(key_share: &KeyShareHandle) -> Result<Self, TssError> {
+    /// must be addressed to it, and its `from` must equal `dealer`. The caller
+    /// must authenticate the transport so that `from` is reliable.
+    ///
+    /// The refreshed public key package is taken from that message and is
+    /// checked against this party's current package: the group key and
+    /// `min_signers` are unchanged, its identifiers are a subset of the current
+    /// ones, and every verifying share moved by the dealer's committed
+    /// zero-constant polynomial. The dealer is trusted: it learns nothing about
+    /// the signing key, but it chooses the refresh polynomial and could keep
+    /// parties out of the refreshed group or hand different parties shares of
+    /// different polynomials, so receivers should only accept a refresh from a
+    /// dealer they already trust with that role.
+    pub fn new_frost_receiver(
+        key_share: &KeyShareHandle,
+        dealer: Identifier,
+    ) -> Result<Self, TssError> {
         if key_share.ciphersuite().protocol() != Protocol::Frost {
             return Err(TssError::ProtocolMismatch);
+        }
+        if key_share
+            .public_key_package()
+            .verifying_share(dealer)
+            .is_none()
+        {
+            return Err(TssError::InvalidIdentifier);
         }
 
         let frost_key = keyshare::to_frost_handle(key_share)?;
@@ -100,7 +123,8 @@ impl RefreshSession {
             inner: RefreshInner::FrostApply {
                 key_share: frost_key,
                 self_id: key_share.identifier(),
-                group_key: key_share.group_verifying_key(),
+                dealer,
+                public_keys: key_share.public_key_package().clone(),
             },
             round: 1,
         })
@@ -187,7 +211,8 @@ impl RefreshSession {
             RefreshInner::FrostApply {
                 key_share,
                 self_id,
-                group_key,
+                dealer,
+                public_keys,
             } => {
                 let mut addressed = received.iter().filter(|m| m.to == Some(self_id));
                 let msg = match (addressed.next(), addressed.next()) {
@@ -203,6 +228,16 @@ impl RefreshSession {
                         ))
                     }
                 };
+                if msg.from != dealer {
+                    return Err(TssError::Abort {
+                        culprits: vec![msg.from],
+                        message: format!(
+                            "party {}: refresh message not from the dealer",
+                            msg.from.as_u16()
+                        ),
+                        ban: None,
+                    });
+                }
 
                 // Parse message: [pubkey_len:u32 LE][pubkey_bytes][refresh_data]
                 if msg.data.len() < 4 {
@@ -224,9 +259,12 @@ impl RefreshSession {
                     })?;
                 let (pubkey_bytes, refresh_data) = body.split_at(pubkey_len);
                 let pubkey_package = PublicKeyPackage::deserialize(pubkey_bytes)?;
-                if pubkey_package.verifying_key() != group_key.as_slice() {
-                    return Err(TssError::InvalidShare);
-                }
+                frost_verify_refreshed_package(
+                    self_id,
+                    &public_keys,
+                    &pubkey_package,
+                    refresh_data,
+                )?;
 
                 let refreshed = frost_apply_refresh(&key_share, refresh_data)?;
                 let registry_handle = keyshare::from_frost_dkg(refreshed, &pubkey_package)?;
@@ -326,7 +364,7 @@ mod tests {
         // Each participant applies their refresh using the same dealer messages
         let mut refreshed = Vec::new();
         for ks in &key_shares {
-            let mut session = RefreshSession::new_frost_receiver(ks)?;
+            let mut session = RefreshSession::new_frost_receiver(ks, id(1))?;
             let my_msg: Vec<_> = dealer_messages
                 .iter()
                 .filter(|m| m.to == Some(ks.identifier()))
@@ -387,7 +425,7 @@ mod tests {
             .iter()
             .filter(|ks| subset.contains(&ks.identifier()))
         {
-            let mut session = RefreshSession::new_frost_receiver(ks)?;
+            let mut session = RefreshSession::new_frost_receiver(ks, id(1))?;
             let mine: Vec<_> = dealer_messages
                 .iter()
                 .filter(|m| m.to == Some(ks.identifier()))
@@ -434,7 +472,7 @@ mod tests {
         let (frost_shares, pubkey) = frost_generate_with_dealer(&config)?;
         let ks = keyshare::from_frost_dkg(frost_shares.into_iter().next().unwrap(), &pubkey)?;
         for prefix in [u32::MAX, u32::MAX - 3, 5] {
-            let mut session = RefreshSession::new_frost_receiver(&ks)?;
+            let mut session = RefreshSession::new_frost_receiver(&ks, id(2))?;
             let mut data = prefix.to_le_bytes().to_vec();
             data.extend_from_slice(&[0u8; 4]);
             let message = Message {
@@ -448,5 +486,211 @@ mod tests {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod receiver_checks {
+    use std::collections::BTreeMap;
+
+    use super::*;
+    use crate::frost::frost_generate_with_dealer;
+    use crate::types::ThresholdConfig;
+
+    fn id(value: u16) -> Identifier {
+        Identifier::new(value).unwrap()
+    }
+
+    struct Setup {
+        shares: Vec<KeyShareHandle>,
+        messages: Vec<Message>,
+    }
+
+    fn setup(participants: &[u16]) -> Setup {
+        let config = ThresholdConfig {
+            min_signers: 2,
+            max_signers: 4,
+            suite: Ciphersuite::Ed25519,
+        };
+        let (frost_shares, pubkey) = frost_generate_with_dealer(&config).unwrap();
+        let shares = frost_shares
+            .into_iter()
+            .map(|share| keyshare::from_frost_dkg(share, &pubkey))
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
+        let participants: Vec<_> = participants.iter().map(|&p| id(p)).collect();
+        let (_, messages) = RefreshSession::new_frost(&shares[0], &participants).unwrap();
+        Setup { shares, messages }
+    }
+
+    fn split(data: &[u8]) -> (PublicKeyPackage, Vec<u8>) {
+        let len = u32::from_le_bytes(data[..4].try_into().unwrap()) as usize;
+        (
+            PublicKeyPackage::deserialize(&data[4..4 + len]).unwrap(),
+            data[4 + len..].to_vec(),
+        )
+    }
+
+    fn join(package: &PublicKeyPackage, refresh: &[u8]) -> Vec<u8> {
+        let bytes = package.serialize().unwrap();
+        let mut data = (bytes.len() as u32).to_le_bytes().to_vec();
+        data.extend_from_slice(&bytes);
+        data.extend_from_slice(refresh);
+        data
+    }
+
+    /// Message for `to`, with the bundled package rewritten by `edit`.
+    fn tampered(
+        setup: &Setup,
+        to: u16,
+        edit: impl FnOnce(&mut BTreeMap<Identifier, Vec<u8>>, &mut u16),
+    ) -> Message {
+        let mut message = setup
+            .messages
+            .iter()
+            .find(|m| m.to == Some(id(to)))
+            .unwrap()
+            .clone();
+        let (package, refresh) = split(&message.data);
+        let mut shares = package.verifying_shares().clone();
+        let mut min_signers = package.min_signers();
+        edit(&mut shares, &mut min_signers);
+        let package = PublicKeyPackage::new(
+            package.suite(),
+            package.verifying_key().to_vec(),
+            shares,
+            min_signers,
+        );
+        message.data = join(&package, &refresh);
+        message
+    }
+
+    fn receive(share: &KeyShareHandle, message: Message) -> Result<RefreshOutput, TssError> {
+        RefreshSession::new_frost_receiver(share, id(1))?.next(&[message])
+    }
+
+    #[test]
+    fn honest_refresh_accepted() {
+        let setup = setup(&[1, 2, 3, 4]);
+        let message = tampered(&setup, 2, |_, _| {});
+        assert!(matches!(
+            receive(&setup.shares[1], message),
+            Ok(RefreshOutput::Complete { .. })
+        ));
+    }
+
+    #[test]
+    fn rejects_message_from_non_dealer() {
+        let setup = setup(&[1, 2, 3, 4]);
+        let mut message = tampered(&setup, 2, |_, _| {});
+        message.from = id(3);
+        match receive(&setup.shares[1], message) {
+            Err(TssError::Abort { culprits, .. }) => assert_eq!(culprits, vec![id(3)]),
+            other => panic!("expected Abort, got {:?}", other.err()),
+        }
+    }
+
+    #[test]
+    fn rejects_dealer_outside_group() {
+        let setup = setup(&[1, 2, 3, 4]);
+        assert!(matches!(
+            RefreshSession::new_frost_receiver(&setup.shares[1], id(9)),
+            Err(TssError::InvalidIdentifier)
+        ));
+    }
+
+    #[test]
+    fn rejects_swapped_verifying_shares() {
+        let setup = setup(&[1, 2, 3, 4]);
+        // Swapping two other parties' shares keeps the group key and this
+        // party's own share.
+        let message = tampered(&setup, 2, |shares, _| {
+            let three = shares[&id(3)].clone();
+            let four = shares.insert(id(4), three).unwrap();
+            shares.insert(id(3), four);
+        });
+        assert_eq!(
+            receive(&setup.shares[1], message).err(),
+            Some(TssError::InvalidShare)
+        );
+        // Swapping this party's share with another one.
+        let message = tampered(&setup, 2, |shares, _| {
+            let two = shares[&id(2)].clone();
+            let three = shares.insert(id(3), two).unwrap();
+            shares.insert(id(2), three);
+        });
+        assert_eq!(
+            receive(&setup.shares[1], message).err(),
+            Some(TssError::InvalidShare)
+        );
+    }
+
+    #[test]
+    fn rejects_other_party_share_replaced() {
+        let setup = setup(&[1, 2, 3, 4]);
+        let old = setup.shares[0].public_key_package().clone();
+        let message = tampered(&setup, 2, |shares, _| {
+            shares.insert(id(3), old.verifying_share(id(3)).unwrap().to_vec());
+        });
+        assert_eq!(
+            receive(&setup.shares[1], message).err(),
+            Some(TssError::InvalidShare)
+        );
+    }
+
+    #[test]
+    fn rejects_changed_min_signers() {
+        let setup = setup(&[1, 2, 3, 4]);
+        let message = tampered(&setup, 2, |_, min_signers| *min_signers = 3);
+        assert_eq!(
+            receive(&setup.shares[1], message).err(),
+            Some(TssError::InvalidShare)
+        );
+    }
+
+    #[test]
+    fn rejects_identifier_outside_old_group() {
+        let setup = setup(&[1, 2, 3]);
+        let message = tampered(&setup, 2, |shares, _| {
+            let three = shares[&id(3)].clone();
+            shares.insert(id(7), three);
+        });
+        assert_eq!(
+            receive(&setup.shares[1], message).err(),
+            Some(TssError::InvalidShare)
+        );
+    }
+
+    #[test]
+    fn rejects_package_without_receiver() {
+        let setup = setup(&[1, 2, 3, 4]);
+        let message = tampered(&setup, 2, |shares, _| {
+            shares.remove(&id(2));
+        });
+        assert_eq!(
+            receive(&setup.shares[1], message).err(),
+            Some(TssError::InvalidShare)
+        );
+    }
+
+    #[test]
+    fn rejects_share_for_another_party() {
+        let setup = setup(&[1, 2, 3, 4]);
+        let mut message = tampered(&setup, 3, |_, _| {});
+        message.to = Some(id(2));
+        assert_eq!(
+            receive(&setup.shares[1], message).err(),
+            Some(TssError::InvalidShare)
+        );
+    }
+
+    #[test]
+    fn sparse_refresh_accepted() {
+        let setup = setup(&[1, 2, 4]);
+        let message = tampered(&setup, 4, |_, _| {});
+        assert!(matches!(
+            receive(&setup.shares[3], message),
+            Ok(RefreshOutput::Complete { .. })
+        ));
     }
 }

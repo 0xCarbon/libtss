@@ -157,7 +157,7 @@ export const lib: Record<string, (...args: any[]) => any> = {
 		"int32_t tss_refresh_new_dkls(uint64_t key_share, const uint8_t *session_id, size_t session_id_len, _Out_ uint64_t *out_session, _Out_ TssBuffer *out_messages)",
 	),
 	tss_refresh_receiver: native.func(
-		"int32_t tss_refresh_receiver(uint64_t key_share, _Out_ uint64_t *out_session)",
+		"int32_t tss_refresh_receiver(uint64_t key_share, uint16_t dealer, _Out_ uint64_t *out_session)",
 	),
 	tss_refresh_next: native.func(
 		"int32_t tss_refresh_next(uint64_t session, TssSlice messages, _Out_ uint64_t *out_key_share, _Out_ TssBuffer *out_pubkey_package, _Out_ TssBuffer *out_messages, _Out_ bool *out_complete)",
