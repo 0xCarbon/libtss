@@ -145,6 +145,9 @@ export const lib: Record<string, (...args: any[]) => any> = {
 	tss_sign_next: native.func(
 		"int32_t tss_sign_next(uint64_t session, TssSlice messages, _Out_ TssBuffer *out_signature, _Out_ TssBuffer *out_messages, _Out_ bool *out_complete)",
 	),
+	tss_sign_next_recoverable: native.func(
+		"int32_t tss_sign_next_recoverable(uint64_t session, TssSlice messages, _Out_ TssBuffer *out_signature, _Out_ uint8_t *out_recovery_id, _Out_ TssBuffer *out_messages, _Out_ bool *out_complete)",
+	),
 
 	// Refresh session
 	tss_refresh_new: native.func(
