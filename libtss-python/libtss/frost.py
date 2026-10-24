@@ -133,6 +133,12 @@ def split_key(
     """
     sl = None
     try:
+        if (
+            not isinstance(min_signers, int)
+            or not isinstance(max_signers, int)
+            or not 1 <= min_signers <= max_signers <= 0xFFFF
+        ):
+            raise ValueError("requires 1 <= min_signers <= max_signers <= 65535")
         handles_arr = (ctypes.c_uint64 * max_signers)()
         handle_count = ctypes.c_size_t()
         out_pkg = TssBuffer()

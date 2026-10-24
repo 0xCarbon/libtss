@@ -64,6 +64,17 @@ export function frostSplitKey(
 	minSigners: number,
 ): { keyShares: KeyShareHandle[]; publicKeys: Uint8Array } {
 	try {
+		if (
+			!Number.isInteger(minSigners) ||
+			!Number.isInteger(maxSigners) ||
+			minSigners < 1 ||
+			maxSigners < minSigners ||
+			maxSigners > 0xffff
+		) {
+			throw new RangeError(
+				"requires integers with 1 <= minSigners <= maxSigners <= 65535",
+			);
+		}
 		const outHandles = new BigUint64Array(maxSigners);
 		const outCount: [number | bigint] = [0n];
 		const outPkg = allocBuffer();

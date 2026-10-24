@@ -353,6 +353,16 @@ class TestDealerKeygen:
             h.close()
 
 
+    @pytest.mark.parametrize("min_signers", [65538, -65534, 0, 4])
+    def test_split_key_rejects_out_of_range_thresholds_and_wipes_the_secret(
+        self, min_signers
+    ):
+        secret = bytearray(b"\x07" * 32)
+        with pytest.raises(ValueError):
+            frost.split_key(Ciphersuite.ED25519, secret, 3, min_signers)
+        assert secret == bytearray(32)
+
+
 class TestRefresh:
     def test_frost_refresh_preserves_signing(self):
         shares, pkg = run_dkg(Ciphersuite.ED25519, 3, 2)

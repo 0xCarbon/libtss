@@ -132,25 +132,20 @@ DER encoding is available via a helper function.
 
 ```
 ┌────────────────────────────────────────────┐
-│ Magic bytes: "LTSS" (4 bytes)              │
-│ Version: u16 (1)                           │
-│ Protocol: u8                               │
-│ Ciphersuite: u8                            │
+│ Header (8 bytes)                           │
+│  magic: "LTSS" (4 bytes)                   │
+│  version: u16 little-endian (1)            │
+│  protocol: u8 (0 = FROST, 1 = DKLs23)      │
+│  ciphersuite: u8                           │
 ├────────────────────────────────────────────┤
-│ Payload length: u32 (big-endian)           │
-│ Payload: [u8; length]                      │
-│  (serde-postcard serialized key material)  │
-├────────────────────────────────────────────┤
-│ Public key package (serialized)            │
-│  length: u32                               │
-│  data: [u8; length]                        │
-├────────────────────────────────────────────┤
-│ Chain code (optional)                      │
-│  present: u8 (0 or 1)                     │
-│  chain_code: [u8; 32] (if present)        │
+│ Payload (rest of the blob, no length)      │
+│  postcard of (key material, public keys):  │
+│  FROST: (KeyPackage, PublicKeyPackage)     │
+│  DKLs23: (Party, PublicKeyPackage); the    │
+│  chain code lives inside Party             │
 ├────────────────────────────────────────────┤
 │ SHA-256 checksum (32 bytes)                │
-│  covers all preceding bytes                │
+│  over header || payload                    │
 └────────────────────────────────────────────┘
 ```
 
