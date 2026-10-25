@@ -81,9 +81,10 @@ check_link_flags() {
 	expected="$(sed -n "s|^#cgo LDFLAGS: \${SRCDIR}/native/$platform/liblibtss_ffi.a ||p" \
 		"$root/libtss-go/tss/link_static_$platform.go")"
 	for attempt in 1 2; do
-		native="$(RUSTFLAGS="$rustflags" cargo rustc --locked --release -p libtss-ffi --target "$target" \
-			--manifest-path "$root/Cargo.toml" --crate-type staticlib -- --print native-static-libs 2>&1 |
-			sed -n 's/.*native-static-libs: //p' | head -1)"
+		native="$(RUSTFLAGS="$rustflags" cargo rustc --color never --locked --release -p libtss-ffi \
+			--target "$target" --manifest-path "$root/Cargo.toml" --crate-type staticlib \
+			-- --print native-static-libs 2>&1 |
+			sed -n 's/.*native-static-libs: //p' | sed 's/\x1b\[[0-9;]*m//g; s/[[:space:]]*$//' | head -1)"
 		[[ -n "$native" ]] && break
 		# rustc prints the list only when it compiles; force it once.
 		touch "$root/libtss-ffi/src/lib.rs"
@@ -98,6 +99,9 @@ assemble() {
 	[[ "$version" =~ ^v[01]\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]] ||
 		die "version must be a canonical v0.x.y or v1.x.y: $version"
 	[[ ! -e "$out" ]] || die "$out already exists"
+	# The module is copied from the working tree and labeled with HEAD.
+	[[ -z "$(git -C "$root" status --porcelain --untracked-files=no)" ]] ||
+		die "the working tree has uncommitted changes"
 	mkdir -p "$out"
 	# Tracked files only. cp -L resolves tss_ffi.h, which is a symlink to
 	# libtss-ffi/libtss.h in this repository; Go module zips do not keep

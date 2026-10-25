@@ -43,7 +43,9 @@ Linux; `libiconv` and `libSystem` on macOS). The binding needs cgo
 Other Linux and macOS setups (for example musl) build with `libtss_dynamic`;
 without a tag, platforms that have no archive fail to compile with a message
 naming `libtss_dynamic`. From a libtss checkout, `make install-ffi PREFIX=/usr/local`
-installs the shared library, `libtss.h` and `libtss_ffi.pc` on Linux or macOS:
+installs the shared library, `libtss.h` and `libtss_ffi.pc` on Linux or macOS
+(on musl, Rust builds the shared library only with
+`RUSTFLAGS="-C target-feature=-crt-static"`):
 
 ```bash
 make install-ffi PREFIX="$HOME/.local"
