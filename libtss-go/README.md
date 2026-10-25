@@ -53,7 +53,9 @@ go build -tags libtss_dynamic ./...
 
 `libtss_ffi.pc` adds an rpath to the install directory, and on macOS
 `make install-ffi` sets the library's install name to its installed path, so
-binaries find the library without `LD_LIBRARY_PATH`. The binding compiles
+binaries find the library without `LD_LIBRARY_PATH` (Linux) or
+`DYLD_LIBRARY_PATH` (macOS). `make install-ffi` also installs the static
+archive, for `pkg-config --static` consumers. The binding compiles
 against its own copy of the header, so install the `libtss-ffi` built from the
 same libtss commit as the module.
 

@@ -167,7 +167,7 @@ jobs:
           make -C .. install-ffi PREFIX="$RUNNER_TEMP/libtss"
           # No LD_LIBRARY_PATH: libtss_ffi.pc's rpath must find the library.
           export PKG_CONFIG_PATH="$RUNNER_TEMP/libtss/lib/pkgconfig"
-          go test -tags libtss_dynamic -count=1 -run 'TestFROSTEndToEnd|TestDKLs23EndToEnd' ./tss
+          go test -a -tags libtss_dynamic -count=1 -run 'TestFROSTEndToEnd|TestDKLs23EndToEnd' ./tss
 
   audit:
     runs-on: ubuntu-latest

@@ -68,6 +68,8 @@ jobs:
           cp target/aarch64-linux-android/release/liblibtss_ffi.a libtss-rn/android/libs/aarch64-linux-android/
           cp target/x86_64-linux-android/release/liblibtss_ffi.a libtss-rn/android/libs/x86_64-linux-android/
           cp libtss-ffi/libtss.h libtss-rn/android/include/
+          strip="${{ steps.ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-strip"
+          "$strip" --strip-debug libtss-rn/android/libs/*/liblibtss_ffi.a
           # iOS: ios/LibtssFFI.xcframework and ios/include come from the ios job.
 
       - uses: actions/setup-node@v4

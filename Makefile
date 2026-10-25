@@ -26,6 +26,7 @@ install-ffi:
 	cargo build --locked --release -p libtss-ffi
 	install -d $(DESTDIR)$(PREFIX)/lib $(DESTDIR)$(PREFIX)/lib/pkgconfig $(DESTDIR)$(PREFIX)/include
 	install -m 755 $(CARGO_TARGET_DIR)/release/$(FFI_SHARED) $(DESTDIR)$(PREFIX)/lib/
+	install -m 644 $(CARGO_TARGET_DIR)/release/liblibtss_ffi.a $(DESTDIR)$(PREFIX)/lib/
 ifeq ($(shell uname -s),Darwin)
 	# The build sets the install name to the target/ path; point it at the
 	# installed library instead.
