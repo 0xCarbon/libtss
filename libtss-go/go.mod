@@ -1,4 +1,4 @@
-module github.com/0xCarbon/libtss/libtss-go
+module github.com/0xCarbon/libtss-go
 
 go 1.26.0
 

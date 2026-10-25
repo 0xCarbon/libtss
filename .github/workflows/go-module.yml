@@ -1,0 +1,246 @@
+name: Go module
+
+# Builds the prebuilt libtss-ffi archives, tests libtss-go against each one
+# without build tags, and assembles the publishable module
+# github.com/0xCarbon/libtss-go. A manual run with `publish` pushes the module
+# to 0xCarbon/libtss-go and tags it (see libtss-go/README.md, "Releasing").
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "libtss/**"
+      - "libtss-ffi/**"
+      - "libtss-go/**"
+      - "scripts/go-native.sh"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/go-module.yml"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Go module version (e.g. v0.1.0)"
+        required: true
+        type: string
+      publish:
+        description: "Push to 0xCarbon/libtss-go and tag the version"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: go-module-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  archive:
+    name: archive (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ubuntu-22.04 keeps the glibc symbol versions the archives need low.
+          - platform: linux_amd64
+            target: x86_64-unknown-linux-gnu
+            runner: ubuntu-22.04
+          - platform: linux_arm64
+            target: aarch64-unknown-linux-gnu
+            runner: ubuntu-22.04-arm
+          - platform: darwin_arm64
+            target: aarch64-apple-darwin
+            runner: macos-14
+          # Built on Apple silicon and tested under Rosetta.
+          - platform: darwin_amd64
+            target: x86_64-apple-darwin
+            runner: macos-14
+    runs-on: ${{ matrix.runner }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "11.0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: go-native-${{ matrix.platform }}
+
+      - name: Build the archive
+        run: scripts/go-native.sh build ${{ matrix.target }} ${{ matrix.platform }}
+
+      - name: Show the native libraries the archive needs
+        run: |
+          cargo rustc --locked --release -p libtss-ffi --target ${{ matrix.target }} \
+            --crate-type staticlib -- --print native-static-libs 2>&1 | grep native-static-libs
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: libtss-go/go.mod
+          cache-dependency-path: libtss-go/go.sum
+
+      - name: Install Rosetta
+        if: matrix.platform == 'darwin_amd64'
+        run: /usr/sbin/softwareupdate --install-rosetta --agree-to-license
+
+      - name: Test libtss-go against the archive (no build tags)
+        working-directory: libtss-go
+        env:
+          GOARCH: ${{ endsWith(matrix.platform, 'amd64') && 'amd64' || 'arm64' }}
+          CGO_ENABLED: "1"
+        run: |
+          go list -f '{{.CgoLDFLAGS}}' ./tss
+          go test -timeout 40m ./...
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: go-native-${{ matrix.platform }}
+          path: libtss-go/tss/native/${{ matrix.platform }}/liblibtss_ffi.a
+          if-no-files-found: error
+          retention-days: 7
+
+  module:
+    needs: archive
+    runs-on: ubuntu-22.04
+    env:
+      VERSION: ${{ inputs.version || 'v0.0.0-ci' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: libtss-go/go.mod
+          cache-dependency-path: libtss-go/go.sum
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: go-native-*
+          path: artifacts
+
+      - name: Assemble the module
+        run: |
+          mkdir archives
+          for dir in artifacts/go-native-*; do
+            mv "$dir" "archives/${dir#artifacts/go-native-}"
+          done
+          scripts/go-native.sh assemble "$RUNNER_TEMP/libtss-go" "$VERSION" archives
+          cat "$RUNNER_TEMP/libtss-go/tss/native/VERSION" "$RUNNER_TEMP/libtss-go/tss/native/SHA256SUMS"
+
+      - name: Check the module zip limits
+        working-directory: ${{ runner.temp }}
+        run: |
+          mkdir zipcheck && cd zipcheck
+          go mod init zipcheck >/dev/null 2>&1
+          go get golang.org/x/mod@v0.20.0 >/dev/null 2>&1
+          cat > main.go <<'EOF'
+          package main
+
+          import (
+          	"fmt"
+          	"os"
+
+          	"golang.org/x/mod/zip"
+          )
+
+          func main() {
+          	files, err := zip.CheckDir(os.Args[1])
+          	for _, f := range files.Omitted {
+          		fmt.Println("omitted:", f.Path, f.Err)
+          	}
+          	for _, f := range files.Invalid {
+          		fmt.Println("invalid:", f.Path, f.Err)
+          	}
+          	if err != nil || len(files.Invalid) > 0 || files.SizeError != nil {
+          		fmt.Println("error:", err, files.SizeError)
+          		os.Exit(1)
+          	}
+          	fmt.Println("valid files:", len(files.Valid))
+          }
+          EOF
+          go run . "$RUNNER_TEMP/libtss-go"
+
+      - name: Build and run a consumer of the module
+        working-directory: ${{ runner.temp }}
+        run: |
+          mkdir consumer && cd consumer
+          cat > go.mod <<EOF
+          module consumer
+
+          go 1.26.0
+
+          require github.com/0xCarbon/libtss-go v0.0.0
+
+          replace github.com/0xCarbon/libtss-go => $RUNNER_TEMP/libtss-go
+          EOF
+          cat > main.go <<'EOF'
+          package main
+
+          import (
+          	"fmt"
+
+          	"github.com/0xCarbon/libtss-go/tss"
+          )
+
+          func main() {
+          	fmt.Println("libtss", tss.Version())
+          }
+          EOF
+          go mod tidy
+          go build -trimpath -o consumer .
+          ./consumer
+          # The archive is linked in, not loaded at run time.
+          ldd ./consumer
+          ! ldd ./consumer | grep -q libtss_ffi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libtss-go-module
+          path: ${{ runner.temp }}/libtss-go
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: module
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-22.04
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: libtss-go-module
+          path: module
+
+      - name: Push to 0xCarbon/libtss-go
+        env:
+          DEPLOY_KEY: ${{ secrets.LIBTSS_GO_DEPLOY_KEY }}
+        run: |
+          [ -n "$DEPLOY_KEY" ] || { echo "LIBTSS_GO_DEPLOY_KEY is not set"; exit 1; }
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/libtss_go
+          chmod 600 ~/.ssh/libtss_go
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/libtss_go -o IdentitiesOnly=yes"
+          git clone git@github.com:0xCarbon/libtss-go.git dest
+          cd dest
+          if git rev-parse -q --verify "refs/tags/$VERSION" >/dev/null; then
+            echo "$VERSION already exists in 0xCarbon/libtss-go"; exit 1
+          fi
+          git checkout -B main
+          find . -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf {} +
+          cp -R ../module/. .
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "libtss-go $VERSION from 0xCarbon/libtss@$GITHUB_SHA"
+          git tag -a "$VERSION" -m "libtss-go $VERSION from 0xCarbon/libtss@$GITHUB_SHA"
+          git push origin main "refs/tags/$VERSION"

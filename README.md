@@ -80,7 +80,7 @@ See [`spec/`](spec/) for the full design specification.
 | Binding | Language | Description |
 |---------|----------|-------------|
 | [libtss-ffi](libtss-ffi/) | C ABI | FFI layer (cbindgen) |
-| [libtss-go](libtss-go/) | Go | cgo binding |
+| [libtss-go](libtss-go/) | Go | cgo binding, published as `github.com/0xCarbon/libtss-go` with prebuilt static archives |
 | [libtss-wasm](libtss-wasm/) | JavaScript / TypeScript | WebAssembly (wasm-bindgen) |
 | [libtss-rn](libtss-rn/) | React Native | iOS & Android |
 | [libtss-python](libtss-python/) | Python | ctypes binding |

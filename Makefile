@@ -1,4 +1,4 @@
-.PHONY: build test clean rn-test
+.PHONY: build test clean rn-test install-ffi go-test
 
 build:
 	cargo build --release --workspace
@@ -11,6 +11,25 @@ rn-test:
 
 clean:
 	cargo clean
+
+# Installs the shared libtss-ffi library, its header and libtss_ffi.pc under
+# PREFIX (used by the Go binding's libtss_dynamic build tag).
+PREFIX ?= /usr/local
+FFI_VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' libtss-ffi/Cargo.toml | head -1)
+FFI_SHARED := $(if $(filter Darwin,$(shell uname -s)),liblibtss_ffi.dylib,liblibtss_ffi.so)
+
+install-ffi:
+	cargo build --locked --release -p libtss-ffi
+	install -d $(DESTDIR)$(PREFIX)/lib $(DESTDIR)$(PREFIX)/lib/pkgconfig $(DESTDIR)$(PREFIX)/include
+	install -m 644 target/release/$(FFI_SHARED) $(DESTDIR)$(PREFIX)/lib/
+	install -m 644 libtss-ffi/libtss.h $(DESTDIR)$(PREFIX)/include/
+	sed -e 's|@PREFIX@|$(PREFIX)|' -e 's|@VERSION@|$(FFI_VERSION)|' libtss-ffi/libtss_ffi.pc.in \
+		> $(DESTDIR)$(PREFIX)/lib/pkgconfig/libtss_ffi.pc
+
+# Go tests against this checkout's libtss-ffi build.
+go-test:
+	cargo build -p libtss-ffi
+	cd libtss-go && go test -tags libtss_local ./...
 
 .PHONY: linux-x86_64 linux-aarch64 android-arm64 android-x86_64 ios-arm64 ios-sim-arm64
 

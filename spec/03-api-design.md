@@ -736,8 +736,9 @@ API uses a single pattern for all protocols, bindings are thin (~300-500 LoC).
 ```go
 package tss
 
-// #cgo LDFLAGS: -llibtss -ldl -lm
-// #include "libtss.h"
+// Linker flags live in per-platform files (link_static_<os>_<arch>.go,
+// link_dynamic.go, link_local.go); see libtss-go/README.md.
+// #include "tss_ffi.h"
 import "C"
 
 // DKG — same code works for FROST and DKLs23

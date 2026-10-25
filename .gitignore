@@ -68,3 +68,6 @@ Thumbs.db
 .tracking/
 ISSUE.md
 libtss/wip/
+
+# Prebuilt archives for the published Go module (scripts/go-native.sh)
+libtss-go/tss/native/
