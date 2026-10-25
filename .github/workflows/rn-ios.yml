@@ -24,7 +24,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: rn-ios-${{ github.ref }}-${{ github.event_name }}
+  # github.workflow is the caller's name when publish-rn calls this one.
+  group: rn-ios-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:

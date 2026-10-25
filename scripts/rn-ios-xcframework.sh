@@ -12,9 +12,11 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 out="$root/libtss-rn/ios"
-work="$root/target/rn-ios"
+target_dir="${CARGO_TARGET_DIR:-$root/target}"
+work="$target_dir/rn-ios"
 
-# Matches s.platform in libtss-rn.podspec.
+# Matches s.platform in libtss-rn.podspec (rustc raises the simulator slices
+# to its own minimum).
 export IPHONEOS_DEPLOYMENT_TARGET="${IPHONEOS_DEPLOYMENT_TARGET:-13.0}"
 
 for target in aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios; do
@@ -29,10 +31,10 @@ cp "$root/libtss-ffi/libtss.h" "$out/include/"
 # CocoaPods derives the linker flag from the library file name and strips
 # "lib" from liblibtss_ffi.a twice (-ltss_ffi), so the slices are named
 # libtss_ffi.a, which it links as -ltss_ffi.
-cp "$root/target/aarch64-apple-ios/release/liblibtss_ffi.a" "$work/device/libtss_ffi.a"
+cp "$target_dir/aarch64-apple-ios/release/liblibtss_ffi.a" "$work/device/libtss_ffi.a"
 lipo -create \
-	"$root/target/aarch64-apple-ios-sim/release/liblibtss_ffi.a" \
-	"$root/target/x86_64-apple-ios/release/liblibtss_ffi.a" \
+	"$target_dir/aarch64-apple-ios-sim/release/liblibtss_ffi.a" \
+	"$target_dir/x86_64-apple-ios/release/liblibtss_ffi.a" \
 	-output "$work/simulator/libtss_ffi.a"
 strip -S "$work/device/libtss_ffi.a" "$work/simulator/libtss_ffi.a"
 

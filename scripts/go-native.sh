@@ -16,6 +16,18 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 platforms=(linux_amd64 linux_arm64 darwin_amd64 darwin_arm64)
+target_dir="${CARGO_TARGET_DIR:-$root/target}"
+
+# The Rust target each platform's archive is built for.
+rust_target() {
+	case "$1" in
+	linux_amd64) echo x86_64-unknown-linux-gnu ;;
+	linux_arm64) echo aarch64-unknown-linux-gnu ;;
+	darwin_amd64) echo x86_64-apple-darwin ;;
+	darwin_arm64) echo aarch64-apple-darwin ;;
+	*) die "unsupported platform: $1" ;;
+	esac
+}
 
 die() {
 	echo "go-native: $*" >&2
@@ -32,11 +44,15 @@ sha256() {
 
 build() {
 	local target="$1" platform="$2"
-	[[ " ${platforms[*]} " == *" $platform "* ]] || die "unsupported platform: $platform"
+	[[ "$(rust_target "$platform")" == "$target" ]] || die "$platform is built for $(rust_target "$platform"), not $target"
 	# Keep build-machine paths out of the archive.
-	RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$root=libtss --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=cargo --remap-path-prefix=$(rustc --print sysroot)=rust" \
-		cargo build --locked --release -p libtss-ffi --target "$target" --manifest-path "$root/Cargo.toml"
-	local src="$root/target/$target/release/liblibtss_ffi.a"
+	local rustflags="${RUSTFLAGS:-} --remap-path-prefix=$root=libtss --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=cargo --remap-path-prefix=$(rustc --print sysroot)=rust"
+	RUSTFLAGS="$rustflags" cargo build --locked --release -p libtss-ffi --target "$target" --manifest-path "$root/Cargo.toml"
+	# build.rs regenerates libtss.h; the module ships the committed copy.
+	git -C "$root" diff --quiet -- libtss-ffi/libtss.h ||
+		die "libtss-ffi/libtss.h differs from the generated header; commit it"
+	check_link_flags "$target" "$platform" "$rustflags"
+	local src="$target_dir/$target/release/liblibtss_ffi.a"
 	local dst="$root/libtss-go/tss/native/$platform/liblibtss_ffi.a"
 	mkdir -p "$(dirname "$dst")"
 	cp "$src" "$dst"
@@ -49,8 +65,31 @@ build() {
 		echo "commit: $(git -C "$root" rev-parse HEAD)"
 		echo "rustc: $(rustc --version)"
 		echo "cargo: $(cargo --version)"
+		if [[ -n "$(git -C "$root" status --porcelain --untracked-files=no)" ]]; then
+			echo "dirty: yes"
+		else
+			echo "dirty: no"
+		fi
 	} >"$(dirname "$dst")/BUILD_INFO"
 	echo "go-native: $dst ($(wc -c <"$dst") bytes)"
+}
+
+# The system libraries in link_static_<platform>.go must be the ones rustc
+# reports for the static library.
+check_link_flags() {
+	local target="$1" platform="$2" rustflags="$3" native expected attempt
+	expected="$(sed -n "s|^#cgo LDFLAGS: \${SRCDIR}/native/$platform/liblibtss_ffi.a ||p" \
+		"$root/libtss-go/tss/link_static_$platform.go")"
+	for attempt in 1 2; do
+		native="$(RUSTFLAGS="$rustflags" cargo rustc --locked --release -p libtss-ffi --target "$target" \
+			--manifest-path "$root/Cargo.toml" --crate-type staticlib -- --print native-static-libs 2>&1 |
+			sed -n 's/.*native-static-libs: //p' | head -1)"
+		[[ -n "$native" ]] && break
+		# rustc prints the list only when it compiles; force it once.
+		touch "$root/libtss-ffi/src/lib.rs"
+	done
+	[[ -n "$native" && "$native" == "$expected" ]] ||
+		die "link_static_$platform.go links '$expected' but rustc reports '$native'"
 }
 
 assemble() {
@@ -60,12 +99,14 @@ assemble() {
 		die "version must be a canonical v0.x.y or v1.x.y: $version"
 	[[ ! -e "$out" ]] || die "$out already exists"
 	mkdir -p "$out"
-	# -L resolves tss_ffi.h, which is a symlink to libtss-ffi/libtss.h in this
-	# repository; Go module zips do not keep symlinks.
-	cp -RL "$root/libtss-go/." "$out/"
-	# Drop any archives from a local build; keep the native.go stubs.
-	rm -f "$out"/tss/native/*/liblibtss_ffi.a "$out"/tss/native/*/BUILD_INFO \
-		"$out/tss/native/VERSION" "$out/tss/native/SHA256SUMS"
+	# Tracked files only. cp -L resolves tss_ffi.h, which is a symlink to
+	# libtss-ffi/libtss.h in this repository; Go module zips do not keep
+	# symlinks.
+	local file
+	while IFS= read -r -d '' file; do
+		mkdir -p "$out/$(dirname "$file")"
+		cp -L "$root/libtss-go/$file" "$out/$file"
+	done < <(git -C "$root/libtss-go" ls-files -z)
 	# Source-checkout linking has no meaning outside this repository.
 	cat >"$out/tss/link_local.go" <<'GO'
 //go:build libtss_local && !libtss_dynamic
@@ -79,6 +120,8 @@ GO
 	for platform in "${platforms[@]}"; do
 		local dir="$archives/$platform"
 		[[ -f "$dir/liblibtss_ffi.a" && -f "$dir/BUILD_INFO" ]] || die "missing archive or BUILD_INFO in $dir"
+		grep -qx "target: $(rust_target "$platform")" "$dir/BUILD_INFO" || die "$dir holds no $platform archive"
+		grep -qx "dirty: no" "$dir/BUILD_INFO" || die "$platform archive was built from a modified tree"
 		[[ -f "$out/tss/native/$platform/native.go" ]] || die "missing tss/native/$platform/native.go"
 		cp "$dir/liblibtss_ffi.a" "$dir/BUILD_INFO" "$out/tss/native/$platform/"
 	done

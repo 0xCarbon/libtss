@@ -19,16 +19,18 @@ linked into the binary; nothing is loaded at run time.
 
 | Platform | Archive | Notes |
 | --- | --- | --- |
-| linux/amd64 | `tss/native/linux_amd64` | glibc; built on Ubuntu 22.04 |
-| linux/arm64 | `tss/native/linux_arm64` | glibc; built on Ubuntu 22.04 |
+| linux/amd64 | `tss/native/linux_amd64` | glibc |
+| linux/arm64 | `tss/native/linux_arm64` | glibc |
 | darwin/amd64 | `tss/native/darwin_amd64` | archive targets macOS 11; Go 1.26 needs macOS 12 |
 | darwin/arm64 | `tss/native/darwin_arm64` | archive targets macOS 11; Go 1.26 needs macOS 12 |
 
 `tss/native/VERSION` records the libtss commit and, per platform, the Rust
 target and toolchain each archive was built with (also in
 `tss/native/<platform>/BUILD_INFO`); `tss/native/SHA256SUMS` holds the archive
-checksums. Android and iOS are not covered by these archives. On macOS the
-system frameworks (`Security`, `CoreFoundation`) stay dynamic.
+checksums. Android and iOS are not covered by these archives. Besides the
+archive, binaries link only system libraries (`libgcc_s`, `libc` and friends on
+Linux; `libiconv` and `libSystem` on macOS). The binding needs cgo
+(`CGO_ENABLED=1`).
 
 ## Build tags
 
@@ -68,7 +70,8 @@ cd libtss-go && go test -a -count=1 -tags libtss_local ./...   # or: make go-tes
 ```
 
 Go does not notice when the archive named in the cgo flags changes; `-a`
-forces the relink after a new `cargo build`.
+forces the relink after a new `cargo build`. On macOS, `libtss_local` may pick
+the `liblibtss_ffi.dylib` next to the archive in `target/`.
 
 To test the published layout, install an archive first and run without tags:
 

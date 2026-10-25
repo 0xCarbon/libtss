@@ -47,7 +47,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # ubuntu-22.04 keeps the glibc symbol versions the archives need low.
           - platform: linux_amd64
             target: x86_64-unknown-linux-gnu
             runner: ubuntu-22.04
@@ -79,11 +78,6 @@ jobs:
       - name: Build the archive
         run: scripts/go-native.sh build ${{ matrix.target }} ${{ matrix.platform }}
 
-      - name: Show the native libraries the archive needs
-        run: |
-          cargo rustc --locked --release -p libtss-ffi --target ${{ matrix.target }} \
-            --crate-type staticlib -- --print native-static-libs 2>&1 | grep native-static-libs
-
       # No Go build cache: Go does not track the contents of the archive named
       # in the cgo flags, so a cached link could test a previous archive.
       - uses: actions/setup-go@v5
@@ -103,6 +97,17 @@ jobs:
         run: |
           go list -f '{{.CgoLDFLAGS}}' ./tss
           go test -count=1 -timeout 40m ./...
+
+      # macOS counterpart of test.yml's libtss_dynamic run: install name,
+      # pkg-config rpath, no DYLD_LIBRARY_PATH.
+      - name: Test libtss_dynamic through pkg-config
+        if: matrix.platform == 'darwin_arm64'
+        run: |
+          brew list pkg-config >/dev/null 2>&1 || brew install pkg-config
+          make install-ffi PREFIX="$RUNNER_TEMP/libtss"
+          cd libtss-go
+          PKG_CONFIG_PATH="$RUNNER_TEMP/libtss/lib/pkgconfig" \
+            go test -a -count=1 -tags libtss_dynamic -run 'TestFROSTEndToEnd|TestDKLs23EndToEnd' ./tss
 
       - uses: actions/upload-artifact@v4
         with:
@@ -216,7 +221,7 @@ jobs:
           ./consumer
           # The archive is linked in, not loaded at run time.
           ldd ./consumer
-          ! ldd ./consumer | grep -q libtss_ffi
+          if ldd ./consumer | grep -q libtss_ffi; then exit 1; fi
           # Vendored builds keep the archives (tss/native/* are packages).
           go mod vendor
           ls vendor/github.com/0xCarbon/libtss-go/tss/native/linux_amd64/liblibtss_ffi.a

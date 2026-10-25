@@ -11,20 +11,25 @@ on:
 permissions:
   contents: read
 
+env:
+  RUST_TOOLCHAIN: "1.98.1"
+
 jobs:
   ios:
     uses: ./.github/workflows/rn-ios.yml
 
   publish:
     needs: ios
+    if: github.ref == 'refs/heads/main'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: aarch64-linux-android, x86_64-linux-android
 
       - uses: Swatinem/rust-cache@v2
@@ -80,7 +85,9 @@ jobs:
 
       - name: Bump version
         working-directory: libtss-rn
-        run: npm version ${{ inputs.version }} --no-git-tag-version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: npm version "$VERSION" --no-git-tag-version
 
       - name: Build TypeScript
         working-directory: libtss-rn
