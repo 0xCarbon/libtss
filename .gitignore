@@ -71,3 +71,7 @@ libtss/wip/
 
 # Prebuilt archives for the published Go module (scripts/go-native.sh)
 libtss-go/tss/native/
+
+# React Native iOS packaging (scripts/rn-ios-xcframework.sh)
+libtss-rn/ios/LibtssFFI.xcframework/
+libtss-rn/ios/include/

@@ -44,7 +44,8 @@ jobs:
 
   rn-jni-syntax:
     # Compiles the React Native JNI bridge against the Android NDK (bionic
-    # headers) for the 64-bit ABIs, plus the runner JDK's jni.h with g++.
+    # headers) for the 64-bit ABIs, plus the runner JDK's jni.h with g++. The
+    # bridge includes libtss-ffi/libtss.h, so C API drift fails here.
     # The iOS bridge (libtss-rn/ios/Libtss.mm) needs the iOS SDK and React
     # headers, so it is not compiled here.
     runs-on: ubuntu-latest
@@ -72,12 +73,12 @@ jobs:
           for target in aarch64-linux-android23 x86_64-linux-android23; do
             echo "== $target"
             "$clang" --target="$target" -std=c++17 -fsyntax-only -Wall -Wextra -Werror \
-              libtss-rn/android/src/main/cpp/libtss-jni.cpp
+              -Ilibtss-ffi libtss-rn/android/src/main/cpp/libtss-jni.cpp
           done
 
       - name: Syntax-check libtss-jni.cpp with host g++
         run: |
-          g++ -std=c++17 -fsyntax-only -Wall -Wextra -Werror \
+          g++ -std=c++17 -fsyntax-only -Wall -Wextra -Werror -Ilibtss-ffi \
             -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/linux" \
             libtss-rn/android/src/main/cpp/libtss-jni.cpp
 

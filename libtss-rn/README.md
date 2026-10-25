@@ -36,3 +36,19 @@ npx tsc --noEmit -p tsconfig.json
 
 The Jest suite runs against a mock native module
 (`src/__tests__/__mocks__/NativeLibtss.ts`).
+
+## Native libraries
+
+The npm package ships prebuilt `libtss-ffi` static libraries:
+
+- iOS: `ios/LibtssFFI.xcframework` (device arm64; simulator arm64 and x86_64),
+  vendored by `libtss-rn.podspec`, and `ios/include/libtss.h`. In a libtss
+  checkout, build them with `scripts/rn-ios-xcframework.sh` (macOS, Xcode,
+  Rust targets `aarch64-apple-ios`, `aarch64-apple-ios-sim`, `x86_64-apple-ios`).
+- Android: `android/libs/<target>/liblibtss_ffi.a` and `android/include/libtss.h`
+  (see `.github/workflows/publish-rn.yml`).
+
+Both bridges include `libtss.h`, so a C API change that the bridges do not
+follow fails to compile. The `React Native iOS` workflow builds the iOS bridge
+in a throwaway app and runs a DKG and signing smoke test on the simulator;
+publishing runs it first.

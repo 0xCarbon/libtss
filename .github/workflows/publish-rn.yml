@@ -8,8 +8,15 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+
 jobs:
+  ios:
+    uses: ./.github/workflows/rn-ios.yml
+
   publish:
+    needs: ios
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,7 +25,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android, x86_64-linux-android, aarch64-apple-ios, aarch64-apple-ios-sim
+          targets: aarch64-linux-android, x86_64-linux-android, aarch64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-ios
 
       - uses: Swatinem/rust-cache@v2
 
@@ -43,11 +50,8 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
 
-      - name: Build iOS device (aarch64)
-        run: cargo build --release --target aarch64-apple-ios -p libtss-ffi
-
-      - name: Build iOS simulator (aarch64)
-        run: cargo build --release --target aarch64-apple-ios-sim -p libtss-ffi
+      - name: Build iOS XCFramework
+        run: scripts/rn-ios-xcframework.sh
 
       - name: Bundle native artifacts
         run: |
@@ -56,11 +60,7 @@ jobs:
           cp target/aarch64-linux-android/release/liblibtss_ffi.a libtss-rn/android/libs/aarch64-linux-android/
           cp target/x86_64-linux-android/release/liblibtss_ffi.a libtss-rn/android/libs/x86_64-linux-android/
           cp libtss-ffi/libtss.h libtss-rn/android/include/
-          # iOS
-          mkdir -p libtss-rn/ios/libs/aarch64-apple-ios libtss-rn/ios/libs/aarch64-apple-ios-sim libtss-rn/ios/include
-          cp target/aarch64-apple-ios/release/liblibtss_ffi.a libtss-rn/ios/libs/aarch64-apple-ios/
-          cp target/aarch64-apple-ios-sim/release/liblibtss_ffi.a libtss-rn/ios/libs/aarch64-apple-ios-sim/
-          cp libtss-ffi/libtss.h libtss-rn/ios/include/
+          # iOS: ios/LibtssFFI.xcframework and ios/include come from the step above.
 
       - uses: actions/setup-node@v4
         with:
