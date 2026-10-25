@@ -25,7 +25,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android, x86_64-linux-android, aarch64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-ios
+          targets: aarch64-linux-android, x86_64-linux-android
 
       - uses: Swatinem/rust-cache@v2
 
@@ -50,8 +50,11 @@ jobs:
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
 
-      - name: Build iOS XCFramework
-        run: scripts/rn-ios-xcframework.sh
+      # The XCFramework the ios job built and smoke-tested.
+      - uses: actions/download-artifact@v4
+        with:
+          name: libtss-rn-ios
+          path: libtss-rn/ios
 
       - name: Bundle native artifacts
         run: |
@@ -60,7 +63,7 @@ jobs:
           cp target/aarch64-linux-android/release/liblibtss_ffi.a libtss-rn/android/libs/aarch64-linux-android/
           cp target/x86_64-linux-android/release/liblibtss_ffi.a libtss-rn/android/libs/x86_64-linux-android/
           cp libtss-ffi/libtss.h libtss-rn/android/include/
-          # iOS: ios/LibtssFFI.xcframework and ios/include come from the step above.
+          # iOS: ios/LibtssFFI.xcframework and ios/include come from the ios job.
 
       - uses: actions/setup-node@v4
         with:

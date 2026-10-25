@@ -8,3 +8,5 @@ package tss
 #cgo LDFLAGS: ${SRCDIR}/native/linux_arm64/liblibtss_ffi.a -lgcc_s -lutil -lrt -lpthread -lm -ldl -lc
 */
 import "C"
+
+import _ "github.com/0xCarbon/libtss-go/tss/native/linux_arm64"

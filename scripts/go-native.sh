@@ -33,7 +33,9 @@ sha256() {
 build() {
 	local target="$1" platform="$2"
 	[[ " ${platforms[*]} " == *" $platform "* ]] || die "unsupported platform: $platform"
-	cargo build --locked --release -p libtss-ffi --target "$target" --manifest-path "$root/Cargo.toml"
+	# Keep build-machine paths out of the archive.
+	RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$root=libtss --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=cargo --remap-path-prefix=$(rustc --print sysroot)=rust" \
+		cargo build --locked --release -p libtss-ffi --target "$target" --manifest-path "$root/Cargo.toml"
 	local src="$root/target/$target/release/liblibtss_ffi.a"
 	local dst="$root/libtss-go/tss/native/$platform/liblibtss_ffi.a"
 	mkdir -p "$(dirname "$dst")"
@@ -61,13 +63,23 @@ assemble() {
 	# -L resolves tss_ffi.h, which is a symlink to libtss-ffi/libtss.h in this
 	# repository; Go module zips do not keep symlinks.
 	cp -RL "$root/libtss-go/." "$out/"
-	rm -rf "$out/tss/native"
+	# Drop any archives from a local build; keep the native.go stubs.
+	rm -f "$out"/tss/native/*/liblibtss_ffi.a "$out"/tss/native/*/BUILD_INFO \
+		"$out/tss/native/VERSION" "$out/tss/native/SHA256SUMS"
 	# Source-checkout linking has no meaning outside this repository.
-	rm -f "$out/tss/link_local.go"
+	cat >"$out/tss/link_local.go" <<'GO'
+//go:build libtss_local && !libtss_dynamic
+
+package tss
+
+// libtss_local links a libtss source checkout and is not available in the
+// published module; build without tags or with libtss_dynamic.
+var _ = libtss_local_is_only_available_in_the_libtss_repository
+GO
 	for platform in "${platforms[@]}"; do
 		local dir="$archives/$platform"
 		[[ -f "$dir/liblibtss_ffi.a" && -f "$dir/BUILD_INFO" ]] || die "missing archive or BUILD_INFO in $dir"
-		mkdir -p "$out/tss/native/$platform"
+		[[ -f "$out/tss/native/$platform/native.go" ]] || die "missing tss/native/$platform/native.go"
 		cp "$dir/liblibtss_ffi.a" "$dir/BUILD_INFO" "$out/tss/native/$platform/"
 	done
 	cp "$root/LICENSE-APACHE" "$root/LICENSE-MIT" "$out/"

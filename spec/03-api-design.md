@@ -738,6 +738,7 @@ package tss
 
 // Linker flags live in per-platform files (link_static_<os>_<arch>.go,
 // link_dynamic.go, link_local.go); see libtss-go/README.md.
+
 // #include "tss_ffi.h"
 import "C"
 

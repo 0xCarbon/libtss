@@ -36,12 +36,12 @@ system frameworks (`Security`, `CoreFoundation`) stay dynamic.
 | --- | --- |
 | *(none)* | the prebuilt archive for the target platform |
 | `libtss_dynamic` | an installed shared `libtss-ffi` found through `pkg-config` (`libtss_ffi.pc`) |
-| `libtss_local` | `target/{debug,release}` of a libtss source checkout (development only) |
+| `libtss_local` | `target/{debug,release}` of a libtss source checkout (in the libtss repository only) |
 
-Other platforms (for example musl or Windows) build with `libtss_dynamic`; without
-a tag they fail to compile with a message naming both tags. From
-a libtss checkout, `make install-ffi PREFIX=/usr/local` installs the shared
-library, `libtss.h` and `libtss_ffi.pc`:
+Other Linux and macOS setups (for example musl) build with `libtss_dynamic`;
+without a tag, platforms that have no archive fail to compile with a message
+naming both tags. From a libtss checkout, `make install-ffi PREFIX=/usr/local`
+installs the shared library, `libtss.h` and `libtss_ffi.pc` on Linux or macOS:
 
 ```bash
 make install-ffi PREFIX="$HOME/.local"
@@ -49,9 +49,14 @@ export PKG_CONFIG_PATH="$HOME/.local/lib/pkgconfig"
 go build -tags libtss_dynamic ./...
 ```
 
-On Linux, make sure the dynamic loader finds the library at run time
-(`LD_LIBRARY_PATH` or an rpath). On macOS, `make install-ffi` sets the
-library's install name to its installed path.
+`libtss_ffi.pc` adds an rpath to the install directory, and on macOS
+`make install-ffi` sets the library's install name to its installed path, so
+binaries find the library without `LD_LIBRARY_PATH`. The binding compiles
+against its own copy of the header, so install the `libtss-ffi` built from the
+same libtss commit as the module.
+
+Vendoring works: each `tss/native/<platform>` directory is a Go package that
+package `tss` imports, so `go mod vendor` keeps the archives.
 
 ## Development
 

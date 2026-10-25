@@ -7,6 +7,6 @@ package tss
 
 /*
 #cgo linux LDFLAGS: -L${SRCDIR}/../../target/debug -L${SRCDIR}/../../target/release -l:liblibtss_ffi.a -lgcc_s -lutil -lrt -lpthread -lm -ldl -lc
-#cgo darwin LDFLAGS: -L${SRCDIR}/../../target/debug -L${SRCDIR}/../../target/release -llibtss_ffi -lm -framework Security -framework CoreFoundation
+#cgo darwin LDFLAGS: -L${SRCDIR}/../../target/debug -L${SRCDIR}/../../target/release -llibtss_ffi -liconv -lSystem -lc -lm
 */
 import "C"

@@ -29,18 +29,22 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # Pinned so a new React Native release cannot change the result silently.
+  # Pinned so a new React Native, CLI or toolchain release cannot change the
+  # result silently.
   RN_VERSION: "0.88.0"
+  RN_CLI_VERSION: "20.2.0"
+  RUST_TOOLCHAIN: "1.98.1"
 
 jobs:
   ios:
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: aarch64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-ios
 
       - uses: Swatinem/rust-cache@v2
@@ -64,7 +68,7 @@ jobs:
       - name: Create the smoke app
         run: |
           app="$RUNNER_TEMP/LibtssSmoke"
-          npx --yes @react-native-community/cli@latest init LibtssSmoke \
+          npx --yes "@react-native-community/cli@$RN_CLI_VERSION" init LibtssSmoke \
             --version "$RN_VERSION" --directory "$app" \
             --skip-install --skip-git-init --install-pods false
           cd "$app"
@@ -111,3 +115,13 @@ jobs:
           done
           cat smoke.log
           grep -q LIBTSS_SMOKE_OK smoke.log
+
+      # publish-rn ships exactly these tested files.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libtss-rn-ios
+          path: |
+            libtss-rn/ios/LibtssFFI.xcframework
+            libtss-rn/ios/include
+          if-no-files-found: error
+          retention-days: 7

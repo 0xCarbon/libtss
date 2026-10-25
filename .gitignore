@@ -69,8 +69,11 @@ Thumbs.db
 ISSUE.md
 libtss/wip/
 
-# Prebuilt archives for the published Go module (scripts/go-native.sh)
-libtss-go/tss/native/
+# Prebuilt archives for the published Go module (scripts/go-native.sh); the
+# native/<platform>/native.go stubs are tracked.
+libtss-go/tss/native/*/BUILD_INFO
+libtss-go/tss/native/VERSION
+libtss-go/tss/native/SHA256SUMS
 
 # React Native iOS packaging (scripts/rn-ios-xcframework.sh)
 libtss-rn/ios/LibtssFFI.xcframework/

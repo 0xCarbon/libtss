@@ -37,6 +37,8 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # One pinned toolchain for every archive of a release.
+  RUST_TOOLCHAIN: "1.98.1"
 
 jobs:
   archive:
@@ -65,8 +67,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
@@ -115,8 +118,6 @@ jobs:
       VERSION: ${{ inputs.version || 'v0.0.0-ci' }}
     steps:
       - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
 
       - uses: actions/setup-go@v5
         with:
@@ -204,6 +205,11 @@ jobs:
           # The archive is linked in, not loaded at run time.
           ldd ./consumer
           ! ldd ./consumer | grep -q libtss_ffi
+          # Vendored builds keep the archives (tss/native/* are packages).
+          go mod vendor
+          ls vendor/github.com/0xCarbon/libtss-go/tss/native/linux_amd64/liblibtss_ffi.a
+          go build -a -mod=vendor -trimpath -o consumer-vendored .
+          ./consumer-vendored
 
       - uses: actions/upload-artifact@v4
         with:
@@ -232,7 +238,8 @@ jobs:
           install -m 700 -d ~/.ssh
           printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/libtss_go
           chmod 600 ~/.ssh/libtss_go
-          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          # GitHub's published host key (docs.github.com, "GitHub's SSH key fingerprints").
+          echo "github.com ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl" >> ~/.ssh/known_hosts
           export GIT_SSH_COMMAND="ssh -i ~/.ssh/libtss_go -o IdentitiesOnly=yes"
           git clone git@github.com:0xCarbon/libtss-go.git dest
           cd dest

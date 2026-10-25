@@ -5,5 +5,5 @@ includedir=${prefix}/include
 Name: libtss_ffi
 Description: C API of libtss, threshold signatures (FROST and DKLs23)
 Version: @VERSION@
-Libs: -L${libdir} -llibtss_ffi
+Libs: -L${libdir} -Wl,-rpath,${libdir} -llibtss_ffi
 Cflags: -I${includedir}
