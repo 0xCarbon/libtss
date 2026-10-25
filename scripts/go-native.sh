@@ -49,7 +49,7 @@ build() {
 	local rustflags="${RUSTFLAGS:-} --remap-path-prefix=$root=libtss --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=cargo --remap-path-prefix=$(rustc --print sysroot)=rust"
 	RUSTFLAGS="$rustflags" cargo build --locked --release -p libtss-ffi --target "$target" --manifest-path "$root/Cargo.toml"
 	# build.rs regenerates libtss.h; the module ships the committed copy.
-	git -C "$root" diff --quiet -- libtss-ffi/libtss.h ||
+	git -C "$root" diff --quiet HEAD -- libtss-ffi/libtss.h ||
 		die "libtss-ffi/libtss.h differs from the generated header; commit it"
 	check_link_flags "$target" "$platform" "$rustflags"
 	local src="$target_dir/$target/release/liblibtss_ffi.a"
@@ -74,31 +74,56 @@ build() {
 	echo "go-native: $dst ($(wc -c <"$dst") bytes)"
 }
 
-# The system libraries in link_static_<platform>.go must be the ones rustc
-# reports for the static library.
+# Every hand-written copy of the system library list (link_static_<platform>.go,
+# link_local.go, the Makefile's Libs.private) must match what rustc reports
+# for the static library.
 check_link_flags() {
-	local target="$1" platform="$2" rustflags="$3" native expected attempt
-	expected="$(sed -n "s|^#cgo LDFLAGS: \${SRCDIR}/native/$platform/liblibtss_ffi.a ||p" \
-		"$root/libtss-go/tss/link_static_$platform.go")"
+	local target="$1" platform="$2" rustflags="$3" native="" output attempt os="${2%_*}"
 	for attempt in 1 2; do
-		native="$(RUSTFLAGS="$rustflags" cargo rustc --color never --locked --release -p libtss-ffi \
+		output="$(RUSTFLAGS="$rustflags" cargo rustc --color never --locked --release -p libtss-ffi \
 			--target "$target" --manifest-path "$root/Cargo.toml" --crate-type staticlib \
-			-- --print native-static-libs 2>&1 |
-			sed -n 's/.*native-static-libs: //p' | sed 's/\x1b\[[0-9;]*m//g; s/[[:space:]]*$//' | head -1)"
+			-- --print native-static-libs 2>&1)" || {
+			printf '%s\n' "$output" >&2
+			die "cargo rustc failed"
+		}
+		native="$(printf '%s\n' "$output" | sed -n 's/.*native-static-libs: //p' |
+			sed 's/\x1b\[[0-9;]*m//g; s/[[:space:]]*$//' | head -1)"
 		[[ -n "$native" ]] && break
 		# rustc prints the list only when it compiles; force it once.
 		touch "$root/libtss-ffi/src/lib.rs"
 	done
-	[[ -n "$native" && "$native" == "$expected" ]] ||
-		die "link_static_$platform.go links '$expected' but rustc reports '$native'"
+	[[ -n "$native" ]] || die "rustc reported no native-static-libs"
+
+	local static="$root/libtss-go/tss/link_static_$platform.go" local_go="$root/libtss-go/tss/link_local.go"
+	[[ "$(grep -c '^#cgo' "$static")" == 1 ]] || die "$static must have exactly one #cgo line"
+	expect "$static" "$native" "$(sed -n "s|^#cgo LDFLAGS: \${SRCDIR}/native/$platform/liblibtss_ffi.a ||p" "$static")"
+	case "$os" in
+	linux)
+		expect "$local_go" "$native" "$(sed -n 's|^#cgo linux LDFLAGS: .* -l:liblibtss_ffi.a ||p' "$local_go")"
+		expect Makefile "$native" "$(sed -n 's|^FFI_LIBS_PRIVATE := .*,\(-lgcc_s[^)]*\))$|\1|p' "$root/Makefile")"
+		;;
+	darwin)
+		expect "$local_go" "$native" "$(sed -n 's|^#cgo darwin LDFLAGS: .* -llibtss_ffi ||p' "$local_go")"
+		expect Makefile "$native" "$(sed -n 's|^FFI_LIBS_PRIVATE := $(if $(filter Darwin,$(shell uname -s)),\([^,]*\),.*|\1|p' "$root/Makefile")"
+		;;
+	esac
+}
+
+expect() {
+	[[ "$3" == "$2" ]] || die "$1 links '$3' but rustc reports '$2'"
 }
 
 assemble() {
 	local out="$1" version="$2" archives="$3"
 	# The module path has no /vN suffix, so only v0 and v1 are valid.
-	[[ "$version" =~ ^v[01]\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]] ||
+	local ident='(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
+	[[ "$version" =~ ^v[01]\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-$ident(\.$ident)*)?$ ]] ||
 		die "version must be a canonical v0.x.y or v1.x.y: $version"
 	[[ ! -e "$out" ]] || die "$out already exists"
+	local final="$out"
+	out="$final.partial"
+	rm -rf "$out"
+	trap 'rm -rf "$out"' EXIT
 	# The module is copied from the working tree and labeled with HEAD.
 	[[ -z "$(git -C "$root" status --porcelain --untracked-files=no)" ]] ||
 		die "the working tree has uncommitted changes"
@@ -148,7 +173,9 @@ GO
 	done
 	(cd "$out/tss/native" && sha256 */liblibtss_ffi.a >SHA256SUMS)
 	verify "$out"
-	echo "go-native: assembled $out"
+	mv "$out" "$final"
+	trap - EXIT
+	echo "go-native: assembled $final"
 }
 
 # The default (untagged) cgo flags must only reference the shipped archives.

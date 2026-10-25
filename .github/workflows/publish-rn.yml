@@ -15,8 +15,17 @@ env:
   RUST_TOOLCHAIN: "1.98.1"
 
 jobs:
+  # Fails a dispatch from another branch up front instead of skipping publish.
+  main-only:
+    runs-on: ubuntu-latest
+    steps:
+      - run: '[ "$GITHUB_REF" = refs/heads/main ] || { echo "publish from main only"; exit 1; }'
+
   ios:
+    needs: main-only
     uses: ./.github/workflows/rn-ios.yml
+    with:
+      rust-toolchain: "1.98.1"
 
   publish:
     needs: ios
@@ -46,12 +55,12 @@ jobs:
           ndk-version: r27c
 
       - name: Build Android aarch64
-        run: cargo ndk --target aarch64-linux-android --platform 21 -- build --release -p libtss-ffi
+        run: cargo ndk --target aarch64-linux-android --platform 21 -- build --locked --release -p libtss-ffi
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
 
       - name: Build Android x86_64
-        run: cargo ndk --target x86_64-linux-android --platform 21 -- build --release -p libtss-ffi
+        run: cargo ndk --target x86_64-linux-android --platform 21 -- build --locked --release -p libtss-ffi
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
 

@@ -57,7 +57,8 @@ go build -tags libtss_dynamic ./...
 `make install-ffi` sets the library's install name to its installed path, so
 binaries find the library without `LD_LIBRARY_PATH` (Linux) or
 `DYLD_LIBRARY_PATH` (macOS). `make install-ffi` also installs the static
-archive, for `pkg-config --static` consumers. The binding compiles
+archive; C consumers link it with `-l:liblibtss_ffi.a` (GNU ld) or its path,
+and `pkg-config --static --libs libtss_ffi` lists the system libraries it needs. The binding compiles
 against its own copy of the header, so install the `libtss-ffi` built from the
 same libtss commit as the module.
 
@@ -75,7 +76,8 @@ cd libtss-go && go test -a -count=1 -tags libtss_local ./...   # or: make go-tes
 
 Go does not notice when the archive named in the cgo flags changes; `-a`
 forces the relink after a new `cargo build`. On macOS, `libtss_local` may pick
-the `liblibtss_ffi.dylib` next to the archive in `target/`.
+the `liblibtss_ffi.dylib` next to the archive in `target/`. `libtss_local`
+expects the default `target/` directory, not a custom `CARGO_TARGET_DIR`.
 
 To test the published layout, install an archive first and run without tags:
 
