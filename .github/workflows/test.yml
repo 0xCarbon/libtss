@@ -265,7 +265,8 @@ jobs:
         run: cargo build -p libtss-ffi
 
       - name: Verify header was generated
-        run: test -f libtss-ffi/libtss.h
+        # The committed header must match what cbindgen generates.
+        run: git diff --exit-code libtss-ffi/libtss.h
 
   cross-compile:
     runs-on: ubuntu-latest

@@ -40,7 +40,7 @@ system frameworks (`Security`, `CoreFoundation`) stay dynamic.
 
 Other Linux and macOS setups (for example musl) build with `libtss_dynamic`;
 without a tag, platforms that have no archive fail to compile with a message
-naming both tags. From a libtss checkout, `make install-ffi PREFIX=/usr/local`
+naming `libtss_dynamic`. From a libtss checkout, `make install-ffi PREFIX=/usr/local`
 installs the shared library, `libtss.h` and `libtss_ffi.pc` on Linux or macOS:
 
 ```bash

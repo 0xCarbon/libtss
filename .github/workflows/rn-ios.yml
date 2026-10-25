@@ -100,13 +100,15 @@ jobs:
           import json, sys
           devices = json.load(sys.stdin)["devices"]
           print(next(d["udid"] for runtime, ds in devices.items() if "iOS" in runtime for d in ds if d["name"].startswith("iPhone")))')
-          xcrun simctl boot "$udid"
+          # bootstatus -b boots the device if needed and waits until it is ready.
           xcrun simctl bootstatus "$udid" -b
           app=build/Build/Products/Release-iphonesimulator/LibtssSmoke.app
           bundle_id=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")
           xcrun simctl install "$udid" "$app"
           xcrun simctl spawn "$udid" log stream --level debug --style compact \
             --predicate 'eventMessage CONTAINS "LIBTSS_SMOKE"' > smoke.log 2>&1 &
+          stream=$!
+          trap 'kill "$stream" 2>/dev/null || true' EXIT
           sleep 5
           xcrun simctl launch "$udid" "$bundle_id"
           for _ in $(seq 1 90); do
@@ -114,7 +116,14 @@ jobs:
             sleep 2
           done
           cat smoke.log
-          grep -q LIBTSS_SMOKE_OK smoke.log
+          if ! grep -q LIBTSS_SMOKE_OK smoke.log; then
+            echo "::group::app log"
+            xcrun simctl spawn "$udid" log show --last 10m --style compact \
+              --predicate 'process == "LibtssSmoke"' | tail -200 || true
+            echo "::endgroup::"
+            ls ~/Library/Logs/DiagnosticReports 2>/dev/null | grep -i libtss || true
+            exit 1
+          fi
 
       # publish-rn ships exactly these tested files.
       - uses: actions/upload-artifact@v4

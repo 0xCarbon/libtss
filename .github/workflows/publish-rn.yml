@@ -78,13 +78,13 @@ jobs:
         working-directory: libtss-rn
         run: npm test
 
-      - name: Build TypeScript
-        working-directory: libtss-rn
-        run: npm run build
-
       - name: Bump version
         working-directory: libtss-rn
         run: npm version ${{ inputs.version }} --no-git-tag-version
+
+      - name: Build TypeScript
+        working-directory: libtss-rn
+        run: npm run build
 
       - name: Publish
         working-directory: libtss-rn

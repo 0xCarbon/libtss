@@ -6,4 +6,5 @@ Name: libtss_ffi
 Description: C API of libtss, threshold signatures (FROST and DKLs23)
 Version: @VERSION@
 Libs: -L${libdir} -Wl,-rpath,${libdir} -llibtss_ffi
+Libs.private: @LIBS_PRIVATE@
 Cflags: -I${includedir}

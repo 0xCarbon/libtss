@@ -93,7 +93,7 @@ jobs:
 
       - name: Install Rosetta
         if: matrix.platform == 'darwin_amd64'
-        run: /usr/sbin/softwareupdate --install-rosetta --agree-to-license
+        run: sudo /usr/sbin/softwareupdate --install-rosetta --agree-to-license
 
       - name: Test libtss-go against the archive (no build tags)
         working-directory: libtss-go
@@ -156,8 +156,20 @@ jobs:
           )
 
           // Builds the module zip as the Go proxy would, which checks the path,
-          // the version, every file name and the size limits.
+          // the version, every file name and the size limits, and fails if any
+          // file would be left out of it.
           func main() {
+          	files, err := zip.CheckDir(os.Args[1])
+          	for _, f := range files.Omitted {
+          		fmt.Println("omitted:", f.Path, f.Err)
+          	}
+          	for _, f := range files.Invalid {
+          		fmt.Println("invalid:", f.Path, f.Err)
+          	}
+          	if err != nil || len(files.Omitted) > 0 || len(files.Invalid) > 0 {
+          		fmt.Println("error:", err)
+          		os.Exit(1)
+          	}
           	version := module.Version{Path: "github.com/0xCarbon/libtss-go", Version: os.Args[2]}
           	out, err := os.Create(os.Args[3])
           	if err == nil {
@@ -252,6 +264,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
-          git commit -m "libtss-go $VERSION from 0xCarbon/libtss@$GITHUB_SHA"
+          # --allow-empty: a new version may carry the same tree.
+          git commit --allow-empty -m "libtss-go $VERSION from 0xCarbon/libtss@$GITHUB_SHA"
           git tag -a "$VERSION" -m "libtss-go $VERSION from 0xCarbon/libtss@$GITHUB_SHA"
           git push --atomic origin main "refs/tags/$VERSION"

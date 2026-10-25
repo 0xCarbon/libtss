@@ -3,6 +3,5 @@
 package tss
 
 // No prebuilt libtss-ffi archive exists for this platform. Build with
-// -tags libtss_dynamic (installed shared library) or -tags libtss_local
-// (source checkout).
-var _ = libtss_ffi_has_no_prebuilt_archive_for_this_platform_use_libtss_dynamic_or_libtss_local
+// -tags libtss_dynamic and an installed shared library (see README.md).
+var _ = libtss_ffi_has_no_prebuilt_archive_for_this_platform_use_libtss_dynamic

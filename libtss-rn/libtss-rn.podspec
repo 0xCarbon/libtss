@@ -1,3 +1,7 @@
+require "json"
+
+package = JSON.parse(File.read(File.join(__dir__, "package.json")))
+
 Pod::Spec.new do |s|
   # The npm package ships ios/LibtssFFI.xcframework and ios/include/libtss.h.
   # In a libtss checkout, create them with scripts/rn-ios-xcframework.sh.
@@ -7,7 +11,7 @@ Pod::Spec.new do |s|
   end
 
   s.name         = "libtss-rn"
-  s.version      = "0.1.0"
+  s.version      = package["version"]
   s.summary      = "React Native bindings for libtss"
   s.license      = { :type => "Apache-2.0 OR MIT" }
   s.author       = { "0xCarbon" => "contato@0xcarbon.org" }
