@@ -47,8 +47,13 @@ build() {
 	[[ "$(rust_target "$platform")" == "$target" ]] || die "$platform is built for $(rust_target "$platform"), not $target"
 	# Keep build-machine paths out of the archive.
 	# CARGO_ENCODED_RUSTFLAGS (0x1f-separated) keeps paths with spaces intact.
+	# Keep the caller's flags, in Cargo's precedence order.
 	local -a flags=()
-	[[ -n "${RUSTFLAGS:-}" ]] && read -r -a flags <<<"$RUSTFLAGS"
+	if [[ -n "${CARGO_ENCODED_RUSTFLAGS:-}" ]]; then
+		IFS=$'\x1f' read -r -a flags <<<"$CARGO_ENCODED_RUSTFLAGS"
+	elif [[ -n "${RUSTFLAGS:-}" ]]; then
+		read -r -a flags <<<"$RUSTFLAGS"
+	fi
 	flags+=("--remap-path-prefix=$root=libtss"
 		"--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=cargo"
 		"--remap-path-prefix=$(rustc --print sysroot)=rust")
