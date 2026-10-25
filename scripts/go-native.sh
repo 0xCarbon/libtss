@@ -46,8 +46,15 @@ build() {
 	local target="$1" platform="$2"
 	[[ "$(rust_target "$platform")" == "$target" ]] || die "$platform is built for $(rust_target "$platform"), not $target"
 	# Keep build-machine paths out of the archive.
-	local rustflags="${RUSTFLAGS:-} --remap-path-prefix=$root=libtss --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=cargo --remap-path-prefix=$(rustc --print sysroot)=rust"
-	RUSTFLAGS="$rustflags" cargo build --locked --release -p libtss-ffi --target "$target" --manifest-path "$root/Cargo.toml"
+	# CARGO_ENCODED_RUSTFLAGS (0x1f-separated) keeps paths with spaces intact.
+	local -a flags=()
+	[[ -n "${RUSTFLAGS:-}" ]] && read -r -a flags <<<"$RUSTFLAGS"
+	flags+=("--remap-path-prefix=$root=libtss"
+		"--remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=cargo"
+		"--remap-path-prefix=$(rustc --print sysroot)=rust")
+	local rustflags
+	rustflags="$(IFS=$'\x1f'; echo "${flags[*]}")"
+	CARGO_ENCODED_RUSTFLAGS="$rustflags" cargo build --locked --release -p libtss-ffi --target "$target" --manifest-path "$root/Cargo.toml"
 	# build.rs regenerates libtss.h; the module ships the committed copy.
 	git -C "$root" diff --quiet HEAD -- libtss-ffi/libtss.h ||
 		die "libtss-ffi/libtss.h differs from the generated header; commit it"
@@ -80,7 +87,7 @@ build() {
 check_link_flags() {
 	local target="$1" platform="$2" rustflags="$3" native="" output attempt os="${2%_*}"
 	for attempt in 1 2; do
-		output="$(RUSTFLAGS="$rustflags" cargo rustc --color never --locked --release -p libtss-ffi \
+		output="$(CARGO_ENCODED_RUSTFLAGS="$rustflags" cargo rustc --color never --locked --release -p libtss-ffi \
 			--target "$target" --manifest-path "$root/Cargo.toml" --crate-type staticlib \
 			-- --print native-static-libs 2>&1)" || {
 			printf '%s\n' "$output" >&2

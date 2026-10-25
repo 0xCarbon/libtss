@@ -74,8 +74,10 @@ jobs:
         run: |
           # Android
           mkdir -p libtss-rn/android/libs/aarch64-linux-android libtss-rn/android/libs/x86_64-linux-android libtss-rn/android/include
-          cp target/aarch64-linux-android/release/liblibtss_ffi.a libtss-rn/android/libs/aarch64-linux-android/
-          cp target/x86_64-linux-android/release/liblibtss_ffi.a libtss-rn/android/libs/x86_64-linux-android/
+          target_dir="${CARGO_TARGET_DIR:-target}"
+          cp "$target_dir/aarch64-linux-android/release/liblibtss_ffi.a" libtss-rn/android/libs/aarch64-linux-android/
+          cp "$target_dir/x86_64-linux-android/release/liblibtss_ffi.a" libtss-rn/android/libs/x86_64-linux-android/
+          cp LICENSE-APACHE LICENSE-MIT libtss-rn/
           cp libtss-ffi/libtss.h libtss-rn/android/include/
           strip="${{ steps.ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-strip"
           "$strip" --strip-debug libtss-rn/android/libs/*/liblibtss_ffi.a

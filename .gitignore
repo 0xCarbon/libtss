@@ -78,3 +78,5 @@ libtss-go/tss/native/SHA256SUMS
 # React Native iOS packaging (scripts/rn-ios-xcframework.sh)
 libtss-rn/ios/LibtssFFI.xcframework/
 libtss-rn/ios/include/
+libtss-rn/LICENSE-APACHE
+libtss-rn/LICENSE-MIT

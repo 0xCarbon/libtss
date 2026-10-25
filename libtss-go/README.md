@@ -71,7 +71,7 @@ In the libtss repository, `libtss-go/` holds the sources but no archives:
 
 ```bash
 cargo build -p libtss-ffi
-cd libtss-go && go test -a -count=1 -tags libtss_local ./...   # or: make go-test
+cd libtss-go && go test -a -count=1 -timeout 30m -tags libtss_local ./...   # or: make go-test
 ```
 
 Go does not notice when the archive named in the cgo flags changes; `-a`

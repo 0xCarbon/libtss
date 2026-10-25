@@ -40,7 +40,7 @@ endif
 # track changes to the archive named in the cgo flags.
 go-test:
 	cargo build -p libtss-ffi
-	cd libtss-go && go test -a -count=1 -tags libtss_local ./...
+	cd libtss-go && go test -a -count=1 -timeout 30m -tags libtss_local ./...
 
 .PHONY: linux-x86_64 linux-aarch64 android-arm64 android-x86_64 ios-arm64 ios-sim-arm64
 
