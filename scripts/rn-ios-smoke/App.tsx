@@ -21,6 +21,10 @@ const ascii = (text: string) =>
 	Uint8Array.from(text, (char) => char.charCodeAt(0));
 const DKG_SESSION_ID = ascii("libtss-smoke-dkg");
 const SIGN_ID = ascii("libtss-smoke-sign");
+const MESSAGE = "libtss react native smoke test";
+// sha256(MESSAGE); React Native has no built-in SHA-256.
+const MESSAGE_SHA256 =
+	"912b5b8d266e2a59db0b5eb6a9dc0fdc00617192375b83e25df78d186290f558";
 
 function inbound(self: number, outgoing: Map<number, Message[]>): Message[] {
 	const messages: Message[] = [];
@@ -105,13 +109,22 @@ async function sign(
 
 async function smoke(): Promise<string> {
 	const libtssVersion = await version();
-	const digest = new Uint8Array(32).fill(7);
+	const message = ascii(MESSAGE);
+	// DKLs23 signs the SHA-256 digest of the message; verify() hashes the
+	// message itself. FROST signs and verifies the message.
+	const digest = Uint8Array.from(
+		MESSAGE_SHA256.match(/../g) ?? [],
+		(byte) => Number.parseInt(byte, 16),
+	);
 	for (const suite of [Ciphersuite.Ed25519, Ciphersuite.Secp256k1ECDSA]) {
 		const shares = await dkg(suite);
 		try {
-			const signature = await sign(shares, digest);
+			const signature = await sign(
+				shares,
+				suite === Ciphersuite.Secp256k1ECDSA ? digest : message,
+			);
 			const key = await shares[0].groupVerifyingKey();
-			if (!(await verify(suite, digest, signature, key))) {
+			if (!(await verify(suite, message, signature, key))) {
 				throw new Error(`signature does not verify for suite ${suite}`);
 			}
 		} finally {
