@@ -54,11 +54,11 @@ jobs:
             runner: ubuntu-22.04-arm
           - platform: darwin_arm64
             target: aarch64-apple-darwin
-            runner: macos-14
+            runner: macos-15
           # Built on Apple silicon and tested under Rosetta.
           - platform: darwin_amd64
             target: x86_64-apple-darwin
-            runner: macos-14
+            runner: macos-15
     runs-on: ${{ matrix.runner }}
     env:
       MACOSX_DEPLOYMENT_TARGET: "11.0"
@@ -81,10 +81,12 @@ jobs:
           cargo rustc --locked --release -p libtss-ffi --target ${{ matrix.target }} \
             --crate-type staticlib -- --print native-static-libs 2>&1 | grep native-static-libs
 
+      # No Go build cache: Go does not track the contents of the archive named
+      # in the cgo flags, so a cached link could test a previous archive.
       - uses: actions/setup-go@v5
         with:
           go-version-file: libtss-go/go.mod
-          cache-dependency-path: libtss-go/go.sum
+          cache: false
 
       - name: Install Rosetta
         if: matrix.platform == 'darwin_amd64'
@@ -97,12 +99,12 @@ jobs:
           CGO_ENABLED: "1"
         run: |
           go list -f '{{.CgoLDFLAGS}}' ./tss
-          go test -timeout 40m ./...
+          go test -count=1 -timeout 40m ./...
 
       - uses: actions/upload-artifact@v4
         with:
           name: go-native-${{ matrix.platform }}
-          path: libtss-go/tss/native/${{ matrix.platform }}/liblibtss_ffi.a
+          path: libtss-go/tss/native/${{ matrix.platform }}/
           if-no-files-found: error
           retention-days: 7
 
@@ -119,7 +121,7 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: libtss-go/go.mod
-          cache-dependency-path: libtss-go/go.sum
+          cache: false
 
       - uses: actions/download-artifact@v4
         with:
@@ -135,7 +137,7 @@ jobs:
           scripts/go-native.sh assemble "$RUNNER_TEMP/libtss-go" "$VERSION" archives
           cat "$RUNNER_TEMP/libtss-go/tss/native/VERSION" "$RUNNER_TEMP/libtss-go/tss/native/SHA256SUMS"
 
-      - name: Check the module zip limits
+      - name: Check the module path, version and zip
         working-directory: ${{ runner.temp }}
         run: |
           mkdir zipcheck && cd zipcheck
@@ -148,25 +150,27 @@ jobs:
           	"fmt"
           	"os"
 
+          	"golang.org/x/mod/module"
           	"golang.org/x/mod/zip"
           )
 
+          // Builds the module zip as the Go proxy would, which checks the path,
+          // the version, every file name and the size limits.
           func main() {
-          	files, err := zip.CheckDir(os.Args[1])
-          	for _, f := range files.Omitted {
-          		fmt.Println("omitted:", f.Path, f.Err)
+          	version := module.Version{Path: "github.com/0xCarbon/libtss-go", Version: os.Args[2]}
+          	out, err := os.Create(os.Args[3])
+          	if err == nil {
+          		err = zip.CreateFromDir(out, version, os.Args[1])
           	}
-          	for _, f := range files.Invalid {
-          		fmt.Println("invalid:", f.Path, f.Err)
-          	}
-          	if err != nil || len(files.Invalid) > 0 || files.SizeError != nil {
-          		fmt.Println("error:", err, files.SizeError)
+          	if err != nil {
+          		fmt.Println("error:", err)
           		os.Exit(1)
           	}
-          	fmt.Println("valid files:", len(files.Valid))
+          	info, _ := out.Stat()
+          	fmt.Println("module zip:", info.Size(), "bytes")
           }
           EOF
-          go run . "$RUNNER_TEMP/libtss-go"
+          go run . "$RUNNER_TEMP/libtss-go" "$VERSION" "$RUNNER_TEMP/module.zip"
 
       - name: Build and run a consumer of the module
         working-directory: ${{ runner.temp }}
@@ -195,7 +199,7 @@ jobs:
           }
           EOF
           go mod tidy
-          go build -trimpath -o consumer .
+          go build -a -trimpath -o consumer .
           ./consumer
           # The archive is linked in, not loaded at run time.
           ldd ./consumer
@@ -243,4 +247,4 @@ jobs:
           git add -A
           git commit -m "libtss-go $VERSION from 0xCarbon/libtss@$GITHUB_SHA"
           git tag -a "$VERSION" -m "libtss-go $VERSION from 0xCarbon/libtss@$GITHUB_SHA"
-          git push origin main "refs/tags/$VERSION"
+          git push --atomic origin main "refs/tags/$VERSION"

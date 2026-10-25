@@ -1,4 +1,4 @@
-//go:build darwin && amd64 && !libtss_local && !libtss_dynamic
+//go:build darwin && !ios && amd64 && !libtss_local && !libtss_dynamic
 
 package tss
 

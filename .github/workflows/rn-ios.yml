@@ -50,9 +50,10 @@ jobs:
       - name: Build LibtssFFI.xcframework
         run: scripts/rn-ios-xcframework.sh
 
+      # React Native 0.88 requires Node 22.13 or later.
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Build the libtss-rn package
         working-directory: libtss-rn
@@ -71,6 +72,7 @@ jobs:
           # --install-links copies the package as npm would publish it.
           npm install --install-links "$GITHUB_WORKSPACE/libtss-rn"
           cp "$GITHUB_WORKSPACE/scripts/rn-ios-smoke/App.tsx" App.tsx
+          npx tsc --noEmit
           cd ios
           bundle install
           bundle exec pod install

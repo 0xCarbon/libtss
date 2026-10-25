@@ -22,14 +22,20 @@ install-ffi:
 	cargo build --locked --release -p libtss-ffi
 	install -d $(DESTDIR)$(PREFIX)/lib $(DESTDIR)$(PREFIX)/lib/pkgconfig $(DESTDIR)$(PREFIX)/include
 	install -m 644 target/release/$(FFI_SHARED) $(DESTDIR)$(PREFIX)/lib/
+ifeq ($(shell uname -s),Darwin)
+	# The build sets the install name to the target/ path; point it at the
+	# installed library instead.
+	install_name_tool -id $(PREFIX)/lib/$(FFI_SHARED) $(DESTDIR)$(PREFIX)/lib/$(FFI_SHARED)
+endif
 	install -m 644 libtss-ffi/libtss.h $(DESTDIR)$(PREFIX)/include/
 	sed -e 's|@PREFIX@|$(PREFIX)|' -e 's|@VERSION@|$(FFI_VERSION)|' libtss-ffi/libtss_ffi.pc.in \
 		> $(DESTDIR)$(PREFIX)/lib/pkgconfig/libtss_ffi.pc
 
-# Go tests against this checkout's libtss-ffi build.
+# Go tests against this checkout's libtss-ffi build. -a relinks: Go does not
+# track changes to the archive named in the cgo flags.
 go-test:
 	cargo build -p libtss-ffi
-	cd libtss-go && go test -tags libtss_local ./...
+	cd libtss-go && go test -a -count=1 -tags libtss_local ./...
 
 .PHONY: linux-x86_64 linux-aarch64 android-arm64 android-x86_64 ios-arm64 ios-sim-arm64
 

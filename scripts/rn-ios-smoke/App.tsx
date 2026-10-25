@@ -16,6 +16,11 @@ import {
 } from "@alore/libtss-rn";
 
 const MAX_ROUNDS = 10;
+// DKLs23 requires every party to use the same session id (DKG) and sign id.
+const ascii = (text: string) =>
+	Uint8Array.from(text, (char) => char.charCodeAt(0));
+const DKG_SESSION_ID = ascii("libtss-smoke-dkg");
+const SIGN_ID = ascii("libtss-smoke-sign");
 
 function inbound(self: number, outgoing: Map<number, Message[]>): Message[] {
 	const messages: Message[] = [];
@@ -33,7 +38,11 @@ async function dkg(suite: Ciphersuite): Promise<KeyShareHandle[]> {
 	const sessions = new Map<number, DkgSession>();
 	let outgoing = new Map<number, Message[]>();
 	for (const id of [1, 2]) {
-		const [session, messages] = await DkgSession.create(config, id);
+		const [session, messages] = await DkgSession.create(
+			config,
+			id,
+			DKG_SESSION_ID,
+		);
 		sessions.set(id, session);
 		outgoing.set(id, messages);
 	}
@@ -64,25 +73,34 @@ async function sign(
 	let outgoing = new Map<number, Message[]>();
 	for (const [index, share] of shares.entries()) {
 		const id = index + 1;
-		const [session, messages] = await SignSession.create(share, message, [
-			3 - id,
-		]);
+		const [session, messages] = await SignSession.create(
+			share,
+			message,
+			[3 - id],
+			SIGN_ID,
+		);
 		sessions.set(id, session);
 		outgoing.set(id, messages);
 	}
+	let signature: Uint8Array | undefined;
 	for (let round = 0; round < MAX_ROUNDS && sessions.size > 0; round++) {
 		const next = new Map<number, Message[]>();
 		for (const [id, session] of [...sessions]) {
 			const output = await session.next(inbound(id, outgoing));
 			if (output.complete) {
+				signature = output.signature.data;
 				session.free();
-				return output.signature.data;
+				sessions.delete(id);
+			} else {
+				next.set(id, output.messages);
 			}
-			next.set(id, output.messages);
 		}
 		outgoing = next;
 	}
-	throw new Error("signing did not complete");
+	if (signature === undefined || sessions.size > 0) {
+		throw new Error("signing did not complete");
+	}
+	return signature;
 }
 
 async function smoke(): Promise<string> {

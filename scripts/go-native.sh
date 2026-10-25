@@ -4,13 +4,14 @@
 #   scripts/go-native.sh build <rust-target> <goos_goarch>
 #       Builds libtss-ffi in release mode for <rust-target>, strips debug
 #       info, and installs it as libtss-go/tss/native/<goos_goarch>/liblibtss_ffi.a
-#       so that `go test ./...` in libtss-go uses it without build tags.
+#       (with BUILD_INFO: target, toolchain, commit) so that `go test ./...`
+#       in libtss-go uses it without build tags.
 #
 #   scripts/go-native.sh assemble <out-dir> <version> <archives-dir>
 #       Writes the publishable Go module (github.com/0xCarbon/libtss-go) to
 #       <out-dir>: the libtss-go sources with symlinks resolved, the archives
-#       from <archives-dir>/<goos_goarch>/liblibtss_ffi.a, native/VERSION and
-#       native/SHA256SUMS.
+#       and BUILD_INFO files from <archives-dir>/<goos_goarch>/, native/VERSION
+#       and native/SHA256SUMS. <version> is a canonical v0/v1 semantic version.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -41,12 +42,20 @@ build() {
 	darwin_*) strip -S "$dst" ;;
 	*) strip --strip-debug "$dst" ;;
 	esac
+	{
+		echo "target: $target"
+		echo "commit: $(git -C "$root" rev-parse HEAD)"
+		echo "rustc: $(rustc --version)"
+		echo "cargo: $(cargo --version)"
+	} >"$(dirname "$dst")/BUILD_INFO"
 	echo "go-native: $dst ($(wc -c <"$dst") bytes)"
 }
 
 assemble() {
 	local out="$1" version="$2" archives="$3"
-	[[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || die "version must look like v1.2.3: $version"
+	# The module path has no /vN suffix, so only v0 and v1 are valid.
+	[[ "$version" =~ ^v[01]\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]] ||
+		die "version must be a canonical v0.x.y or v1.x.y: $version"
 	[[ ! -e "$out" ]] || die "$out already exists"
 	mkdir -p "$out"
 	# -L resolves tss_ffi.h, which is a symlink to libtss-ffi/libtss.h in this
@@ -56,20 +65,28 @@ assemble() {
 	# Source-checkout linking has no meaning outside this repository.
 	rm -f "$out/tss/link_local.go"
 	for platform in "${platforms[@]}"; do
-		local archive="$archives/$platform/liblibtss_ffi.a"
-		[[ -f "$archive" ]] || die "missing $archive"
+		local dir="$archives/$platform"
+		[[ -f "$dir/liblibtss_ffi.a" && -f "$dir/BUILD_INFO" ]] || die "missing archive or BUILD_INFO in $dir"
 		mkdir -p "$out/tss/native/$platform"
-		cp "$archive" "$out/tss/native/$platform/"
+		cp "$dir/liblibtss_ffi.a" "$dir/BUILD_INFO" "$out/tss/native/$platform/"
 	done
 	cp "$root/LICENSE-APACHE" "$root/LICENSE-MIT" "$out/"
 	local commit
 	commit="$(git -C "$root" rev-parse HEAD)"
-	cat >"$out/tss/native/VERSION" <<EOF
-module: github.com/0xCarbon/libtss-go $version
-source: https://github.com/0xCarbon/libtss/tree/$commit
-libtss-ffi: $(sed -n 's/^version = "\(.*\)"/\1/p' "$root/libtss-ffi/Cargo.toml" | head -1)
-rustc: $(rustc --version)
-EOF
+	{
+		echo "module: github.com/0xCarbon/libtss-go $version"
+		echo "source: https://github.com/0xCarbon/libtss/tree/$commit"
+		echo "libtss-ffi: $(sed -n 's/^version = "\(.*\)"/\1/p' "$root/libtss-ffi/Cargo.toml" | head -1)"
+		for platform in "${platforms[@]}"; do
+			echo
+			echo "[$platform]"
+			cat "$out/tss/native/$platform/BUILD_INFO"
+		done
+	} >"$out/tss/native/VERSION"
+	for platform in "${platforms[@]}"; do
+		grep -qx "commit: $commit" "$out/tss/native/$platform/BUILD_INFO" ||
+			die "$platform archive was not built from $commit"
+	done
 	(cd "$out/tss/native" && sha256 */liblibtss_ffi.a >SHA256SUMS)
 	verify "$out"
 	echo "go-native: assembled $out"

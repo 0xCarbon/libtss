@@ -103,9 +103,17 @@ BOOL ParseHandle(NSString *handle, TssHandle *outHandle, RCTPromiseRejectBlock r
   return YES;
 }
 
+// Zeroes memory through a volatile pointer so the stores are not elided.
+void WipeBytes(void *bytes, size_t length) {
+  volatile uint8_t *cursor = static_cast<volatile uint8_t *>(bytes);
+  for (size_t i = 0; i < length; ++i) {
+    cursor[i] = 0;
+  }
+}
+
 void WipeData(NSMutableData *data) {
   if (data != nil && data.length > 0) {
-    memset_s(data.mutableBytes, data.length, 0, data.length);
+    WipeBytes(data.mutableBytes, data.length);
   }
 }
 
@@ -168,7 +176,7 @@ NSMutableData *DecodeBase64(NSString *value, RCTPromiseRejectBlock reject) {
     for (int k = 0; k < 3 && written < out.length; ++k) {
       bytes[written++] = chunk[k];
     }
-    memset_s(chunk, sizeof chunk, 0, sizeof chunk);
+    WipeBytes(chunk, sizeof chunk);
     quad = 0;
   }
   return out;
@@ -1084,7 +1092,7 @@ RCT_EXPORT_METHOD(importKeyShareSecure:(nonnull NSNumber *)suite
       suiteValue,
       &out);
 
-  memset_s(mutableCopy.mutableBytes, mutableCopy.length, 0, mutableCopy.length);
+  WipeData(mutableCopy);
 
   if (status != TSS_OK) {
     RejectStatus(reject, status);

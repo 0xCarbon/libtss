@@ -1,4 +1,4 @@
-//go:build !libtss_local && !libtss_dynamic && !((linux || darwin) && (amd64 || arm64))
+//go:build !libtss_local && !libtss_dynamic && !(((linux && !android) || (darwin && !ios)) && (amd64 || arm64))
 
 package tss
 
