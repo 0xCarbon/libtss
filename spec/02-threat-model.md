@@ -132,7 +132,7 @@ Known attack classes on threshold signing (all mitigated by protocol choice):
 | Scenario | Mitigation |
 |----------|------------|
 | Single share compromised | Attacker needs `t` shares; single share is useless alone |
-| Share compromised over time (mobile adversary) | **Share refresh**: rotate shares without changing public key. Old shares become useless. |
+| Share compromised over time (mobile adversary) | **Share refresh**: rotate shares without changing public key. Old shares cannot be combined with new ones; parties must erase old shares, since a threshold of retained old shares still signs. |
 | Share lost (device failure) | **Share repair**: `t` helpers can reconstruct a lost share for a designated participant |
 | All shares of one party compromised | Refresh immediately. If < `t` total compromised, security is maintained. |
 

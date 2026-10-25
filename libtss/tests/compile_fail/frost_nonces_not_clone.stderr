@@ -1,0 +1,11 @@
+error[E0277]: the trait bound `SigningNonces: Clone` is not satisfied
+ --> tests/compile_fail/frost_nonces_not_clone.rs:5:20
+  |
+5 |     assert_clone::<libtss::frost::SigningNonces>();
+  |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ the trait `Clone` is not implemented for `SigningNonces`
+  |
+note: required by a bound in `assert_clone`
+ --> tests/compile_fail/frost_nonces_not_clone.rs:2:20
+  |
+2 | fn assert_clone<T: Clone>() {}
+  |                    ^^^^^ required by this bound in `assert_clone`

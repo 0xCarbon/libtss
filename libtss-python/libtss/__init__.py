@@ -59,10 +59,10 @@ def verify(
     Returns:
         True if the signature is valid, False otherwise.
     """
-    from libtss._ffi import make_slice
+    from libtss._ffi import check_u8, make_slice
 
     return get_lib().tss_verify(
-        int(suite),
+        check_u8(suite, "suite"),
         make_slice(message),
         make_slice(signature),
         make_slice(public_key),

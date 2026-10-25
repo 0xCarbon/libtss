@@ -16,10 +16,20 @@ fn id(value: u16) -> Identifier {
     Identifier::new(value).unwrap()
 }
 
+thread_local! {
+    /// When set, `route` hands every party every message, including its own
+    /// and those addressed to others, as a relay that echoes would.
+    static ECHO: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 fn route(
     outputs: &BTreeMap<Identifier, Vec<Message>>,
     recipients: &[Identifier],
 ) -> BTreeMap<Identifier, Vec<Message>> {
+    if ECHO.with(|echo| echo.get()) {
+        let all: Vec<Message> = outputs.values().flatten().cloned().collect();
+        return recipients.iter().map(|&r| (r, all.clone())).collect();
+    }
     let mut routed: BTreeMap<Identifier, Vec<Message>> =
         recipients.iter().map(|&r| (r, Vec::new())).collect();
     for (&sender, messages) in outputs {
@@ -158,6 +168,25 @@ fn verifies(suite: Ciphersuite, group_key: &[u8], hash: &[u8; 32], signature: &[
 
 fn same_id(parties: &[Identifier], sid: &'static [u8]) -> BTreeMap<Identifier, &'static [u8]> {
     parties.iter().map(|&p| (p, sid)).collect()
+}
+
+#[test]
+#[cfg_attr(tarpaulin, ignore)]
+fn dkg_refresh_and_sign_skip_echoed_and_foreign_messages() {
+    ECHO.with(|echo| echo.set(true));
+    for suite in [Ciphersuite::Secp256k1ECDSA, Ciphersuite::Secp256r1ECDSA] {
+        let shares = dkg(suite);
+        let parties: Vec<_> = shares.keys().copied().collect();
+        let refreshed = refresh(&shares, &same_id(&parties, b"echo-refresh")).unwrap();
+        let group_key = refreshed[&id(1)].group_verifying_key();
+        let hash = [7u8; 32];
+        let signers: BTreeMap<_, _> = [id(1), id(3)]
+            .into_iter()
+            .map(|p| (p, &refreshed[&p]))
+            .collect();
+        let signature = sign(suite, &signers, hash).unwrap();
+        assert!(verifies(suite, &group_key, &hash, &signature));
+    }
 }
 
 #[test]
@@ -582,4 +611,233 @@ fn bolt3_package_derivation_requires_indices_one_to_n() {
         libtss::bolt3::bolt3_derive_public_keys(&gapped, &hex(BOLT3_PER_COMMITMENT_POINT)),
         Err(TssError::InvalidIdentifier)
     ));
+}
+
+/// A lost share is repaired by two helpers, cannot sign until a complete
+/// refresh across all parties, and then signs under the same group key.
+#[test]
+#[cfg_attr(tarpaulin, ignore)]
+fn repaired_share_signs_after_a_complete_refresh() {
+    use libtss::dkls_repair::{repair_assemble, repair_helper_term};
+
+    for suite in SUITES {
+        let shares = dkg(suite);
+        let group_key = shares[&id(1)].group_verifying_key();
+        let public_keys = shares[&id(1)].public_key_package().clone();
+        let helpers = [id(1), id(2)];
+        let messages: Vec<Message> = helpers
+            .iter()
+            .map(|h| repair_helper_term(&shares[h], &helpers, id(3), b"repair-1").unwrap())
+            .collect();
+        let repaired = repair_assemble(suite, &public_keys, id(3), &messages).unwrap();
+        assert_eq!(repaired.group_verifying_key(), group_key);
+        assert_eq!(repaired.verifying_share(), shares[&id(3)].verifying_share());
+        assert_eq!(
+            repaired.chain_code().unwrap(),
+            shares[&id(3)].chain_code().unwrap()
+        );
+
+        // The repaired share cannot sign yet.
+        let pair = BTreeMap::from([(id(1), &shares[&id(1)]), (id(3), &repaired)]);
+        assert!(sign(suite, &pair, [2u8; 32]).is_err(), "{suite:?}");
+
+        // After a complete refresh with the repaired share, it signs.
+        let group = BTreeMap::from([
+            (
+                id(1),
+                libtss::import_key_share(&shares[&id(1)].export().unwrap(), suite).unwrap(),
+            ),
+            (
+                id(2),
+                libtss::import_key_share(&shares[&id(2)].export().unwrap(), suite).unwrap(),
+            ),
+            (id(3), repaired),
+        ]);
+        let parties: Vec<_> = group.keys().copied().collect();
+        let refreshed = refresh(&group, &same_id(&parties, b"after-repair")).unwrap();
+        let hash = [2u8; 32];
+        let pair = BTreeMap::from([(id(2), &refreshed[&id(2)]), (id(3), &refreshed[&id(3)])]);
+        assert!(verifies(
+            suite,
+            &group_key,
+            &hash,
+            &sign(suite, &pair, hash).unwrap()
+        ));
+    }
+}
+
+#[test]
+fn repair_rejects_forged_and_invalid_input() {
+    use libtss::dkls_repair::{repair_assemble, repair_helper_term};
+
+    let suite = Ciphersuite::Secp256k1ECDSA;
+    let shares = import(suite, &[0x42u8; 32], None);
+    let public_keys = shares[&id(1)].public_key_package().clone();
+    let helpers = [id(1), id(2)];
+    let messages: Vec<Message> = helpers
+        .iter()
+        .map(|h| repair_helper_term(&shares[h], &helpers, id(3), b"r").unwrap())
+        .collect();
+    assert!(repair_assemble(suite, &public_keys, id(3), &messages).is_ok());
+
+    // A term whose sender is not the helper it names.
+    let mut relayed = messages.clone();
+    relayed[1].from = id(3);
+    assert!(matches!(
+        repair_assemble(suite, &public_keys, id(3), &relayed),
+        Err(TssError::InvalidConfig(_))
+    ));
+
+    // A corrupted term.
+    let mut corrupted = messages.clone();
+    let last = corrupted[1].data.len() - 40;
+    corrupted[1].data[last] ^= 1;
+    assert!(repair_assemble(suite, &public_keys, id(3), &corrupted).is_err());
+
+    // Trailing bytes.
+    let mut trailing = messages.clone();
+    trailing[1].data.push(0);
+    assert!(matches!(
+        repair_assemble(suite, &public_keys, id(3), &trailing),
+        Err(TssError::DeserializeFailed(_))
+    ));
+
+    // Too few terms, another suite, invalid requests.
+    assert!(repair_assemble(suite, &public_keys, id(3), &messages[..1]).is_err());
+    assert!(matches!(
+        repair_assemble(Ciphersuite::Secp256r1ECDSA, &public_keys, id(3), &messages),
+        Err(TssError::ProtocolMismatch)
+    ));
+    assert!(matches!(
+        repair_helper_term(&shares[&id(1)], &[id(1), id(1), id(2)], id(3), b"r"),
+        Err(TssError::InvalidConfig(_))
+    ));
+    assert!(matches!(
+        repair_helper_term(&shares[&id(1)], &[id(1)], id(3), b"r"),
+        Err(TssError::InvalidConfig(_))
+    ));
+    assert!(matches!(
+        repair_helper_term(&shares[&id(1)], &[id(1), id(2)], id(3), b""),
+        Err(TssError::InvalidConfig(_))
+    ));
+}
+
+#[test]
+fn repair_rejects_unusable_shares_and_ignores_other_messages() {
+    use libtss::dkls_repair::{repair_assemble, repair_helper_term};
+
+    let suite = Ciphersuite::Secp256k1ECDSA;
+    let shares = import(suite, &[0x42u8; 32], Some(&[7u8; 32]));
+    let public_keys = shares[&id(1)].public_key_package().clone();
+    let helpers = [id(1), id(2)];
+    let messages: Vec<Message> = helpers
+        .iter()
+        .map(|h| repair_helper_term(&shares[h], &helpers, id(3), b"r").unwrap())
+        .collect();
+
+    // Messages to another party are ignored.
+    let mut mixed = messages.clone();
+    mixed.push(Message {
+        from: id(1),
+        to: Some(id(2)),
+        data: vec![0xff; 8],
+    });
+    let repaired = repair_assemble(suite, &public_keys, id(3), &mixed).unwrap();
+
+    // A repaired share cannot help before a refresh.
+    assert!(matches!(
+        repair_helper_term(&repaired, &[id(1), id(3)], id(2), b"r"),
+        Err(TssError::InvalidConfig(_))
+    ));
+
+    // A BIP-32-derived share cannot help.
+    let derived = libtss::derive::derive_child(&shares[&id(1)], 0).unwrap();
+    assert!(matches!(
+        repair_helper_term(&derived, &helpers, id(3), b"r"),
+        Err(TssError::InvalidConfig(_))
+    ));
+
+    // Two terms from one helper.
+    let doubled = [messages[0].clone(), messages[0].clone()];
+    let result = repair_assemble(suite, &public_keys, id(3), &doubled);
+    assert!(matches!(result, Err(TssError::InvalidShare)), "{result:?}");
+
+    // A target outside the group or among the helpers.
+    assert!(matches!(
+        repair_helper_term(&shares[&id(1)], &helpers, id(4), b"r"),
+        Err(TssError::InvalidConfig(_))
+    ));
+    assert!(matches!(
+        repair_helper_term(&shares[&id(1)], &helpers, id(2), b"r"),
+        Err(TssError::InvalidConfig(_))
+    ));
+    assert!(matches!(
+        repair_assemble(suite, &public_keys, id(4), &messages),
+        Err(TssError::InvalidConfig(_))
+    ));
+
+    // Terms for this target do not match another target's verifying share.
+    let mut retargeted = messages.clone();
+    for message in &mut retargeted {
+        message.to = Some(id(2));
+    }
+    assert!(repair_assemble(suite, &public_keys, id(2), &retargeted).is_err());
+}
+
+#[test]
+#[cfg_attr(tarpaulin, ignore)]
+fn repair_rejects_a_stale_or_inconsistent_package() {
+    use libtss::dkls_repair::{repair_assemble, repair_helper_term};
+
+    let suite = Ciphersuite::Secp256k1ECDSA;
+    let shares = import(suite, &[0x42u8; 32], None);
+    let stale = shares[&id(1)].public_key_package().clone();
+    let parties: Vec<_> = shares.keys().copied().collect();
+    let refreshed = refresh(&shares, &same_id(&parties, b"before-repair")).unwrap();
+    let helpers = [id(1), id(2)];
+    let messages: Vec<Message> = helpers
+        .iter()
+        .map(|h| repair_helper_term(&refreshed[h], &helpers, id(3), b"r").unwrap())
+        .collect();
+    let current = refreshed[&id(1)].public_key_package().clone();
+    assert!(repair_assemble(suite, &current, id(3), &messages).is_ok());
+
+    // The package from before the refresh.
+    assert!(matches!(
+        repair_assemble(suite, &stale, id(3), &messages),
+        Err(TssError::InvalidShare)
+    ));
+
+    let with = |shares: BTreeMap<Identifier, Vec<u8>>, min_signers: u16| {
+        libtss::PublicKeyPackage::new(suite, current.verifying_key().to_vec(), shares, min_signers)
+    };
+    let mut swapped = current.verifying_shares().clone();
+    let first = swapped[&id(1)].clone();
+    swapped.insert(id(1), swapped[&id(2)].clone());
+    swapped.insert(id(2), first);
+    let mut identity = current.verifying_shares().clone();
+    identity.insert(id(2), vec![0u8; 33]);
+
+    // A threshold above the helper count.
+    assert!(matches!(
+        repair_assemble(
+            suite,
+            &with(current.verifying_shares().clone(), 3),
+            id(3),
+            &messages
+        ),
+        Err(TssError::InvalidConfig(_))
+    ));
+
+    // Swapped or identity verifying shares.
+    for (package, expected) in [(with(swapped, 2), "share"), (with(identity, 2), "point")] {
+        let result = repair_assemble(suite, &package, id(3), &messages);
+        match expected {
+            "share" => assert!(matches!(result, Err(TssError::InvalidShare)), "{result:?}"),
+            _ => assert!(
+                matches!(result, Err(TssError::DeserializeFailed(_))),
+                "{result:?}"
+            ),
+        }
+    }
 }

@@ -18,8 +18,9 @@ use crate::handle::WasmKeyShareHandle;
 #[wasm_bindgen(js_name = "deriveChild")]
 pub fn derive_child(
     key_share: &WasmKeyShareHandle,
-    child_number: u32,
+    #[wasm_bindgen(unchecked_param_type = "number")] child_number: JsValue,
 ) -> Result<WasmKeyShareHandle, JsValue> {
+    let child_number = crate::args::u32_arg(&child_number, "childNumber")?;
     let child = map_err(libtss::derive_child(&key_share.inner, child_number))?;
     Ok(WasmKeyShareHandle { inner: child })
 }

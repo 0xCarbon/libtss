@@ -287,15 +287,22 @@ impl PublicKeyPackage {
     /// Format: suite(1) + min_signers(2 LE) + vk_len(4 LE) + vk + share_count(2 LE)
     ///         + [id(2 LE) + share_len(4 LE) + share_data] ...
     pub fn serialize(&self) -> Result<Vec<u8>, TssError> {
+        fn len_u32(len: usize) -> Result<[u8; 4], TssError> {
+            u32::try_from(len)
+                .map(u32::to_le_bytes)
+                .map_err(|_| TssError::InvalidConfig("PublicKeyPackage field too long".into()))
+        }
+        let share_count = u16::try_from(self.verifying_shares.len())
+            .map_err(|_| TssError::InvalidConfig("too many verifying shares".into()))?;
         let mut buf = Vec::new();
         buf.push(self.suite as u8);
         buf.extend_from_slice(&self.min_signers.to_le_bytes());
-        buf.extend_from_slice(&(self.verifying_key.len() as u32).to_le_bytes());
+        buf.extend_from_slice(&len_u32(self.verifying_key.len())?);
         buf.extend_from_slice(&self.verifying_key);
-        buf.extend_from_slice(&(self.verifying_shares.len() as u16).to_le_bytes());
+        buf.extend_from_slice(&share_count.to_le_bytes());
         for (id, share) in &self.verifying_shares {
             buf.extend_from_slice(&id.as_u16().to_le_bytes());
-            buf.extend_from_slice(&(share.len() as u32).to_le_bytes());
+            buf.extend_from_slice(&len_u32(share.len())?);
             buf.extend_from_slice(share);
         }
         Ok(buf)
@@ -308,46 +315,44 @@ impl PublicKeyPackage {
                 "PublicKeyPackage too short".into(),
             ));
         }
+        // Every read is checked against the remaining input, so untrusted
+        // lengths never take part in offset arithmetic that could overflow.
+        fn take<'a>(rest: &mut &'a [u8], len: usize, what: &str) -> Result<&'a [u8], TssError> {
+            if rest.len() < len {
+                return Err(TssError::DeserializeFailed(format!("truncated {what}")));
+            }
+            let (head, tail) = rest.split_at(len);
+            *rest = tail;
+            Ok(head)
+        }
+        fn take_u16(rest: &mut &[u8], what: &str) -> Result<u16, TssError> {
+            let bytes = take(rest, 2, what)?;
+            Ok(u16::from_le_bytes([bytes[0], bytes[1]]))
+        }
+        fn take_len(rest: &mut &[u8], what: &str) -> Result<usize, TssError> {
+            let bytes = take(rest, 4, what)?;
+            usize::try_from(u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+                .map_err(|_| TssError::DeserializeFailed(format!("{what} too long")))
+        }
+
         let suite = Ciphersuite::try_from(data[0])?;
-        let min_signers = u16::from_le_bytes([data[1], data[2]]);
-        let vk_len = u32::from_le_bytes([data[3], data[4], data[5], data[6]]) as usize;
-        let mut pos = 7;
-        if pos + vk_len > data.len() {
-            return Err(TssError::DeserializeFailed(
-                "truncated verifying key".into(),
-            ));
-        }
-        let verifying_key = data[pos..pos + vk_len].to_vec();
-        pos += vk_len;
-        if pos + 2 > data.len() {
-            return Err(TssError::DeserializeFailed("truncated share count".into()));
-        }
-        let share_count = u16::from_le_bytes([data[pos], data[pos + 1]]) as usize;
-        pos += 2;
+        let mut rest = &data[1..];
+        let min_signers = take_u16(&mut rest, "min_signers")?;
+        let vk_len = take_len(&mut rest, "verifying key length")?;
+        let verifying_key = take(&mut rest, vk_len, "verifying key")?.to_vec();
+        let share_count = take_u16(&mut rest, "share count")?;
         let mut verifying_shares = BTreeMap::new();
         for _ in 0..share_count {
-            if pos + 6 > data.len() {
-                return Err(TssError::DeserializeFailed("truncated share header".into()));
-            }
-            let id = Identifier::new(u16::from_le_bytes([data[pos], data[pos + 1]]))?;
-            let slen =
-                u32::from_le_bytes([data[pos + 2], data[pos + 3], data[pos + 4], data[pos + 5]])
-                    as usize;
-            pos += 6;
-            if pos + slen > data.len() {
-                return Err(TssError::DeserializeFailed("truncated share data".into()));
-            }
-            if verifying_shares
-                .insert(id, data[pos..pos + slen].to_vec())
-                .is_some()
-            {
+            let id = Identifier::new(take_u16(&mut rest, "share header")?)?;
+            let slen = take_len(&mut rest, "share header")?;
+            let share = take(&mut rest, slen, "share data")?.to_vec();
+            if verifying_shares.insert(id, share).is_some() {
                 return Err(TssError::DeserializeFailed(
                     "duplicate identifier in verifying shares".into(),
                 ));
             }
-            pos += slen;
         }
-        if pos != data.len() {
+        if !rest.is_empty() {
             return Err(TssError::DeserializeFailed(
                 "trailing bytes after PublicKeyPackage".into(),
             ));
@@ -364,6 +369,40 @@ impl PublicKeyPackage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn public_key_package_rejects_max_lengths() {
+        // u32::MAX verifying key length.
+        let mut data = vec![Ciphersuite::Ed25519 as u8, 2, 0];
+        data.extend_from_slice(&u32::MAX.to_le_bytes());
+        data.extend_from_slice(&[0u8; 8]);
+        assert!(matches!(
+            PublicKeyPackage::deserialize(&data),
+            Err(TssError::DeserializeFailed(_))
+        ));
+
+        // Valid verifying key, then a share with u32::MAX length.
+        let mut data = vec![Ciphersuite::Ed25519 as u8, 2, 0];
+        data.extend_from_slice(&1u32.to_le_bytes());
+        data.push(7);
+        data.extend_from_slice(&1u16.to_le_bytes());
+        data.extend_from_slice(&1u16.to_le_bytes());
+        data.extend_from_slice(&u32::MAX.to_le_bytes());
+        data.extend_from_slice(&[0u8; 4]);
+        assert!(matches!(
+            PublicKeyPackage::deserialize(&data),
+            Err(TssError::DeserializeFailed(_))
+        ));
+
+        // Share count larger than the data present.
+        let mut data = vec![Ciphersuite::Ed25519 as u8, 2, 0];
+        data.extend_from_slice(&0u32.to_le_bytes());
+        data.extend_from_slice(&u16::MAX.to_le_bytes());
+        assert!(matches!(
+            PublicKeyPackage::deserialize(&data),
+            Err(TssError::DeserializeFailed(_))
+        ));
+    }
 
     #[test]
     fn identifier_zero_fails() {

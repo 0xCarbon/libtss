@@ -110,47 +110,49 @@ DER encoding is available via a helper function.
 
 ### PublicKeyPackage
 
+All integers are little-endian. There is no version field.
+
 ```
 ┌────────────────────────────────────────────────────┐
-│ Header                                             │
-│  version: u16                                     │
-│  ciphersuite: u8                                  │
-│  min_signers: u16                                 │
-│  num_shares: u16                                  │
+│ ciphersuite: u8                                    │
+│ min_signers: u16                                   │
 ├────────────────────────────────────────────────────┤
-│ Group Verifying Key                                │
-│  length: u16                                      │
-│  bytes: [u8; length]                              │
+│ Group verifying key                                │
+│  length: u32                                       │
+│  bytes: [u8; length]                               │
 ├────────────────────────────────────────────────────┤
-│ Verifying Shares (repeated num_shares times)       │
-│  identifier: [u8; scalar_size]                    │
-│  share: [u8; element_size]                        │
+│ num_shares: u16                                    │
+│ Verifying shares (num_shares times, ascending id)  │
+│  identifier: u16 (1..=65535)                       │
+│  length: u32                                       │
+│  share: [u8; length]                               │
 └────────────────────────────────────────────────────┘
 ```
+
+Deserialization rejects truncated input, trailing bytes, an unknown
+ciphersuite and identifier 0. DKLs23 operations additionally require the
+identifiers to be exactly `1..=num_shares`, every point to be a valid
+non-identity compressed point, and the group key and verifying shares to lie
+on one polynomial of degree below `min_signers`.
 
 ### Key Share Export (see also 07-key-management.md)
 
 ```
 ┌────────────────────────────────────────────┐
-│ Magic bytes: "LTSS" (4 bytes)              │
-│ Version: u16 (1)                           │
-│ Protocol: u8                               │
-│ Ciphersuite: u8                            │
+│ Header (8 bytes)                           │
+│  magic: "LTSS" (4 bytes)                   │
+│  version: u16 little-endian (1)            │
+│  protocol: u8 (0 = FROST, 1 = DKLs23)      │
+│  ciphersuite: u8                           │
 ├────────────────────────────────────────────┤
-│ Payload length: u32 (big-endian)           │
-│ Payload: [u8; length]                      │
-│  (serde-postcard serialized key material)  │
-├────────────────────────────────────────────┤
-│ Public key package (serialized)            │
-│  length: u32                               │
-│  data: [u8; length]                        │
-├────────────────────────────────────────────┤
-│ Chain code (optional)                      │
-│  present: u8 (0 or 1)                     │
-│  chain_code: [u8; 32] (if present)        │
+│ Payload (rest of the blob, no length)      │
+│  postcard of (key material, public keys):  │
+│  FROST: (KeyPackage, PublicKeyPackage)     │
+│  DKLs23: (Party, PublicKeyPackage); the    │
+│  chain code lives inside Party             │
 ├────────────────────────────────────────────┤
 │ SHA-256 checksum (32 bytes)                │
-│  covers all preceding bytes                │
+│  over header || payload                    │
 └────────────────────────────────────────────┘
 ```
 

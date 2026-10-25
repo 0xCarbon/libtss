@@ -472,10 +472,12 @@ impl RefreshSession {
     pub fn new(key_share: &KeyShareHandle) -> Result<(Self, Vec<Message>), TssError>;
 
     /// Create a FROST refresh receiver session (non-dealer participant).
-    /// The receiver waits for messages from the dealer refresh and does
-    /// not produce initial messages. Use with `frost_refresh_with_dealer`.
-    /// Returns `TssError::ProtocolMismatch` for DKLs23 key shares.
-    pub fn new_frost_receiver(key_share: &KeyShareHandle) -> Result<Self, TssError>;
+    /// The receiver waits for the message from the trusted `dealer` and does
+    /// not produce initial messages; see 07-key-management.md for the checks.
+    /// Returns `TssError::ProtocolMismatch` for DKLs23 key shares and
+    /// `TssError::InvalidIdentifier` for a dealer outside the group.
+    pub fn new_frost_receiver(key_share: &KeyShareHandle, dealer: Identifier)
+        -> Result<Self, TssError>;
 
     pub fn next(&mut self, received: &[Message]) -> Result<RefreshOutput, TssError>;
     pub fn round(&self) -> u8;
@@ -527,6 +529,17 @@ pub fn derive_path(
     path: &str,
 ) -> Result<KeyShareHandle, TssError>;
 ```
+
+### DKLs23 Share Repair
+
+```rust
+pub fn repair_helper_term(key_share: &KeyShareHandle, helpers: &[Identifier],
+    target: Identifier, repair_id: &[u8]) -> Result<Message, TssError>;
+pub fn repair_assemble(suite: Ciphersuite, public_keys: &PublicKeyPackage,
+    target: Identifier, received: &[Message]) -> Result<KeyShareHandle, TssError>;
+```
+
+See [07-key-management.md](07-key-management.md#dkls23-share-repair).
 
 ### BOLT 3 Key Derivation (DKLs23 secp256k1)
 
@@ -829,7 +842,9 @@ while (true) {
 1. **Sessions complete via `next()`**: The final `next()` call returns `Complete` and
    marks the session as finished. Subsequent calls return `TssError::SessionComplete`.
 2. **Nonces are single-use**: FROST signing nonces are generated in `new()` and consumed
-   internally during `next()`. They cannot be reused.
+   internally during `next()`. They cannot be reused. The low-level
+   `frost::frost_commit` / `frost::frost_sign` pair uses the opaque, non-`Clone`
+   `frost::SigningNonces` type, which `frost_sign` consumes.
 3. **Secrets never leave Rust**: `KeyShareHandle.export()` is the only way to get
    secret bytes out, and it documents the encryption requirement.
 4. **One error type**: All public functions return `Result<T, TssError>`. The FFI layer

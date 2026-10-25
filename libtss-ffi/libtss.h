@@ -14,6 +14,10 @@
 // Requires `CAP_IPC_LOCK` or `ulimit -l unlimited`.
 #define TSS_INIT_MLOCK 1
 
+// Value written to `out_recovery_id` when the signature has no recovery
+// identifier (FROST suites) or signing has not completed.
+#define TSS_NO_RECOVERY_ID 255
+
 typedef struct TssSlice {
     const uint8_t *data;
     size_t len;
@@ -60,6 +64,9 @@ typedef struct TssBuffer {
 
 const char *tss_version(void);
 
+// Verify a signature. Works for both FROST (Schnorr) and DKLs23 (ECDSA).
+//
+// Returns `false` if any slice has a null pointer with a non-zero length.
 bool tss_verify(uint8_t suite,
                 struct TssSlice message,
                 struct TssSlice signature,
@@ -133,6 +140,33 @@ TssStatus tss_bolt3_derive_revocation_pubkey_package(struct TssSlice pubkey_pack
                                                      struct TssSlice per_commitment_point,
                                                      struct TssBuffer *out_pubkey_package);
 
+// This helper's DKLs23 repair term for `target`, as a message blob (one
+// message from this party to `target`). Send it to the target only, over
+// a confidential, authenticated channel.
+//
+// `helpers` lists the helper identifiers (any order, no duplicates, at least
+// `min_signers`, including this party, not the target); every helper uses
+// the same list and `repair_id`. The helpers must authenticate the target:
+// repair hands index `target`'s share to whoever receives the terms.
+TssStatus tss_repair_helper_term(TssHandle key_share,
+                                 const uint16_t *helpers,
+                                 size_t helpers_len,
+                                 uint16_t target,
+                                 struct TssSlice repair_id,
+                                 struct TssBuffer *out_messages);
+
+// Assembles the helpers' repair messages (a message blob) into the target's
+// repaired DKLs23 share. `pubkey_package` is the group's serialized public
+// key package. Each term must come from the helper it names, so the `from`
+// of each message must be its authenticated sender. The repaired share
+// cannot sign until all parties run a complete refresh
+// (`tss_refresh_new_dkls`).
+TssStatus tss_repair_assemble(uint8_t suite,
+                              struct TssSlice pubkey_package,
+                              uint16_t target,
+                              struct TssSlice messages,
+                              TssHandle *out_handle);
+
 // Return a pointer to the last error message (NUL-terminated).
 //
 // **Lifetime:** The returned pointer is only valid until the next libtss FFI
@@ -165,6 +199,10 @@ uint16_t tss_abort_culprit(size_t index);
 
 uint16_t tss_abort_banned_party(void);
 
+// Aggregate FROST signature shares into a final signature.
+//
+// `suite` must be a FROST suite equal to the suite of `pubkey_package`;
+// otherwise `TSS_ERR_PROTO_MISMATCH` is returned.
 TssStatus tss_frost_aggregate(uint8_t suite,
                               struct TssSlice message,
                               struct TssSlice commitments,
@@ -204,6 +242,12 @@ TssStatus tss_frost_refresh_dealer(struct TssSlice pubkey_package,
                                    size_t *out_share_count,
                                    struct TssBuffer *out_pubkey_package);
 
+// Applies a trusted-dealer refresh share to `key_share`. The refreshed
+// public key package must keep the group key and `min_signers`, list a subset
+// of the share's current identifiers including this party, and match the
+// commitment in the refresh share for every verifying share; otherwise
+// `TSS_ERR_INVALID_SHARE`. The dealer must compute the refresh from the
+// share's current package.
 TssStatus tss_frost_apply_refresh(TssHandle key_share,
                                   struct TssSlice refresh_data,
                                   struct TssSlice pubkey_package,
@@ -351,7 +395,18 @@ TssStatus tss_refresh_new_dkls(TssHandle key_share,
                                TssHandle *out_session,
                                struct TssBuffer *out_messages);
 
-TssStatus tss_refresh_receiver(TssHandle key_share, TssHandle *out_session);
+// Create a receive-only FROST refresh session for a non-dealer participant.
+//
+// `dealer` is the identifier of the party that ran `tss_refresh_new`; the
+// dealer is trusted with that role. Advance with `tss_refresh_next` once,
+// passing the dealer's messages: exactly one must be addressed to this party
+// and its `from` must equal `dealer` (`TSS_ERR_ABORT` otherwise). The bundled
+// public key package is checked against this party's current one (same group
+// key and `min_signers`, identifiers a subset, every verifying share moved by
+// the dealer's committed refresh polynomial); a mismatch returns
+// `TSS_ERR_INVALID_SHARE`. A `dealer` outside the group returns
+// `TSS_ERR_INVALID_IDENTIFIER`.
+TssStatus tss_refresh_receiver(TssHandle key_share, uint16_t dealer, TssHandle *out_session);
 
 TssStatus tss_refresh_next(TssHandle session,
                            struct TssSlice messages,
@@ -360,6 +415,21 @@ TssStatus tss_refresh_next(TssHandle session,
                            struct TssBuffer *out_messages,
                            bool *out_complete);
 
+// Free a session handle. Idempotent. If another thread is inside a
+// `*_next` call on the same session, the session is dropped when that call
+// returns; further calls on the handle return `TSS_ERR_HANDLE_INVALID`. A
+// second `*_next` on a session that is already in use also returns
+// `TSS_ERR_HANDLE_INVALID`.
 void tss_session_free(TssHandle session);
+
+// Same as `tss_sign_next`, and additionally writes the recovery identifier
+// of a completed DKLs23 ECDSA signature (0 or 1) to `out_recovery_id`.
+// FROST signatures and incomplete steps write `TSS_NO_RECOVERY_ID`.
+TssStatus tss_sign_next_recoverable(TssHandle session,
+                                    struct TssSlice messages,
+                                    struct TssBuffer *out_signature,
+                                    uint8_t *out_recovery_id,
+                                    struct TssBuffer *out_messages,
+                                    bool *out_complete);
 
 #endif  /* LIBTSS_H */

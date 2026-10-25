@@ -20,6 +20,7 @@ type SessionResult = {
 	keyShareHandle?: string;
 	pubkeyPackage?: string;
 	signature?: string;
+	recoveryId?: number;
 	round?: number;
 };
 
@@ -35,6 +36,7 @@ type HandleState = {
 
 const handles = new Map<string, HandleState>();
 const freed: string[] = [];
+const freedSessions: string[] = [];
 const dkgNewQueue: Array<{
 	handle: string;
 	messages: string;
@@ -50,6 +52,7 @@ const refreshNewQueue: Array<{
 	messages: string;
 }> = [];
 const refreshReceiverQueue: string[] = [];
+const stringQueue: string[] = [];
 const refreshNextQueue: SessionResult[] = [];
 let versionValue = "0.0.0-test";
 
@@ -110,6 +113,28 @@ const NativeLibtss = {
 		const entry = nextQueued(refreshNewQueue, "refreshNew");
 		return { handle: entry.handle, messages: entry.messages };
 	}),
+	refreshNewDkls: jest.fn(async () => {
+		const entry = nextQueued(refreshNewQueue, "refreshNewDkls");
+		return { handle: entry.handle, messages: entry.messages };
+	}),
+	repairHelperTerm: jest.fn(async () => {
+		return nextQueued(stringQueue, "repairHelperTerm");
+	}),
+	repairAssemble: jest.fn(async () => {
+		return nextQueued(stringQueue, "repairAssemble");
+	}),
+	bolt3Derive: jest.fn(async () => {
+		return nextQueued(stringQueue, "bolt3Derive");
+	}),
+	bolt3DeriveRevocation: jest.fn(async () => {
+		return nextQueued(stringQueue, "bolt3DeriveRevocation");
+	}),
+	bolt3DerivePubkeyPackage: jest.fn(async () => {
+		return nextQueued(stringQueue, "bolt3DerivePubkeyPackage");
+	}),
+	bolt3DeriveRevocationPubkeyPackage: jest.fn(async () => {
+		return nextQueued(stringQueue, "bolt3DeriveRevocationPubkeyPackage");
+	}),
 	refreshReceiver: jest.fn(async () => {
 		return nextQueued(refreshReceiverQueue, "refreshReceiver");
 	}),
@@ -118,6 +143,9 @@ const NativeLibtss = {
 	}),
 	handleFree: jest.fn(async (handle: string) => {
 		freed.push(handle);
+	}),
+	sessionFree: jest.fn(async (handle: string) => {
+		freedSessions.push(handle);
 	}),
 	handleIdentifier: jest.fn(async (handle: string) => {
 		const state = handles.get(handle);
@@ -221,6 +249,9 @@ export const __mock = {
 	freedHandles(): string[] {
 		return [...freed];
 	},
+	freedSessions(): string[] {
+		return [...freedSessions];
+	},
 	pushDkgNew(entry: { handle: string; messages: string }): void {
 		dkgNewQueue.push(entry);
 	},
@@ -235,6 +266,9 @@ export const __mock = {
 	},
 	pushRefreshNew(entry: { handle: string; messages: string }): void {
 		refreshNewQueue.push(entry);
+	},
+	pushString(value: string): void {
+		stringQueue.push(value);
 	},
 	pushRefreshReceiver(handle: string): void {
 		refreshReceiverQueue.push(handle);
@@ -261,6 +295,7 @@ export const __mock = {
 	reset(): void {
 		handles.clear();
 		freed.length = 0;
+		freedSessions.length = 0;
 		dkgNewQueue.length = 0;
 		dkgNextQueue.length = 0;
 		signNewQueue.length = 0;
@@ -268,6 +303,7 @@ export const __mock = {
 		refreshNewQueue.length = 0;
 		refreshReceiverQueue.length = 0;
 		refreshNextQueue.length = 0;
+		stringQueue.length = 0;
 		versionValue = "0.0.0-test";
 
 		for (const fn of Object.values(NativeLibtss)) {

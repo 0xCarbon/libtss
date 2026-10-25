@@ -6,10 +6,12 @@ namespace Libtss;
 /// <param name="Complete">True when signing has finished and the signature is available.</param>
 /// <param name="Messages">Messages to send to other participants (null when complete).</param>
 /// <param name="Signature">The final signature bytes (only set when complete).</param>
+/// <param name="RecoveryId">ECDSA recovery id (0 or 1) of a completed DKLs23 signature; null otherwise.</param>
 public sealed record SignResult(
     bool Complete,
     Message[]? Messages,
-    byte[]? Signature);
+    byte[]? Signature,
+    byte? RecoveryId = null);
 
 /// <summary>
 /// Protocol-agnostic signing session.
@@ -26,12 +28,15 @@ public sealed record SignResult(
 /// </remarks>
 public sealed class SignSession : IDisposable
 {
-    private ulong _handle;
-    private int _disposed;
+    private static readonly Action<ulong> FreeSession = Native.tss_session_free;
 
-    private SignSession(ulong handle)
+    private readonly NativeRef _native;
+    private readonly Ciphersuite _suite;
+
+    private SignSession(ulong handle, Ciphersuite suite)
     {
-        _handle = handle;
+        _native = new NativeRef(handle, FreeSession);
+        _suite = suite;
     }
 
     /// <summary>
@@ -58,10 +63,12 @@ public sealed class SignSession : IDisposable
         ArgumentNullException.ThrowIfNull(keyShare);
         ArgumentNullException.ThrowIfNull(message);
 
+        Ciphersuite suite = keyShare.Ciphersuite;
         ulong sessionHandle;
-        var outMessages = new NativeTssBuffer();
+        using var outMessages = new NativeTssBuffer();
         int status;
 
+        using (var share = keyShare.Lease())
         fixed (byte* pMessage = message)
         fixed (ushort* pCounterparties = counterparties)
         fixed (byte* pSignId = signId)
@@ -74,7 +81,7 @@ public sealed class SignSession : IDisposable
             };
 
             status = Native.tss_sign_new(
-                keyShare.Handle,
+                share.Value,
                 msgSlice,
                 pCounterparties,
                 counterparties != null ? (nuint)counterparties.Length : 0,
@@ -82,13 +89,19 @@ public sealed class SignSession : IDisposable
                 signId != null ? (nuint)signId.Length : 0,
                 &sessionHandle,
                 pOutMessages);
+            TssException.ThrowIfError(status);
         }
-        TssException.ThrowIfError(status);
 
-        byte[] msgBytes = outMessages.ToArray();
-        var messages = MessageCodec.Decode(msgBytes);
-
-        return (new SignSession(sessionHandle), messages);
+        var session = new SignSession(sessionHandle, suite);
+        try
+        {
+            return (session, MessageCodec.DecodeAndWipe(outMessages.ToArray()));
+        }
+        catch
+        {
+            session.Dispose();
+            throw;
+        }
     }
 
     /// <summary>
@@ -97,57 +110,81 @@ public sealed class SignSession : IDisposable
     /// <param name="received">Messages received from other participants in the current round.</param>
     /// <returns>
     /// A <see cref="SignResult"/> indicating whether signing is complete or has more
-    /// messages to exchange.
+    /// messages to exchange. A completed DKLs23 signature carries its ECDSA
+    /// recovery id (0 or 1) in <see cref="SignResult.RecoveryId"/>; FROST
+    /// signatures carry null.
     /// </returns>
     public unsafe SignResult Next(Message[] received)
     {
-        ThrowIfDisposed();
+        ObjectDisposedException.ThrowIf(_native.IsDisposed, this);
         ArgumentNullException.ThrowIfNull(received);
 
         byte[] encodedInput = MessageCodec.Encode(received);
-        var outSignature = new NativeTssBuffer();
-        var outMessages = new NativeTssBuffer();
+        using var outSignature = new NativeTssBuffer();
+        using var outMessages = new NativeTssBuffer();
+        byte recoveryId = Native.TSS_NO_RECOVERY_ID;
         byte complete;
         int status;
 
-        fixed (byte* pInput = encodedInput)
-        fixed (TssBuffer* pOutSignature = &outSignature.Raw)
-        fixed (TssBuffer* pOutMessages = &outMessages.Raw)
+        try
         {
-            var inputSlice = new TssSlice
+            using var lease = _native.Acquire(nameof(SignSession));
+            fixed (byte* pInput = encodedInput)
+            fixed (TssBuffer* pOutSignature = &outSignature.Raw)
+            fixed (TssBuffer* pOutMessages = &outMessages.Raw)
             {
-                Data = pInput,
-                Len = (nuint)encodedInput.Length
-            };
-            status = Native.tss_sign_next(
-                _handle,
-                inputSlice,
-                pOutSignature,
-                pOutMessages,
-                &complete);
+                var inputSlice = new TssSlice
+                {
+                    Data = pInput,
+                    Len = (nuint)encodedInput.Length
+                };
+                status = Native.tss_sign_next_recoverable(
+                    lease.Value,
+                    inputSlice,
+                    pOutSignature,
+                    &recoveryId,
+                    pOutMessages,
+                    &complete);
+            }
+            TssException.ThrowIfError(status);
         }
-        TssException.ThrowIfError(status);
+        finally
+        {
+            Tss.WipeBytes(encodedInput);
+        }
 
         if (complete != 0)
         {
+            // The native session is consumed on completion.
+            _native.MarkConsumed();
+            GC.SuppressFinalize(this);
+
             byte[] signature = outSignature.ToArray();
             outMessages.Dispose();
 
-            // Session is consumed on completion; prevent double-free.
-            Interlocked.Exchange(ref _disposed, 1);
-            _handle = 0;
-            GC.SuppressFinalize(this);
+            int expected = _suite.SignatureLength();
+            if (signature.Length != expected)
+                throw new InvalidOperationException(
+                    $"invalid signature length for ciphersuite {_suite}: expected {expected} bytes, got {signature.Length}");
+
+            byte? recovery = null;
+            if (_suite.GetProtocol() == Protocol.DKLs23)
+            {
+                if (recoveryId > 1)
+                    throw new InvalidOperationException("DKLs23 signature is missing its recovery id");
+                recovery = recoveryId;
+            }
 
             return new SignResult(
                 Complete: true,
                 Messages: null,
-                Signature: signature);
+                Signature: signature,
+                RecoveryId: recovery);
         }
         else
         {
             outSignature.Dispose();
-            byte[] msgBytes = outMessages.ToArray();
-            var messages = MessageCodec.Decode(msgBytes);
+            var messages = MessageCodec.DecodeAndWipe(outMessages.ToArray());
 
             return new SignResult(
                 Complete: false,
@@ -156,30 +193,19 @@ public sealed class SignSession : IDisposable
         }
     }
 
-    private void ThrowIfDisposed()
-    {
-        ObjectDisposedException.ThrowIf(_disposed != 0, this);
-    }
-
     /// <summary>
-    /// Frees the native session handle.
+    /// Frees the native session handle. Idempotent; when <see cref="Next"/> is
+    /// in flight on another thread, the session is freed as soon as that call
+    /// returns.
     /// </summary>
     public void Dispose()
     {
-        if (Interlocked.CompareExchange(ref _disposed, 1, 0) != 0)
-            return;
-
-        Native.tss_session_free(_handle);
-        _handle = 0;
+        _native.Dispose();
         GC.SuppressFinalize(this);
     }
 
     ~SignSession()
     {
-        if (Interlocked.CompareExchange(ref _disposed, 1, 0) == 0)
-        {
-            Native.tss_session_free(_handle);
-            _handle = 0;
-        }
+        _native.Dispose();
     }
 }

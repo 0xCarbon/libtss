@@ -104,3 +104,18 @@ describe("KeyShareHandle.chainCode", () => {
 		}
 	});
 });
+
+describe("frostSplitKey thresholds", () => {
+	it.each([65538, -65534, 2.9, 0, 4])(
+		"rejects minSigners %p and wipes the secret",
+		(minSigners) => {
+			const secretKey = new Uint8Array(ED25519_SCALAR_BYTES).fill(
+				CANONICAL_SCALAR_BYTE,
+			);
+			expect(() =>
+				frostSplitKey(Ciphersuite.Ed25519, secretKey, 3, minSigners),
+			).toThrow(RangeError);
+			expect(secretKey.every((b) => b === 0)).toBe(true);
+		},
+	);
+});

@@ -21,12 +21,13 @@ public sealed record RefreshResult(
 /// </remarks>
 public sealed class RefreshSession : IDisposable
 {
-    private ulong _handle;
-    private int _disposed;
+    private static readonly Action<ulong> FreeSession = Native.tss_session_free;
+
+    private readonly NativeRef _native;
 
     private RefreshSession(ulong handle)
     {
-        _handle = handle;
+        _native = new NativeRef(handle, FreeSession);
     }
 
     /// <summary>
@@ -45,25 +46,23 @@ public sealed class RefreshSession : IDisposable
         ArgumentNullException.ThrowIfNull(participants);
 
         ulong sessionHandle;
-        var outMessages = new NativeTssBuffer();
+        using var outMessages = new NativeTssBuffer();
         int status;
 
+        using (var share = keyShare.Lease())
         fixed (ushort* pParticipants = participants)
         fixed (TssBuffer* pOutMessages = &outMessages.Raw)
         {
             status = Native.tss_refresh_new(
-                keyShare.Handle,
+                share.Value,
                 pParticipants,
                 (nuint)participants.Length,
                 &sessionHandle,
                 pOutMessages);
+            TssException.ThrowIfError(status);
         }
-        TssException.ThrowIfError(status);
 
-        byte[] msgBytes = outMessages.ToArray();
-        var messages = MessageCodec.Decode(msgBytes);
-
-        return (new RefreshSession(sessionHandle), messages);
+        return WithMessages(new RefreshSession(sessionHandle), outMessages);
     }
 
     /// <summary>
@@ -88,41 +87,62 @@ public sealed class RefreshSession : IDisposable
             throw new ArgumentException("sessionId must not be empty", nameof(sessionId));
 
         ulong sessionHandle;
-        var outMessages = new NativeTssBuffer();
+        using var outMessages = new NativeTssBuffer();
         int status;
 
+        using (var share = keyShare.Lease())
         fixed (byte* pSessionId = sessionId)
         fixed (TssBuffer* pOutMessages = &outMessages.Raw)
         {
             status = Native.tss_refresh_new_dkls(
-                keyShare.Handle,
+                share.Value,
                 pSessionId,
                 (nuint)sessionId.Length,
                 &sessionHandle,
                 pOutMessages);
+            TssException.ThrowIfError(status);
         }
-        TssException.ThrowIfError(status);
 
-        var messages = MessageCodec.Decode(outMessages.ToArray());
-        return (new RefreshSession(sessionHandle), messages);
+        return WithMessages(new RefreshSession(sessionHandle), outMessages);
+    }
+
+    private static (RefreshSession Session, Message[] Messages) WithMessages(
+        RefreshSession session, NativeTssBuffer outMessages)
+    {
+        try
+        {
+            return (session, MessageCodec.DecodeAndWipe(outMessages.ToArray()));
+        }
+        catch
+        {
+            session.Dispose();
+            throw;
+        }
     }
 
     /// <summary>
-    /// Creates a receiver-only refresh session (does not produce first-round messages).
+    /// Creates a FROST receiver-only refresh session (does not produce first-round messages).
     /// </summary>
     /// <remarks>
-    /// Used by participants who are receiving a refresh initiated by others.
-    /// Call <see cref="Next"/> with the received messages to advance the protocol.
+    /// Used by participants who are receiving a refresh from a trusted dealer.
+    /// Call <see cref="Next"/> with the dealer's messages: only the message from
+    /// <paramref name="dealer"/> addressed to this party is accepted, and the refreshed
+    /// public key package is checked against the current one.
     /// </remarks>
     /// <param name="keyShare">The existing key share to refresh.</param>
+    /// <param name="dealer">Identifier of the party that called <see cref="Create"/>.</param>
     /// <returns>A new receiver refresh session.</returns>
-    public static unsafe RefreshSession CreateReceiver(KeyShareHandle keyShare)
+    public static unsafe RefreshSession CreateReceiver(KeyShareHandle keyShare, ushort dealer)
     {
         ArgumentNullException.ThrowIfNull(keyShare);
 
         ulong sessionHandle;
-        int status = Native.tss_refresh_receiver(keyShare.Handle, &sessionHandle);
-        TssException.ThrowIfError(status);
+        int status;
+        using (var share = keyShare.Lease())
+        {
+            status = Native.tss_refresh_receiver(share.Value, dealer, &sessionHandle);
+            TssException.ThrowIfError(status);
+        }
 
         return new RefreshSession(sessionHandle);
     }
@@ -137,56 +157,72 @@ public sealed class RefreshSession : IDisposable
     /// </returns>
     public unsafe RefreshResult Next(Message[] received)
     {
-        ThrowIfDisposed();
+        ObjectDisposedException.ThrowIf(_native.IsDisposed, this);
         ArgumentNullException.ThrowIfNull(received);
 
         byte[] encodedInput = MessageCodec.Encode(received);
         ulong outKeyShare;
-        var outPubKeyPkg = new NativeTssBuffer();
-        var outMessages = new NativeTssBuffer();
+        using var outPubKeyPkg = new NativeTssBuffer();
+        using var outMessages = new NativeTssBuffer();
         byte complete;
         int status;
 
-        fixed (byte* pInput = encodedInput)
-        fixed (TssBuffer* pPubKeyPkg = &outPubKeyPkg.Raw)
-        fixed (TssBuffer* pOutMessages = &outMessages.Raw)
+        try
         {
-            var inputSlice = new TssSlice
+            using var lease = _native.Acquire(nameof(RefreshSession));
+            fixed (byte* pInput = encodedInput)
+            fixed (TssBuffer* pPubKeyPkg = &outPubKeyPkg.Raw)
+            fixed (TssBuffer* pOutMessages = &outMessages.Raw)
             {
-                Data = pInput,
-                Len = (nuint)encodedInput.Length
-            };
-            status = Native.tss_refresh_next(
-                _handle,
-                inputSlice,
-                &outKeyShare,
-                pPubKeyPkg,
-                pOutMessages,
-                &complete);
+                var inputSlice = new TssSlice
+                {
+                    Data = pInput,
+                    Len = (nuint)encodedInput.Length
+                };
+                status = Native.tss_refresh_next(
+                    lease.Value,
+                    inputSlice,
+                    &outKeyShare,
+                    pPubKeyPkg,
+                    pOutMessages,
+                    &complete);
+            }
+            TssException.ThrowIfError(status);
         }
-        TssException.ThrowIfError(status);
+        finally
+        {
+            Tss.WipeBytes(encodedInput);
+        }
 
         if (complete != 0)
         {
-            byte[] pubKeyPkgBytes = outPubKeyPkg.ToArray();
-            outMessages.Dispose();
-
-            // Session is consumed on completion; prevent double-free.
-            Interlocked.Exchange(ref _disposed, 1);
-            _handle = 0;
+            // The native session is consumed on completion; take ownership of
+            // the new key share before anything else can throw.
+            _native.MarkConsumed();
             GC.SuppressFinalize(this);
+            var keyShare = new KeyShareHandle(outKeyShare);
+            byte[] pubKeyPkgBytes;
+            try
+            {
+                pubKeyPkgBytes = outPubKeyPkg.ToArray();
+                outMessages.Dispose();
+            }
+            catch
+            {
+                keyShare.Dispose();
+                throw;
+            }
 
             return new RefreshResult(
                 Complete: true,
                 Messages: null,
-                KeyShare: new KeyShareHandle(outKeyShare),
+                KeyShare: keyShare,
                 PublicKeyPackage: pubKeyPkgBytes);
         }
         else
         {
             outPubKeyPkg.Dispose();
-            byte[] msgBytes = outMessages.ToArray();
-            var messages = MessageCodec.Decode(msgBytes);
+            var messages = MessageCodec.DecodeAndWipe(outMessages.ToArray());
 
             return new RefreshResult(
                 Complete: false,
@@ -196,30 +232,19 @@ public sealed class RefreshSession : IDisposable
         }
     }
 
-    private void ThrowIfDisposed()
-    {
-        ObjectDisposedException.ThrowIf(_disposed != 0, this);
-    }
-
     /// <summary>
-    /// Frees the native session handle.
+    /// Frees the native session handle. Idempotent; when <see cref="Next"/> is
+    /// in flight on another thread, the session is freed as soon as that call
+    /// returns.
     /// </summary>
     public void Dispose()
     {
-        if (Interlocked.CompareExchange(ref _disposed, 1, 0) != 0)
-            return;
-
-        Native.tss_session_free(_handle);
-        _handle = 0;
+        _native.Dispose();
         GC.SuppressFinalize(this);
     }
 
     ~RefreshSession()
     {
-        if (Interlocked.CompareExchange(ref _disposed, 1, 0) == 0)
-        {
-            Native.tss_session_free(_handle);
-            _handle = 0;
-        }
+        _native.Dispose();
     }
 }

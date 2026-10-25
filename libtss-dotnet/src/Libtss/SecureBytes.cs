@@ -63,6 +63,10 @@ public sealed class SecureBytes : IDisposable
         }
     }
 
+    /// <summary>
+    /// A view of the unmanaged buffer. Keep this object alive (and undisposed)
+    /// while the span is in use; the finalizer wipes and frees the memory.
+    /// </summary>
     public unsafe ReadOnlySpan<byte> Span
     {
         get
@@ -79,12 +83,19 @@ public sealed class SecureBytes : IDisposable
             throw new ArgumentException("Destination too small.", nameof(destination));
 
         new ReadOnlySpan<byte>((void*)_ptr, _length).CopyTo(destination);
+        GC.KeepAlive(this);
     }
 
+    /// <summary>
+    /// The unmanaged pointer. Callers must keep this object reachable
+    /// (<c>GC.KeepAlive</c>) until they no longer use the pointer.
+    /// </summary>
     internal IntPtr DangerousGetPtr()
     {
         ThrowIfDisposed();
-        return _ptr;
+        IntPtr ptr = _ptr;
+        TestHooks.RunAfterHandleAcquired();
+        return ptr;
     }
 
     private void ThrowIfDisposed()

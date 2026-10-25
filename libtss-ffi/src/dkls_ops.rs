@@ -1,7 +1,7 @@
 //! DKLs23-specific C API.
 
 use crate::ffi_entry;
-use crate::messages::checked_slice;
+use crate::messages::{checked_slice, deserialize_messages, serialize_messages};
 use crate::session::borrow_key_share;
 use crate::types::{TssBuffer, TssHandle, TssSlice, TssStatus};
 
@@ -161,6 +161,80 @@ pub extern "C" fn tss_bolt3_derive_revocation_pubkey_package(
             checked_slice(per_commitment_point)?,
         )?;
         *out = TssBuffer::from_vec(derived.serialize()?);
+        Ok(())
+    })
+}
+
+/// This helper's DKLs23 repair term for `target`, as a message blob (one
+/// message from this party to `target`). Send it to the target only, over
+/// a confidential, authenticated channel.
+///
+/// `helpers` lists the helper identifiers (any order, no duplicates, at least
+/// `min_signers`, including this party, not the target); every helper uses
+/// the same list and `repair_id`. The helpers must authenticate the target:
+/// repair hands index `target`'s share to whoever receives the terms.
+#[no_mangle]
+pub extern "C" fn tss_repair_helper_term(
+    key_share: TssHandle,
+    helpers: *const u16,
+    helpers_len: usize,
+    target: u16,
+    repair_id: TssSlice,
+    out_messages: *mut TssBuffer,
+) -> TssStatus {
+    ffi_entry!({
+        let out = unsafe { out_messages.as_mut() }
+            .ok_or_else(|| libtss::TssError::InvalidConfig("out_messages is null".into()))?;
+        *out = TssBuffer::empty();
+        if helpers.is_null() || helpers_len == 0 {
+            return Err(libtss::TssError::InvalidConfig("helpers is empty".into()));
+        }
+        let raw = unsafe { core::slice::from_raw_parts(helpers, helpers_len) };
+        let helpers = raw
+            .iter()
+            .map(|&id| libtss::Identifier::new(id))
+            .collect::<Result<Vec<_>, _>>()?;
+        let handle = borrow_key_share(key_share)?;
+        let message = libtss::dkls_repair::repair_helper_term(
+            &handle,
+            &helpers,
+            libtss::Identifier::new(target)?,
+            checked_slice(repair_id)?,
+        )?;
+        *out = TssBuffer::from_vec(serialize_messages(&[message]));
+        Ok(())
+    })
+}
+
+/// Assembles the helpers' repair messages (a message blob) into the target's
+/// repaired DKLs23 share. `pubkey_package` is the group's serialized public
+/// key package. Each term must come from the helper it names, so the `from`
+/// of each message must be its authenticated sender. The repaired share
+/// cannot sign until all parties run a complete refresh
+/// (`tss_refresh_new_dkls`).
+#[no_mangle]
+pub extern "C" fn tss_repair_assemble(
+    suite: u8,
+    pubkey_package: TssSlice,
+    target: u16,
+    messages: TssSlice,
+    out_handle: *mut TssHandle,
+) -> TssStatus {
+    ffi_entry!({
+        let out = unsafe { out_handle.as_mut() }
+            .ok_or_else(|| libtss::TssError::InvalidConfig("out_handle is null".into()))?;
+        *out = 0;
+        let suite = libtss::Ciphersuite::try_from(suite)?;
+        let package = libtss::PublicKeyPackage::deserialize(checked_slice(pubkey_package)?)?;
+        let received = deserialize_messages(checked_slice(messages)?)?;
+        let repaired = libtss::dkls_repair::repair_assemble(
+            suite,
+            &package,
+            libtss::Identifier::new(target)?,
+            &received,
+        )?;
+        *out = repaired.handle_id();
+        std::mem::forget(repaired);
         Ok(())
     })
 }

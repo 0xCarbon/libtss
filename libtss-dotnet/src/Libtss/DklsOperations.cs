@@ -39,7 +39,7 @@ public static class DklsOperations
         {
             var handles = new ulong[maxSigners];
             nuint handleCount;
-            var outPkg = new NativeTssBuffer();
+            using var outPkg = new NativeTssBuffer();
             int status;
 
             fixed (byte* pKey = secretKey)
@@ -86,10 +86,11 @@ public static class DklsOperations
         ArgumentNullException.ThrowIfNull(perCommitmentPoint);
         ulong handle;
         int status;
+        using var share = keyShare.Lease();
         fixed (byte* pPoint = perCommitmentPoint)
         {
             var point = new TssSlice { Data = pPoint, Len = (nuint)perCommitmentPoint.Length };
-            status = Native.tss_bolt3_derive(keyShare.Handle, point, &handle);
+            status = Native.tss_bolt3_derive(share.Value, point, &handle);
         }
         TssException.ThrowIfError(status);
         return new KeyShareHandle(handle);
@@ -112,12 +113,13 @@ public static class DklsOperations
         {
             ulong handle;
             int status;
+            using var share = keyShare.Lease();
             fixed (byte* pPoint = perCommitmentPoint)
             fixed (byte* pSecret = perCommitmentSecret)
             {
                 var point = new TssSlice { Data = pPoint, Len = (nuint)perCommitmentPoint.Length };
                 var secret = new TssSlice { Data = pSecret, Len = (nuint)perCommitmentSecret.Length };
-                status = Native.tss_bolt3_derive_revocation(keyShare.Handle, point, secret, &handle);
+                status = Native.tss_bolt3_derive_revocation(share.Value, point, secret, &handle);
             }
             TssException.ThrowIfError(status);
             return new KeyShareHandle(handle);
@@ -140,7 +142,7 @@ public static class DklsOperations
     {
         ArgumentNullException.ThrowIfNull(publicKeyPackage);
         ArgumentNullException.ThrowIfNull(perCommitmentPoint);
-        var outPkg = new NativeTssBuffer();
+        using var outPkg = new NativeTssBuffer();
         int status;
         fixed (byte* pPkg = publicKeyPackage)
         fixed (byte* pPoint = perCommitmentPoint)
@@ -154,5 +156,81 @@ public static class DklsOperations
         }
         TssException.ThrowIfError(status);
         return outPkg.ToArray();
+    }
+
+    /// <summary>
+    /// This helper's DKLs23 repair term for <paramref name="target"/>, as messages to send to
+    /// the target only, over a confidential, authenticated channel.
+    /// </summary>
+    /// <remarks>
+    /// <paramref name="helpers"/> lists the helper identifiers (no duplicates, at least
+    /// min_signers, including this party, not the target); every helper uses the same list and
+    /// <paramref name="repairId"/>. The helpers must authenticate the target: repair hands the
+    /// target index's share to whoever receives the terms.
+    /// </remarks>
+    public static unsafe Message[] RepairHelperTerm(
+        KeyShareHandle keyShare,
+        ushort[] helpers,
+        ushort target,
+        byte[] repairId)
+    {
+        ArgumentNullException.ThrowIfNull(keyShare);
+        ArgumentNullException.ThrowIfNull(helpers);
+        ArgumentNullException.ThrowIfNull(repairId);
+        using var outMessages = new NativeTssBuffer();
+        int status;
+        using var share = keyShare.Lease();
+        fixed (ushort* pHelpers = helpers)
+        fixed (byte* pId = repairId)
+        fixed (TssBuffer* pOut = &outMessages.Raw)
+        {
+            var id = new TssSlice { Data = pId, Len = (nuint)repairId.Length };
+            status = Native.tss_repair_helper_term(
+                share.Value, pHelpers, (nuint)helpers.Length, target, id, pOut);
+        }
+        TssException.ThrowIfError(status);
+        byte[] raw = outMessages.ToArray();
+        try
+        {
+            return MessageCodec.Decode(raw);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(raw);
+        }
+    }
+
+    /// <summary>
+    /// Assembles the helpers' repair messages into the target's repaired DKLs23 share. Each
+    /// message's <c>From</c> must be its authenticated sender. The share cannot sign until all
+    /// parties run <see cref="RefreshSession.CreateDkls"/>.
+    /// </summary>
+    public static unsafe KeyShareHandle RepairAssemble(
+        Ciphersuite suite,
+        byte[] publicKeyPackage,
+        ushort target,
+        Message[] messages)
+    {
+        ArgumentNullException.ThrowIfNull(publicKeyPackage);
+        ArgumentNullException.ThrowIfNull(messages);
+        byte[] blob = MessageCodec.Encode(messages);
+        try
+        {
+            ulong handle;
+            int status;
+            fixed (byte* pPkg = publicKeyPackage)
+            fixed (byte* pBlob = blob)
+            {
+                var pkg = new TssSlice { Data = pPkg, Len = (nuint)publicKeyPackage.Length };
+                var msgs = new TssSlice { Data = pBlob, Len = (nuint)blob.Length };
+                status = Native.tss_repair_assemble((byte)suite, pkg, target, msgs, &handle);
+            }
+            TssException.ThrowIfError(status);
+            return new KeyShareHandle(handle);
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(blob);
+        }
     }
 }

@@ -5,7 +5,7 @@ use dkls23_secp256r1::protocols::dkg::{
     TransmitInitMulPhase3to4, TransmitInitZeroSharePhase2to4, TransmitInitZeroSharePhase3to4,
 };
 use dkls23_secp256r1::protocols::dkg_session::DkgSession;
-use dkls23_secp256r1::protocols::messages::{MessageTag, PhaseInput, PhaseOutput};
+use dkls23_secp256r1::protocols::messages::{MessageTag, PhaseInput};
 use dkls23_secp256r1::protocols::sign_session::SignSession;
 use dkls23_secp256r1::protocols::signature::EcdsaSignature;
 use dkls23_secp256r1::protocols::signing::{
@@ -16,9 +16,13 @@ use dkls23_secp256r1::protocols::{
 };
 use dkls23_secp256r1::Party;
 use p256::elliptic_curve::sec1::ToSec1Point;
-use p256::elliptic_curve::PrimeField;
 use p256::Scalar;
+use zeroize::Zeroizing;
 
+use crate::dkls::{check_parties, check_sender_index, messages_to_phase_input, other_parties};
+use crate::dkls_messages::{
+    scalar_from_message, scalar_to_message, Outgoing, SecretInput, SecretScalars,
+};
 use crate::error::TssError;
 use crate::message::Message;
 use crate::types::{
@@ -31,16 +35,17 @@ pub struct DklsR1DkgState {
     pub(crate) session: DkgSession<R1>,
     pub(crate) self_id: Identifier,
     pub(crate) share_count: u8,
-    pub(crate) self_fragment: Option<Scalar>,
+    pub(crate) self_fragment: Option<Zeroizing<Scalar>>,
     pub(crate) self_proof_commitment: Option<ProofCommitment<R1>>,
     pub(crate) self_bip_phase2: Option<BroadcastDerivationPhase2to4>,
     pub(crate) self_bip_phase3: Option<BroadcastDerivationPhase3to4>,
-    pub(crate) phase2_input: Option<PhaseInput>,
+    pub(crate) phase2_input: Option<SecretInput>,
 }
 
 pub struct DklsR1SignState<'a> {
     pub(crate) session: SignSession<'a, R1>,
     pub(crate) self_id: Identifier,
+    pub(crate) counterparties: Vec<u8>,
     pub(crate) self_broadcast: Option<Broadcast3to4<R1>>,
 }
 
@@ -68,61 +73,6 @@ fn abort_to_error(abort: Abort) -> TssError {
     crate::dkls::abort_to_error(abort)
 }
 
-fn phase_output_to_messages(
-    output: &PhaseOutput,
-    from: Identifier,
-) -> Result<Vec<Message>, TssError> {
-    let mut messages = Vec::with_capacity(output.broadcasts.len() + output.p2p.len());
-
-    for data in &output.broadcasts {
-        messages.push(Message {
-            from,
-            to: None,
-            data: data.clone(),
-        });
-    }
-
-    for (&receiver, data) in &output.p2p {
-        messages.push(Message {
-            from,
-            to: Some(Identifier::new(u16::from(receiver))?),
-            data: data.clone(),
-        });
-    }
-
-    Ok(messages)
-}
-
-fn messages_to_phase_input(
-    messages: &[Message],
-    self_id: Identifier,
-) -> Result<PhaseInput, TssError> {
-    let mut input = PhaseInput {
-        broadcasts: BTreeMap::new(),
-        p2p: BTreeMap::new(),
-    };
-
-    for message in messages {
-        let sender =
-            u8::try_from(message.from.as_u16()).map_err(|_| TssError::InvalidIdentifier)?;
-        match message.to {
-            None => input
-                .broadcasts
-                .entry(sender)
-                .or_default()
-                .extend_from_slice(&message.data),
-            Some(receiver) if receiver == self_id => input
-                .p2p
-                .entry(sender)
-                .or_default()
-                .extend_from_slice(&message.data),
-            Some(_) => {}
-        }
-    }
-
-    Ok(input)
-}
-
 fn message_error(error: impl std::fmt::Display) -> TssError {
     TssError::DeserializeFailed(error.to_string())
 }
@@ -133,15 +83,6 @@ fn phase_input_broadcast<T: MessageTag>(input: &PhaseInput, sender: u8) -> Resul
 
 fn phase_input_p2p<T: MessageTag>(input: &PhaseInput, sender: u8) -> Result<T, TssError> {
     input.get_p2p(sender).map_err(message_error)
-}
-
-fn scalar_from_message(data: &[u8]) -> Result<Scalar, TssError> {
-    let bytes: [u8; 32] = data
-        .try_into()
-        .map_err(|_| TssError::DeserializeFailed("invalid scalar fragment length".into()))?;
-
-    Option::<Scalar>::from(Scalar::from_repr(bytes.into()))
-        .ok_or_else(|| TssError::DeserializeFailed("invalid scalar fragment encoding".into()))
 }
 
 fn point_to_bytes(point: &p256::AffinePoint) -> Vec<u8> {
@@ -199,12 +140,12 @@ pub fn dkls_r1_dkg_phase1(
         share_count,
     };
     let session = DkgSession::new(parameters, self_index, session_id);
-    let fragments = session.phase1();
+    let fragments = SecretScalars(session.phase1());
     let self_position = usize::from(self_index.as_u8() - 1);
-    let self_fragment: Scalar = fragments[self_position];
+    let self_fragment = Zeroizing::new(fragments.0[self_position]);
     let mut messages = Vec::with_capacity(usize::from(share_count.saturating_sub(1)));
 
-    for (index, fragment) in fragments.into_iter().enumerate() {
+    for (index, fragment) in fragments.0.iter().enumerate() {
         let receiver = u16::try_from(index + 1)
             .map_err(|_| TssError::InvalidIdentifier)
             .and_then(Identifier::new)?;
@@ -214,7 +155,7 @@ pub fn dkls_r1_dkg_phase1(
         messages.push(Message {
             from: self_id,
             to: Some(receiver),
-            data: fragment.to_bytes().to_vec(),
+            data: scalar_to_message::<R1>(fragment),
         });
     }
 
@@ -239,29 +180,25 @@ pub fn dkls_r1_dkg_phase2(
 ) -> Result<Vec<Message>, TssError> {
     let self_index = identifier_to_session_party_index(state.self_id, state.share_count)?;
     let self_position = usize::from(self_index.as_u8() - 1);
-    let self_fragment = state
+    let mut fragments = SecretScalars(vec![Scalar::ZERO; usize::from(state.share_count)]);
+    fragments.0[self_position] = *state
         .self_fragment
         .take()
         .ok_or(TssError::SessionComplete)?;
-    let mut fragments = vec![Scalar::ZERO; usize::from(state.share_count)];
-    fragments[self_position] = self_fragment;
     let mut seen = vec![false; usize::from(state.share_count)];
     seen[self_position] = true;
 
     for message in received {
-        if message.to != Some(state.self_id) {
+        let Some(sender) = crate::dkls::fragment_sender(message, state.self_id, state.share_count)?
+        else {
             continue;
-        }
-
-        let sender = usize::from(
-            identifier_to_session_party_index(message.from, state.share_count)?.as_u8() - 1,
-        );
+        };
         if seen[sender] {
             return Err(TssError::DeserializeFailed(
                 "duplicate DKG fragment from sender".into(),
             ));
         }
-        fragments[sender] = scalar_from_message(&message.data)?;
+        fragments.0[sender] = scalar_from_message::<R1>(&message.data)?;
         seen[sender] = true;
     }
 
@@ -272,8 +209,8 @@ pub fn dkls_r1_dkg_phase2(
     }
 
     let (proof_commitment, zero_transmit, bip_broadcast) =
-        state.session.phase2(&fragments).map_err(abort_to_error)?;
-    let mut output = PhaseOutput::new();
+        state.session.phase2(&fragments.0).map_err(abort_to_error)?;
+    let mut output = Outgoing::new();
     output
         .add_broadcast(&proof_commitment)
         .map_err(message_error)?;
@@ -289,17 +226,22 @@ pub fn dkls_r1_dkg_phase2(
     state.self_proof_commitment = Some(proof_commitment);
     state.self_bip_phase2 = Some(bip_broadcast);
 
-    phase_output_to_messages(&output, state.self_id)
+    output.into_messages(state.self_id)
 }
 
 pub fn dkls_r1_dkg_phase3(
     state: &mut DklsR1DkgState,
     received: &[Message],
 ) -> Result<Vec<Message>, TssError> {
-    let phase2_input = messages_to_phase_input(received, state.self_id)?;
+    let self_index = identifier_to_session_party_index(state.self_id, state.share_count)?;
+    let phase2_input = messages_to_phase_input(
+        received,
+        state.self_id,
+        &other_parties(state.share_count, self_index),
+    )?;
     let (zero_transmit, mul_transmit, bip_broadcast) =
         state.session.phase3().map_err(abort_to_error)?;
-    let mut output = PhaseOutput::new();
+    let mut output = Outgoing::new();
     output
         .add_broadcast(&bip_broadcast)
         .map_err(message_error)?;
@@ -317,7 +259,7 @@ pub fn dkls_r1_dkg_phase3(
     state.phase2_input = Some(phase2_input);
     state.self_bip_phase3 = Some(bip_broadcast);
 
-    phase_output_to_messages(&output, state.self_id)
+    output.into_messages(state.self_id)
 }
 
 pub fn dkls_r1_dkg_phase4(
@@ -325,8 +267,12 @@ pub fn dkls_r1_dkg_phase4(
     received: &[Message],
 ) -> Result<(Party, DklsPublicKeyPackage<R1>, UnifiedPublicKeyPackage), TssError> {
     let phase2_input = state.phase2_input.take().ok_or(TssError::SessionComplete)?;
-    let phase3_input = messages_to_phase_input(received, state.self_id)?;
     let self_index = identifier_to_party_index(state.self_id)?;
+    let phase3_input = messages_to_phase_input(
+        received,
+        state.self_id,
+        &other_parties(state.share_count, self_index),
+    )?;
 
     let mut proofs_commitments = vec![state
         .self_proof_commitment
@@ -355,30 +301,24 @@ pub fn dkls_r1_dkg_phase4(
             continue;
         }
         let sender_index = PartyIndex::new(sender).map_err(|_| TssError::InvalidIdentifier)?;
-        proofs_commitments.push(phase_input_broadcast::<ProofCommitment<R1>>(
-            &phase2_input,
-            sender,
-        )?);
-        zero_received_phase2.push(phase_input_p2p::<TransmitInitZeroSharePhase2to4>(
-            &phase2_input,
-            sender,
-        )?);
-        zero_received_phase3.push(phase_input_p2p::<TransmitInitZeroSharePhase3to4>(
-            &phase3_input,
-            sender,
-        )?);
-        mul_received.push(phase_input_p2p::<TransmitInitMulPhase3to4<R1>>(
-            &phase3_input,
-            sender,
-        )?);
-        bip_received_phase2.insert(
-            sender_index,
-            phase_input_broadcast::<BroadcastDerivationPhase2to4>(&phase2_input, sender)?,
-        );
-        bip_received_phase3.insert(
-            sender_index,
-            phase_input_broadcast::<BroadcastDerivationPhase3to4>(&phase3_input, sender)?,
-        );
+        let proof = phase_input_broadcast::<ProofCommitment<R1>>(&phase2_input, sender)?;
+        check_sender_index(proof.index, sender)?;
+        proofs_commitments.push(proof);
+        let zero2 = phase_input_p2p::<TransmitInitZeroSharePhase2to4>(&phase2_input, sender)?;
+        check_parties(&zero2.parties, sender, self_index)?;
+        zero_received_phase2.push(zero2);
+        let zero3 = phase_input_p2p::<TransmitInitZeroSharePhase3to4>(&phase3_input, sender)?;
+        check_parties(&zero3.parties, sender, self_index)?;
+        zero_received_phase3.push(zero3);
+        let mul = phase_input_p2p::<TransmitInitMulPhase3to4<R1>>(&phase3_input, sender)?;
+        check_parties(&mul.parties, sender, self_index)?;
+        mul_received.push(mul);
+        let bip2 = phase_input_broadcast::<BroadcastDerivationPhase2to4>(&phase2_input, sender)?;
+        check_sender_index(bip2.sender_index, sender)?;
+        bip_received_phase2.insert(sender_index, bip2);
+        let bip3 = phase_input_broadcast::<BroadcastDerivationPhase3to4>(&phase3_input, sender)?;
+        check_sender_index(bip3.sender_index, sender)?;
+        bip_received_phase3.insert(sender_index, bip3);
     }
 
     let (party, package) = state
@@ -408,6 +348,10 @@ pub fn dkls_r1_sign_new<'a>(
     for counterparty in counterparties {
         converted_counterparties.push(identifier_to_party_index(*counterparty)?);
     }
+    let counterparty_indices = converted_counterparties
+        .iter()
+        .map(PartyIndex::as_u8)
+        .collect();
 
     let (session, phase1_messages) = SignSession::new(
         party,
@@ -419,7 +363,7 @@ pub fn dkls_r1_sign_new<'a>(
     )
     .map_err(abort_to_error)?;
     let self_id = party_index_to_identifier(party.party_index)?;
-    let mut output = PhaseOutput::new();
+    let mut output = Outgoing::new();
     for message in &phase1_messages {
         output
             .add_p2p(message.parties.receiver.as_u8(), message)
@@ -430,9 +374,10 @@ pub fn dkls_r1_sign_new<'a>(
         DklsR1SignState {
             session,
             self_id,
+            counterparties: counterparty_indices,
             self_broadcast: None,
         },
-        phase_output_to_messages(&output, self_id)?,
+        output.into_messages(self_id)?,
     ))
 }
 
@@ -440,51 +385,57 @@ pub fn dkls_r1_sign_phase2(
     state: &mut DklsR1SignState<'_>,
     received: &[Message],
 ) -> Result<Vec<Message>, TssError> {
-    let input = messages_to_phase_input(received, state.self_id)?;
-    let mut decoded = Vec::with_capacity(input.p2p.len());
-    for &sender in input.p2p.keys() {
-        decoded.push(phase_input_p2p::<TransmitPhase1to2>(&input, sender)?);
+    let input = messages_to_phase_input(received, state.self_id, &state.counterparties)?;
+    let self_index = identifier_to_party_index(state.self_id)?;
+    let mut decoded = Vec::with_capacity(state.counterparties.len());
+    for &sender in &state.counterparties {
+        let message = phase_input_p2p::<TransmitPhase1to2>(&input, sender)?;
+        check_parties(&message.parties, sender, self_index)?;
+        decoded.push(message);
     }
 
     let phase2_messages = state.session.phase2(&decoded).map_err(abort_to_error)?;
-    let mut output = PhaseOutput::new();
+    let mut output = Outgoing::new();
     for message in &phase2_messages {
         output
             .add_p2p(message.parties.receiver.as_u8(), message)
             .map_err(message_error)?;
     }
 
-    phase_output_to_messages(&output, state.self_id)
+    output.into_messages(state.self_id)
 }
 
 pub fn dkls_r1_sign_phase3(
     state: &mut DklsR1SignState<'_>,
     received: &[Message],
 ) -> Result<Vec<Message>, TssError> {
-    let input = messages_to_phase_input(received, state.self_id)?;
-    let mut decoded = Vec::with_capacity(input.p2p.len());
-    for &sender in input.p2p.keys() {
-        decoded.push(phase_input_p2p::<TransmitPhase2to3<R1>>(&input, sender)?);
+    let input = messages_to_phase_input(received, state.self_id, &state.counterparties)?;
+    let self_index = identifier_to_party_index(state.self_id)?;
+    let mut decoded = Vec::with_capacity(state.counterparties.len());
+    for &sender in &state.counterparties {
+        let message = phase_input_p2p::<TransmitPhase2to3<R1>>(&input, sender)?;
+        check_parties(&message.parties, sender, self_index)?;
+        decoded.push(message);
     }
 
     let broadcast = state.session.phase3(&decoded).map_err(abort_to_error)?;
-    let mut output = PhaseOutput::new();
+    let mut output = Outgoing::new();
     output.add_broadcast(&broadcast).map_err(message_error)?;
     state.self_broadcast = Some(broadcast);
 
-    phase_output_to_messages(&output, state.self_id)
+    output.into_messages(state.self_id)
 }
 
 pub fn dkls_r1_sign_phase4(
     mut state: DklsR1SignState<'_>,
     received: &[Message],
 ) -> Result<Signature, TssError> {
-    let input = messages_to_phase_input(received, state.self_id)?;
+    let input = messages_to_phase_input(received, state.self_id, &state.counterparties)?;
     let mut broadcasts = vec![state
         .self_broadcast
         .take()
         .ok_or(TssError::SessionComplete)?];
-    for &sender in input.broadcasts.keys() {
+    for &sender in &state.counterparties {
         broadcasts.push(phase_input_broadcast::<Broadcast3to4<R1>>(&input, sender)?);
     }
 

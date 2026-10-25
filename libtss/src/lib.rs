@@ -3,9 +3,14 @@ pub mod address;
 pub mod bolt3;
 pub mod derive;
 pub mod dkls;
+#[cfg(test)]
+mod dkls_identity_tests;
 pub mod dkls_import;
+mod dkls_messages;
+mod dkls_package;
 pub mod dkls_r1;
 pub mod dkls_refresh;
+pub mod dkls_repair;
 pub mod error;
 pub mod frost;
 pub mod handle;

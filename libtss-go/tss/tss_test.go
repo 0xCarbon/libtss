@@ -210,7 +210,7 @@ func TestFROSTRefreshAndSign(t *testing.T) {
 	newShares := make([]*KeyShareHandle, 3)
 	for i := 0; i < 3; i++ {
 		selfID := Identifier(i + 1)
-		receiver, err := NewRefreshReceiver(shares[i])
+		receiver, err := NewRefreshReceiver(shares[i], 1)
 		if err != nil {
 			t.Fatalf("NewRefreshReceiver(%d): %v", i+1, err)
 		}
@@ -241,6 +241,43 @@ func TestFROSTRefreshAndSign(t *testing.T) {
 	sig := runSignRound(t, CiphersuiteEd25519, newShares[:2], []byte("refreshed"))
 	if len(sig.Data) == 0 {
 		t.Fatal("expected non-empty signature after refresh")
+	}
+}
+
+func TestFROSTRefreshReceiverChecksDealer(t *testing.T) {
+	shares, _ := runDKG(t, CiphersuiteEd25519, 3, 2, nil)
+	for _, share := range shares {
+		defer share.Free()
+	}
+	_, dealerMsgs, err := NewRefreshSession(shares[0], []Identifier{1, 2, 3})
+	if err != nil {
+		t.Fatalf("NewRefreshSession dealer: %v", err)
+	}
+
+	if _, err := NewRefreshReceiver(shares[1], 9); err == nil {
+		t.Fatal("expected error for a dealer outside the group")
+	} else {
+		var tssErr *TssError
+		if !errors.As(err, &tssErr) || tssErr.Code != 2 { // TSS_ERR_INVALID_ID
+			t.Fatalf("unexpected error: %#v", err)
+		}
+	}
+
+	receiver, err := NewRefreshReceiver(shares[1], 3)
+	if err != nil {
+		t.Fatalf("NewRefreshReceiver: %v", err)
+	}
+	defer receiver.Free()
+	var mine []Message
+	for _, msg := range dealerMsgs {
+		if msg.To == 2 {
+			mine = append(mine, msg)
+		}
+	}
+	_, err = receiver.Next(mine)
+	var abortErr *AbortError
+	if !errors.As(err, &abortErr) || len(abortErr.Culprits) != 1 || abortErr.Culprits[0] != 1 {
+		t.Fatalf("expected abort naming party 1, got %#v", err)
 	}
 }
 

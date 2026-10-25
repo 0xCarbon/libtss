@@ -112,6 +112,18 @@ internal static unsafe class Native
         TssBuffer* out_messages,
         byte* out_complete);
 
+    /// <summary>Written to <c>out_recovery_id</c> when there is no recovery id.</summary>
+    public const byte TSS_NO_RECOVERY_ID = 255;
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_sign_next_recoverable(
+        ulong session,
+        TssSlice messages,
+        TssBuffer* out_signature,
+        byte* out_recovery_id,
+        TssBuffer* out_messages,
+        byte* out_complete);
+
     // --- Refresh Session ---
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
@@ -133,6 +145,7 @@ internal static unsafe class Native
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int tss_refresh_receiver(
         ulong key_share,
+        ushort dealer,
         ulong* out_session);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
@@ -256,6 +269,23 @@ internal static unsafe class Native
         TssSlice pubkey_package,
         TssSlice per_commitment_point,
         TssBuffer* out_pubkey_package);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_repair_helper_term(
+        ulong key_share,
+        ushort* helpers,
+        nuint helpers_len,
+        ushort target,
+        TssSlice repair_id,
+        TssBuffer* out_messages);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int tss_repair_assemble(
+        byte suite,
+        TssSlice pubkey_package,
+        ushort target,
+        TssSlice messages,
+        ulong* out_handle);
 
     [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
     public static extern int tss_dkls_split_key(

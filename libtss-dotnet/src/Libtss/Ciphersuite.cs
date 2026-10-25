@@ -56,4 +56,16 @@ public static class CiphersuiteExtensions
         Ciphersuite.Secp256r1ECDSA => Protocol.DKLs23,
         _ => Protocol.Frost,
     };
+
+    /// <summary>
+    /// Returns the length in bytes of a signature produced under this ciphersuite.
+    /// </summary>
+    public static int SignatureLength(this Ciphersuite suite) => suite switch
+    {
+        Ciphersuite.Secp256k1 or Ciphersuite.P256 => 65,
+        Ciphersuite.Ed448 => 114,
+        Ciphersuite.Secp256k1Taproot or Ciphersuite.Ed25519 or Ciphersuite.Ristretto255
+            or Ciphersuite.Secp256k1ECDSA or Ciphersuite.Secp256r1ECDSA => 64,
+        _ => throw new ArgumentOutOfRangeException(nameof(suite), suite, "unknown ciphersuite"),
+    };
 }

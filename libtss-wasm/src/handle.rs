@@ -1,5 +1,5 @@
 use js_sys::Uint8Array;
-use libtss::{import_key_share, Ciphersuite, KeyShareHandle};
+use libtss::{import_key_share, KeyShareHandle};
 use wasm_bindgen::prelude::*;
 use zeroize::Zeroizing;
 
@@ -122,9 +122,12 @@ impl WasmKeyShareHandle {
     /// copy is **not** automatically wiped — call `wipeBytes(data)` after this
     /// function returns.
     #[wasm_bindgen(js_name = "importShare", static_method_of = WasmKeyShareHandle)]
-    pub fn import_share(data: &Uint8Array, suite: u8) -> Result<WasmKeyShareHandle, JsValue> {
+    pub fn import_share(
+        data: &Uint8Array,
+        #[wasm_bindgen(unchecked_param_type = "number")] suite: JsValue,
+    ) -> Result<WasmKeyShareHandle, JsValue> {
+        let ciphersuite = crate::args::suite_arg(&suite)?;
         let mut bytes = Zeroizing::new(data.to_vec());
-        let ciphersuite = map_err(Ciphersuite::try_from(suite))?;
         let handle = map_err(import_key_share(&bytes, ciphersuite))?;
         // `bytes` is zeroed on drop via Zeroizing
         let _ = &mut bytes;
@@ -139,7 +142,7 @@ impl WasmKeyShareHandle {
     #[wasm_bindgen(js_name = "importShareSecure", static_method_of = WasmKeyShareHandle)]
     pub fn import_share_secure(
         secure: &SecureKeyShare,
-        suite: u8,
+        #[wasm_bindgen(unchecked_param_type = "number")] suite: JsValue,
     ) -> Result<WasmKeyShareHandle, JsValue> {
         secure.to_handle(suite)
     }
