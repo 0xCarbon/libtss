@@ -1,4 +1,4 @@
-.PHONY: build test clean rn-test
+.PHONY: build test clean rn-test install-ffi go-test
 
 build:
 	cargo build --release --workspace
@@ -11,6 +11,36 @@ rn-test:
 
 clean:
 	cargo clean
+
+# Installs the shared libtss-ffi library, its header and libtss_ffi.pc under
+# PREFIX (used by the Go binding's libtss_dynamic build tag).
+PREFIX ?= /usr/local
+CARGO_TARGET_DIR ?= target
+FFI_VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' libtss-ffi/Cargo.toml | head -1)
+FFI_SHARED := $(if $(filter Darwin,$(shell uname -s)),liblibtss_ffi.dylib,liblibtss_ffi.so)
+# The system libraries libtss-ffi needs when linked statically (rustc
+# --print native-static-libs).
+FFI_LIBS_PRIVATE := $(if $(filter Darwin,$(shell uname -s)),-liconv -lSystem -lc -lm,-lgcc_s -lutil -lrt -lpthread -lm -ldl -lc)
+
+install-ffi:
+	cargo build --locked --release -p libtss-ffi
+	install -d $(DESTDIR)$(PREFIX)/lib $(DESTDIR)$(PREFIX)/lib/pkgconfig $(DESTDIR)$(PREFIX)/include
+	install -m 755 $(CARGO_TARGET_DIR)/release/$(FFI_SHARED) $(DESTDIR)$(PREFIX)/lib/
+	install -m 644 $(CARGO_TARGET_DIR)/release/liblibtss_ffi.a $(DESTDIR)$(PREFIX)/lib/
+ifeq ($(shell uname -s),Darwin)
+	# The build sets the install name to the target/ path; point it at the
+	# installed library instead.
+	install_name_tool -id $(PREFIX)/lib/$(FFI_SHARED) $(DESTDIR)$(PREFIX)/lib/$(FFI_SHARED)
+endif
+	install -m 644 libtss-ffi/libtss.h $(DESTDIR)$(PREFIX)/include/
+	sed -e 's|@PREFIX@|$(PREFIX)|' -e 's|@VERSION@|$(FFI_VERSION)|' -e 's|@LIBS_PRIVATE@|$(FFI_LIBS_PRIVATE)|' libtss-ffi/libtss_ffi.pc.in \
+		> $(DESTDIR)$(PREFIX)/lib/pkgconfig/libtss_ffi.pc
+
+# Go tests against this checkout's libtss-ffi build. -a relinks: Go does not
+# track changes to the archive named in the cgo flags.
+go-test:
+	cargo build -p libtss-ffi
+	cd libtss-go && go test -a -count=1 -timeout 30m -tags libtss_local ./...
 
 .PHONY: linux-x86_64 linux-aarch64 android-arm64 android-x86_64 ios-arm64 ios-sim-arm64
 

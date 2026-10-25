@@ -44,7 +44,8 @@ jobs:
 
   rn-jni-syntax:
     # Compiles the React Native JNI bridge against the Android NDK (bionic
-    # headers) for the 64-bit ABIs, plus the runner JDK's jni.h with g++.
+    # headers) for the 64-bit ABIs, plus the runner JDK's jni.h with g++. The
+    # bridge includes libtss-ffi/libtss.h, so C API drift fails here.
     # The iOS bridge (libtss-rn/ios/Libtss.mm) needs the iOS SDK and React
     # headers, so it is not compiled here.
     runs-on: ubuntu-latest
@@ -72,12 +73,12 @@ jobs:
           for target in aarch64-linux-android23 x86_64-linux-android23; do
             echo "== $target"
             "$clang" --target="$target" -std=c++17 -fsyntax-only -Wall -Wextra -Werror \
-              libtss-rn/android/src/main/cpp/libtss-jni.cpp
+              -Ilibtss-ffi libtss-rn/android/src/main/cpp/libtss-jni.cpp
           done
 
       - name: Syntax-check libtss-jni.cpp with host g++
         run: |
-          g++ -std=c++17 -fsyntax-only -Wall -Wextra -Werror \
+          g++ -std=c++17 -fsyntax-only -Wall -Wextra -Werror -Ilibtss-ffi \
             -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/linux" \
             libtss-rn/android/src/main/cpp/libtss-jni.cpp
 
@@ -105,8 +106,8 @@ jobs:
       - name: Build libtss-ffi (release)
         run: |
           cargo build --release -p libtss-ffi
-          # Go links target/debug before target/release; drop any cached
-          # debug archive so the fresh release build is used.
+          # libtss_local links target/debug before target/release; drop any
+          # cached debug archive so the fresh release build is used.
           rm -f target/debug/liblibtss_ffi.a target/debug/liblibtss_ffi.so
 
       - if: matrix.binding == 'node'
@@ -141,17 +142,33 @@ jobs:
         # tests can only observe early finalization there.
         run: dotnet test libtss-dotnet/tests/Libtss.Tests -c Release
 
+      # No Go build cache: Go does not track the contents of libraries named
+      # in cgo flags, so a cached link could use a previous libtss-ffi.
       - if: matrix.binding == 'go'
         uses: actions/setup-go@v5
         with:
           go-version-file: libtss-go/go.mod
+          cache: false
       - if: matrix.binding == 'go'
         name: Go tests
         working-directory: libtss-go
         run: |
+          # Default (untagged) builds link only the shipped archives.
+          go list -f '{{.CgoLDFLAGS}}' ./tss > "$RUNNER_TEMP/cgo-ldflags.txt"
+          if grep -q 'target/' "$RUNNER_TEMP/cgo-ldflags.txt"; then
+            echo "default cgo flags reference the source tree"; exit 1
+          fi
           go vet ./...
-          go vet -tags libtss_testhooks ./...
-          go test -tags libtss_testhooks -timeout 30m ./...
+          go vet -tags libtss_local,libtss_testhooks ./...
+          go test -count=1 -tags libtss_local,libtss_testhooks -timeout 30m ./...
+      - if: matrix.binding == 'go'
+        name: Go tests (libtss_dynamic, pkg-config)
+        working-directory: libtss-go
+        run: |
+          make -C .. install-ffi PREFIX="$RUNNER_TEMP/libtss"
+          # No LD_LIBRARY_PATH: libtss_ffi.pc's rpath must find the library.
+          export PKG_CONFIG_PATH="$RUNNER_TEMP/libtss/lib/pkgconfig"
+          go test -a -tags libtss_dynamic -count=1 -run 'TestFROSTEndToEnd|TestDKLs23EndToEnd' ./tss
 
   audit:
     runs-on: ubuntu-latest
@@ -249,7 +266,8 @@ jobs:
         run: cargo build -p libtss-ffi
 
       - name: Verify header was generated
-        run: test -f libtss-ffi/libtss.h
+        # The committed header must match what cbindgen generates.
+        run: git diff --exit-code libtss-ffi/libtss.h
 
   cross-compile:
     runs-on: ubuntu-latest

@@ -1,6 +1,7 @@
 {
 	"name": "@alore/libtss-rn",
 	"version": "0.1.0",
+	"license": "Apache-2.0 OR MIT",
 	"main": "lib/index.js",
 	"types": "lib/index.d.ts",
 	"files": [
@@ -8,7 +9,9 @@
 		"lib",
 		"android",
 		"ios",
-		"libtss-rn.podspec"
+		"libtss-rn.podspec",
+		"LICENSE-APACHE",
+		"LICENSE-MIT"
 	],
 	"publishConfig": {
 		"access": "public"

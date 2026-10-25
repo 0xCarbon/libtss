@@ -1,0 +1,142 @@
+name: React Native iOS
+
+# Builds the libtss-rn iOS bridge (ios/Libtss.mm) in a throwaway React Native
+# app against the packaged XCFramework, fails on compiler warnings in the
+# bridge, and runs a DKG and signing smoke test (scripts/rn-ios-smoke) on the
+# iOS simulator. Publishing the npm package runs it first.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "libtss/**"
+      - "libtss-ffi/**"
+      - "libtss-rn/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "scripts/rn-ios-xcframework.sh"
+      - "scripts/rn-ios-smoke/**"
+      - ".github/workflows/rn-ios.yml"
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      rust-toolchain:
+        description: "Rust toolchain for libtss-ffi"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  # github.workflow is the caller's name when publish-rn calls this one.
+  group: rn-ios-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+  # Pinned so a new React Native, CLI or toolchain release cannot change the
+  # result silently.
+  RN_VERSION: "0.88.0"
+  RN_CLI_VERSION: "20.2.0"
+  RUST_TOOLCHAIN: ${{ inputs.rust-toolchain || '1.98.1' }}
+
+jobs:
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: aarch64-apple-ios, aarch64-apple-ios-sim, x86_64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: rn-ios
+
+      - name: Build LibtssFFI.xcframework
+        run: scripts/rn-ios-xcframework.sh
+
+      # React Native 0.88 requires Node 22.13 or later.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Build the libtss-rn package
+        working-directory: libtss-rn
+        run: |
+          npm install
+          npm run build
+
+      - name: Create the smoke app
+        run: |
+          app="$RUNNER_TEMP/LibtssSmoke"
+          npx --yes "@react-native-community/cli@$RN_CLI_VERSION" init LibtssSmoke \
+            --version "$RN_VERSION" --directory "$app" \
+            --skip-install --skip-git-init --install-pods false
+          cd "$app"
+          npm install
+          # --install-links copies the package as npm would publish it.
+          npm install --install-links "$GITHUB_WORKSPACE/libtss-rn"
+          cp "$GITHUB_WORKSPACE/scripts/rn-ios-smoke/App.tsx" App.tsx
+          npx tsc --noEmit
+          cd ios
+          bundle install
+          bundle exec pod install
+
+      - name: Build for the simulator (release)
+        working-directory: ${{ runner.temp }}/LibtssSmoke/ios
+        run: |
+          set -o pipefail
+          xcodebuild -workspace LibtssSmoke.xcworkspace -scheme LibtssSmoke \
+            -configuration Release -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tee build.log
+          if grep -E 'Libtss\.mm:[0-9]+:[0-9]+: (warning|error)' build.log; then
+            echo "compiler diagnostics in Libtss.mm"; exit 1
+          fi
+
+      - name: Run the smoke test on the simulator
+        working-directory: ${{ runner.temp }}/LibtssSmoke/ios
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          print(next(d["udid"] for runtime, ds in devices.items() if "iOS" in runtime for d in ds if d["name"].startswith("iPhone")))')
+          # bootstatus -b boots the device if needed and waits until it is ready.
+          xcrun simctl bootstatus "$udid" -b
+          app=build/Build/Products/Release-iphonesimulator/LibtssSmoke.app
+          bundle_id=$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")
+          xcrun simctl install "$udid" "$app"
+          xcrun simctl spawn "$udid" log stream --level debug --style compact \
+            --predicate 'eventMessage CONTAINS "LIBTSS_SMOKE"' > smoke.log 2>&1 &
+          stream=$!
+          trap 'kill "$stream" 2>/dev/null || true' EXIT
+          sleep 5
+          xcrun simctl launch "$udid" "$bundle_id"
+          for _ in $(seq 1 90); do
+            grep -q 'LIBTSS_SMOKE_\(OK\|FAIL\)' smoke.log && break
+            sleep 2
+          done
+          cat smoke.log
+          if ! grep -q LIBTSS_SMOKE_OK smoke.log; then
+            echo "::group::app log"
+            xcrun simctl spawn "$udid" log show --last 10m --style compact \
+              --predicate 'process == "LibtssSmoke"' | tail -200 || true
+            echo "::endgroup::"
+            ls ~/Library/Logs/DiagnosticReports 2>/dev/null | grep -i libtss || true
+            exit 1
+          fi
+
+      # publish-rn ships exactly these tested files.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: libtss-rn-ios
+          path: |
+            libtss-rn/ios/LibtssFFI.xcframework
+            libtss-rn/ios/include
+          if-no-files-found: error
+          retention-days: 7

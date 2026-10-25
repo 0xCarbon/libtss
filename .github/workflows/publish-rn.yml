@@ -8,17 +8,41 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+
+env:
+  RUST_TOOLCHAIN: "1.98.1"
+
 jobs:
+  # Fails a dispatch from another branch up front instead of skipping publish,
+  # and hands the toolchain to the reusable iOS workflow (with: cannot read env).
+  main-only:
+    runs-on: ubuntu-latest
+    outputs:
+      rust-toolchain: ${{ env.RUST_TOOLCHAIN }}
+    steps:
+      - run: '[ "$GITHUB_REF" = refs/heads/main ] || { echo "publish from main only"; exit 1; }'
+
+  ios:
+    needs: main-only
+    uses: ./.github/workflows/rn-ios.yml
+    with:
+      rust-toolchain: ${{ needs.main-only.outputs.rust-toolchain }}
+
   publish:
+    needs: ios
+    if: github.ref == 'refs/heads/main'
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
-          targets: aarch64-linux-android, x86_64-linux-android, aarch64-apple-ios, aarch64-apple-ios-sim
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: aarch64-linux-android, x86_64-linux-android
 
       - uses: Swatinem/rust-cache@v2
 
@@ -34,37 +58,37 @@ jobs:
           ndk-version: r27c
 
       - name: Build Android aarch64
-        run: cargo ndk --target aarch64-linux-android --platform 21 -- build --release -p libtss-ffi
+        run: cargo ndk --target aarch64-linux-android --platform 21 -- build --locked --release -p libtss-ffi
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
 
       - name: Build Android x86_64
-        run: cargo ndk --target x86_64-linux-android --platform 21 -- build --release -p libtss-ffi
+        run: cargo ndk --target x86_64-linux-android --platform 21 -- build --locked --release -p libtss-ffi
         env:
           ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
 
-      - name: Build iOS device (aarch64)
-        run: cargo build --release --target aarch64-apple-ios -p libtss-ffi
-
-      - name: Build iOS simulator (aarch64)
-        run: cargo build --release --target aarch64-apple-ios-sim -p libtss-ffi
+      # The XCFramework the ios job built and smoke-tested.
+      - uses: actions/download-artifact@v4
+        with:
+          name: libtss-rn-ios
+          path: libtss-rn/ios
 
       - name: Bundle native artifacts
         run: |
           # Android
           mkdir -p libtss-rn/android/libs/aarch64-linux-android libtss-rn/android/libs/x86_64-linux-android libtss-rn/android/include
-          cp target/aarch64-linux-android/release/liblibtss_ffi.a libtss-rn/android/libs/aarch64-linux-android/
-          cp target/x86_64-linux-android/release/liblibtss_ffi.a libtss-rn/android/libs/x86_64-linux-android/
+          target_dir="${CARGO_TARGET_DIR:-target}"
+          cp "$target_dir/aarch64-linux-android/release/liblibtss_ffi.a" libtss-rn/android/libs/aarch64-linux-android/
+          cp "$target_dir/x86_64-linux-android/release/liblibtss_ffi.a" libtss-rn/android/libs/x86_64-linux-android/
+          cp LICENSE-APACHE LICENSE-MIT libtss-rn/
           cp libtss-ffi/libtss.h libtss-rn/android/include/
-          # iOS
-          mkdir -p libtss-rn/ios/libs/aarch64-apple-ios libtss-rn/ios/libs/aarch64-apple-ios-sim libtss-rn/ios/include
-          cp target/aarch64-apple-ios/release/liblibtss_ffi.a libtss-rn/ios/libs/aarch64-apple-ios/
-          cp target/aarch64-apple-ios-sim/release/liblibtss_ffi.a libtss-rn/ios/libs/aarch64-apple-ios-sim/
-          cp libtss-ffi/libtss.h libtss-rn/ios/include/
+          strip="${{ steps.ndk.outputs.ndk-path }}/toolchains/llvm/prebuilt/darwin-x86_64/bin/llvm-strip"
+          "$strip" --strip-debug libtss-rn/android/libs/*/liblibtss_ffi.a
+          # iOS: ios/LibtssFFI.xcframework and ios/include come from the ios job.
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 24
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
@@ -75,13 +99,15 @@ jobs:
         working-directory: libtss-rn
         run: npm test
 
+      - name: Bump version
+        working-directory: libtss-rn
+        env:
+          VERSION: ${{ inputs.version }}
+        run: npm version "$VERSION" --no-git-tag-version
+
       - name: Build TypeScript
         working-directory: libtss-rn
         run: npm run build
-
-      - name: Bump version
-        working-directory: libtss-rn
-        run: npm version ${{ inputs.version }} --no-git-tag-version
 
       - name: Publish
         working-directory: libtss-rn

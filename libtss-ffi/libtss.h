@@ -62,6 +62,10 @@ typedef struct TssBuffer {
 
 #define TSS_ERR_INTERNAL_PANIC 255
 
+#ifdef __cplusplus
+extern "C" {
+#endif // __cplusplus
+
 const char *tss_version(void);
 
 // Verify a signature. Works for both FROST (Schnorr) and DKLs23 (ECDSA).
@@ -431,5 +435,9 @@ TssStatus tss_sign_next_recoverable(TssHandle session,
                                     uint8_t *out_recovery_id,
                                     struct TssBuffer *out_messages,
                                     bool *out_complete);
+
+#ifdef __cplusplus
+}  // extern "C"
+#endif  // __cplusplus
 
 #endif  /* LIBTSS_H */

@@ -4,6 +4,7 @@ include_guard = "LIBTSS_H"
 tab_width = 4
 style = "both"
 usize_is_size_t = true
+cpp_compat = true
 documentation_style = "c99"
 
 [export]
