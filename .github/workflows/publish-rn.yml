@@ -15,9 +15,12 @@ env:
   RUST_TOOLCHAIN: "1.98.1"
 
 jobs:
-  # Fails a dispatch from another branch up front instead of skipping publish.
+  # Fails a dispatch from another branch up front instead of skipping publish,
+  # and hands the toolchain to the reusable iOS workflow (with: cannot read env).
   main-only:
     runs-on: ubuntu-latest
+    outputs:
+      rust-toolchain: ${{ env.RUST_TOOLCHAIN }}
     steps:
       - run: '[ "$GITHUB_REF" = refs/heads/main ] || { echo "publish from main only"; exit 1; }'
 
@@ -25,7 +28,7 @@ jobs:
     needs: main-only
     uses: ./.github/workflows/rn-ios.yml
     with:
-      rust-toolchain: "1.98.1"
+      rust-toolchain: ${{ needs.main-only.outputs.rust-toolchain }}
 
   publish:
     needs: ios

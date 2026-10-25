@@ -154,8 +154,8 @@ jobs:
         working-directory: libtss-go
         run: |
           # Default (untagged) builds link only the shipped archives.
-          go list -f '{{.CgoLDFLAGS}}' ./tss > cgo-ldflags.txt
-          if grep -q 'target/' cgo-ldflags.txt; then
+          go list -f '{{.CgoLDFLAGS}}' ./tss > "$RUNNER_TEMP/cgo-ldflags.txt"
+          if grep -q 'target/' "$RUNNER_TEMP/cgo-ldflags.txt"; then
             echo "default cgo flags reference the source tree"; exit 1
           fi
           go vet ./...

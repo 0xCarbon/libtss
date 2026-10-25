@@ -94,7 +94,7 @@ check_link_flags() {
 			die "cargo rustc failed"
 		}
 		native="$(printf '%s\n' "$output" | sed -n 's/.*native-static-libs: //p' |
-			sed 's/\x1b\[[0-9;]*m//g; s/[[:space:]]*$//' | head -1)"
+			sed 's/[[:space:]]*$//' | head -1)"
 		[[ -n "$native" ]] && break
 		# rustc prints the list only when it compiles; force it once.
 		touch "$root/libtss-ffi/src/lib.rs"
@@ -107,7 +107,7 @@ check_link_flags() {
 	case "$os" in
 	linux)
 		expect "$local_go" "$native" "$(sed -n 's|^#cgo linux LDFLAGS: .* -l:liblibtss_ffi.a ||p' "$local_go")"
-		expect Makefile "$native" "$(sed -n 's|^FFI_LIBS_PRIVATE := .*,\(-lgcc_s[^)]*\))$|\1|p' "$root/Makefile")"
+		expect Makefile "$native" "$(sed -n 's|^FFI_LIBS_PRIVATE := .*,\([^,]*\))$|\1|p' "$root/Makefile")"
 		;;
 	darwin)
 		expect "$local_go" "$native" "$(sed -n 's|^#cgo darwin LDFLAGS: .* -llibtss_ffi ||p' "$local_go")"
@@ -126,11 +126,14 @@ assemble() {
 	local ident='(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
 	[[ "$version" =~ ^v[01]\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-$ident(\.$ident)*)?$ ]] ||
 		die "version must be a canonical v0.x.y or v1.x.y: $version"
-	[[ ! -e "$out" ]] || die "$out already exists"
-	local final="$out"
-	out="$final.partial"
+	local final="${out%/}"
+	[[ -n "$final" ]] || die "invalid output directory: $out"
+	[[ ! -e "$final" ]] || die "$final already exists"
+	out="$(dirname "$final")/.$(basename "$final").partial"
 	rm -rf "$out"
-	trap 'rm -rf "$out"' EXIT
+	# Expanded now: the trap can fire after this function's locals are gone.
+	# shellcheck disable=SC2064
+	trap "rm -rf $(printf %q "$out")" EXIT
 	# The module is copied from the working tree and labeled with HEAD.
 	[[ -z "$(git -C "$root" status --porcelain --untracked-files=no)" ]] ||
 		die "the working tree has uncommitted changes"
